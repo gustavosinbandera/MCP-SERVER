@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arquitectura MCP + OpenAI + Qdrant</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { background: #333; }
+    button.active {
+      background: #0d6efd;
+      border-color: #0d6efd;
+    }
+    .diagram-wrap {
+      background: #252525;
+      border-radius: 8px;
+      padding: 1rem;
+      overflow: auto;
+    }
+    .mermaid { background: transparent; }
+    .legend {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #252525;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .legend h3 { margin-top: 0; font-size: 1rem; }
+    .legend ul { margin: 0.25rem 0 0 1rem; padding: 0; }
+  </style>
+</head>
+<body>
+  <h1>Arquitectura: MCP + OpenAI Embeddings + Qdrant</h1>
+  <p style="margin:0 0 1rem 0; color:#888; font-size:0.9rem;">Elige una vista para ver el flujo.</p>
+  <div class="controls">
+    <button id="btn-full" class="active">Vista completa</button>
+    <button id="btn-index">Solo indexación</button>
+    <button id="btn-search">Solo búsqueda</button>
+  </div>
+  <div class="diagram-wrap">
+    <div id="diagram" class="mermaid"></div>
+  </div>
+  <div class="legend">
+    <h3>Rol de cada componente</h3>
+    <ul>
+      <li><strong>OpenAI API:</strong> Convierte texto en vectores (embeddings). Se usa al indexar cada chunk y al buscar (query → vector).</li>
+      <li><strong>Qdrant:</strong> Guarda vectores y payload. Responde “puntos más parecidos a este vector”. No interpreta texto.</li>
+      <li><strong>MCP Gateway:</strong> Orquesta: recibe búsqueda → embed query → consulta Qdrant → devuelve resultados.</li>
+    </ul>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+    });
+
+    const diagrams = {
+      full: `
+flowchart TB
+  subgraph indexacion [Indexación]
+    A[Archivos / URLs / Inbox] --> B[Leer contenido]
+    B --> C[Chunking]
+    C --> D[OpenAI Embeddings API]
+    D --> E[Vector 1536 dims]
+    E --> F[Qdrant: vector + payload]
+  end
+
+  subgraph busqueda [Búsqueda]
+    U[Usuario / IA en Cursor] --> MCP[MCP Gateway]
+    MCP --> Q[Query texto]
+    Q --> O[OpenAI Embeddings API]
+    O --> V[Query vector]
+    V --> G[Qdrant: search por similitud]
+    G --> H[Top-K chunks + payload]
+    H --> MCP
+    MCP --> R[Resultados al usuario/IA]
+  end
+`,
+      index: `
+flowchart LR
+  A[Archivos / URLs] --> B[Leer contenido]
+  B --> C[Chunking]
+  C --> D[OpenAI Embeddings API]
+  D --> E[Vector]
+  E --> F[Qdrant]
+`,
+      search: `
+flowchart LR
+  U[Query usuario] --> MCP[MCP Gateway]
+  MCP --> O[OpenAI Embed query]
+  O --> V[Query vector]
+  V --> Q[Qdrant search]
+  Q --> H[Top-K resultados]
+  H --> MCP
+  MCP --> R[Respuesta]
+`
+    };
+
+    function render(key) {
+      const el = document.getElementById('diagram');
+      el.innerHTML = '';
+      mermaid.render('mermaid-id', diagrams[key]).then(({ svg }) => {
+        el.innerHTML = svg;
+      }).catch(e => {
+        el.textContent = 'Error al renderizar: ' + e.message;
+      });
+    }
+
+    document.getElementById('btn-full').onclick = function() {
+      document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      render('full');
+    };
+    document.getElementById('btn-index').onclick = function() {
+      document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      render('index');
+    };
+    document.getElementById('btn-search').onclick = function() {
+      document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      render('search');
+    };
+
+    render('full');
+  </script>
+</body>
+</html>

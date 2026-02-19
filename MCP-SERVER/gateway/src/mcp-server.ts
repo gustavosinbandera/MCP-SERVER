@@ -11,7 +11,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import { z } from 'zod';
 import { searchDocs, countDocs } from './search';
 import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './shared-dirs';
-import { indexUrl, indexUrlWithLinks, indexSite } from './url-indexer';
+import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent } from './url-indexer';
 import { writeFlowDocToInbox } from './flow-doc';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
@@ -300,6 +300,48 @@ mcpServer.tool(
     const text = `Archivo: ${result.path}\n\n---\n\n${result.content}`;
     return {
       content: [{ type: 'text' as const, text }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'list_url_links',
+  'Lista cuántos subenlaces y archivos contiene una URL. Obtiene la página, extrae todos los href y devuelve conteos y listas en Markdown. Úsala para inspeccionar enlaces remotos, listar URLs dentro de una página o listar archivos referenciados.',
+  { url: z.string() } as any,
+  async (args: { url: string }) => {
+    const url = (args.url || '').trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return {
+        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+      };
+    }
+    const result = await listUrlLinks(url);
+    const text = formatListUrlLinksMarkdown(result);
+    return {
+      content: [{ type: 'text' as const, text }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'view_url',
+  'Muestra el contenido de una URL en formato Markdown (título + texto extraído del HTML). Úsala para ver el contenido de una página en la consola sin indexarla: ver url, inspeccionar url, ver contenido remoto.',
+  { url: z.string() } as any,
+  async (args: { url: string }) => {
+    const url = (args.url || '').trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return {
+        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+      };
+    }
+    const result = await viewUrlContent(url);
+    if (result.error) {
+      return {
+        content: [{ type: 'text' as const, text: `## Error\n\n**URL:** ${url}\n\n${result.error}` }],
+      };
+    }
+    return {
+      content: [{ type: 'text' as const, text: result.content }],
     };
   },
 );

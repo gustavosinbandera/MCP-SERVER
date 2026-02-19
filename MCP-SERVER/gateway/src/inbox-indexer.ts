@@ -2,15 +2,30 @@
  * Inbox indexer: escanea una carpeta temporal (INDEX_INBOX_DIR), indexa cada
  * archivo/carpeta en Qdrant y elimina el elemento tras indexar correctamente.
  * Pensado para ser invocado por el supervisor de forma periódica.
+ * Uses controlled parallelism (INDEX_CONCURRENCY) to avoid overloading OpenAI/Qdrant.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import pLimit from 'p-limit';
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { existsDocWithTitle, existsDocByProjectAndPath } from './search';
-
-const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
-const COLLECTION = 'mcp_docs';
+import {
+  existsDocByProjectAndPath,
+  loadExistingIndexedKeys,
+  indexedKey,
+} from './search';
+import { embed, hasEmbedding, getVectorSize } from './embedding';
+import { chunkText } from './chunking';
+import { getQdrantClient } from './qdrant-client';
+import {
+  getInboxPath,
+  getSharedDirsEntries,
+  COLLECTION_NAME,
+  BATCH_UPSERT_SIZE,
+  MAX_FILE_SIZE_BYTES,
+  INDEX_CONCURRENCY,
+} from './config';
+import { info, error as logError } from './logger';
 
 const TEXT_EXT = new Set([
   '.txt', '.md', '.json', '.csv', '.html', '.xml', '.log', '.yml', '.yaml',
@@ -26,18 +41,9 @@ const BLOCKED_EXT = new Set([
   '.jar', '.war', '.class', '.o', '.obj', '.a', '.lib',
 ]);
 
-const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB por archivo
-
 function isBlockedFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return BLOCKED_EXT.has(ext);
-}
-
-function getInboxPath(): string {
-  const raw = process.env.INDEX_INBOX_DIR;
-  if (raw && raw.trim()) return path.resolve(raw.trim());
-  const defaultInbox = path.resolve(__dirname, '..', '..', 'INDEX_INBOX');
-  return defaultInbox;
 }
 
 function isTextFile(filePath: string): boolean {
@@ -82,10 +88,10 @@ function* walkTextFiles(
 
 async function ensureCollection(client: QdrantClient): Promise<void> {
   const collections = await client.getCollections();
-  const exists = collections.collections.some((c) => c.name === COLLECTION);
+  const exists = collections.collections.some((c) => c.name === COLLECTION_NAME);
   if (!exists) {
-    await client.createCollection(COLLECTION, {
-      vectors: { size: 1, distance: 'Cosine' },
+    await client.createCollection(COLLECTION_NAME, {
+      vectors: { size: getVectorSize(), distance: 'Cosine' },
     });
   }
 }
@@ -102,13 +108,43 @@ async function indexDocument(
   content: string,
   meta?: { source_path: string; project: string }
 ): Promise<void> {
+  const source_path = meta?.source_path ?? title;
+  const project = meta?.project ?? '';
+
+  if (hasEmbedding()) {
+    const chunks = chunkText(content);
+    const points: { id: string; vector: number[]; payload: Record<string, unknown> }[] = [];
+    for (const chunk of chunks) {
+      const vector = await embed(chunk.text);
+      if (vector == null) break;
+      points.push({
+        id: randomUUID(),
+        vector,
+        payload: {
+          title: source_path,
+          content: chunk.text,
+          source_path,
+          project,
+          chunk_index: chunk.chunk_index,
+          total_chunks: chunk.total_chunks,
+        },
+      });
+    }
+    if (points.length === 0) return;
+    for (let i = 0; i < points.length; i += BATCH_UPSERT_SIZE) {
+      const batch = points.slice(i, i + BATCH_UPSERT_SIZE);
+      await client.upsert(COLLECTION_NAME, { wait: true, points: batch });
+    }
+    return;
+  }
+
   const id = randomUUID();
   const payload: Record<string, unknown> = { title, content };
   if (meta) {
     payload.source_path = meta.source_path;
     payload.project = meta.project;
   }
-  await client.upsert(COLLECTION, {
+  await client.upsert(COLLECTION_NAME, {
     wait: true,
     points: [{ id, vector: [0], payload }],
   });
@@ -125,12 +161,14 @@ function removeItemSync(absPath: string): void {
 
 /**
  * @param optionalInboxProject - Si está definido (ej. INDEX_INBOX_PROJECT), se usa como proyecto para no colisionar con otros árboles (branch/legacy).
+ * @param existingKeys - Set pre-cargado de (project, source_path) ya indexados; si se pasa, se usa en lugar de existsDocByProjectAndPath y se actualiza al indexar.
  */
 export async function processInboxItem(
   client: QdrantClient,
   absPath: string,
   topLevelName: string,
-  optionalInboxProject?: string | null
+  optionalInboxProject?: string | null,
+  existingKeys?: Set<string>
 ): Promise<{ indexed: number; removed: boolean }> {
   const stat = fs.statSync(absPath);
   const project = (optionalInboxProject && optionalInboxProject.trim()) || topLevelName;
@@ -145,11 +183,12 @@ export async function processInboxItem(
     const content = readFileSafe(absPath);
     if (content == null) return { indexed: 0, removed: false };
     const source_path = `${project}/${path.basename(absPath)}`.replace(/\/+/g, '/');
-    if (await existsDocByProjectAndPath(project, source_path)) {
+    if (existingKeys ? existingKeys.has(indexedKey(project, source_path)) : await existsDocByProjectAndPath(project, source_path)) {
       removeItemSync(absPath);
       return { indexed: 0, removed: true };
     }
     await indexDocument(client, source_path, content, { source_path, project });
+    if (existingKeys) existingKeys.add(indexedKey(project, source_path));
     indexed = 1;
     removeItemSync(absPath);
     return { indexed, removed: true };
@@ -166,8 +205,9 @@ export async function processInboxItem(
     }
     for (const { relativePath, content } of items) {
       const source_path = `${project}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
-      if (await existsDocByProjectAndPath(project, source_path)) continue;
+      if (existingKeys ? existingKeys.has(indexedKey(project, source_path)) : await existsDocByProjectAndPath(project, source_path)) continue;
       await indexDocument(client, source_path, content, { source_path, project });
+      if (existingKeys) existingKeys.add(indexedKey(project, source_path));
       indexed++;
     }
     removeItemSync(absPath);
@@ -202,48 +242,49 @@ export async function processInbox(): Promise<{
     return result;
   }
   const inboxProject = (process.env.INDEX_INBOX_PROJECT || '').trim() || undefined;
-  const client = new QdrantClient({ url: QDRANT_URL } as { url: string; checkCompatibility?: boolean });
+  const client = getQdrantClient();
   await ensureCollection(client);
-  for (const name of names) {
-    if (name === '.' || name === '..') continue;
-    const absPath = path.join(inboxPath, name);
-    try {
-      const { indexed, removed } = await processInboxItem(client, absPath, name, inboxProject);
-      result.processed++;
-      result.indexed += indexed;
-    } catch (e) {
-      result.errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+  const existingKeys = await loadExistingIndexedKeys(client);
+  const limit = pLimit(INDEX_CONCURRENCY);
+  const items = names.filter((n) => n !== '.' && n !== '..');
+  const outcomes = await Promise.all(
+    items.map((name) =>
+      limit(async () => {
+        const absPath = path.join(inboxPath, name);
+        try {
+          const { indexed, removed } = await processInboxItem(
+            client,
+            absPath,
+            name,
+            inboxProject,
+            existingKeys
+          );
+          return { name, processed: 1, indexed, error: null as string | null };
+        } catch (e) {
+          return {
+            name,
+            processed: 0,
+            indexed: 0,
+            error: e instanceof Error ? e.message : String(e),
+          };
+        }
+      })
+    )
+  );
+  for (const o of outcomes) {
+    result.processed += o.processed;
+    result.indexed += o.indexed;
+    if (o.error) {
+      result.errors.push(`${o.name}: ${o.error}`);
+      logError('processInboxItem failed', { name: o.name, err: o.error });
     }
   }
+  info('processInbox completed', { inboxPath, processed: result.processed, indexed: result.indexed, errors: result.errors.length });
   return result;
 }
 
 export function getInboxPathOrNull(): string | null {
   return getInboxPath();
-}
-
-/**
- * Rutas de directorios compartidos (SHARED_DIRS).
- * Formato: "proyecto:ruta" o solo "ruta" (entonces proyecto = nombre de la carpeta).
- * Ejemplo: BlueIvory-main:D:/repos/main;BlueIvory-legacy:D:/repos/legacy
- */
-function getSharedDirsEntries(): { project: string; path: string }[] {
-  const raw = process.env.SHARED_DIRS;
-  if (!raw || !raw.trim()) return [];
-  return raw
-    .split(/[;|]/)
-    .map((part) => part.trim())
-    .filter((p) => p.length > 0)
-    .map((part) => {
-      const colon = part.indexOf(':');
-      if (colon > 0) {
-        const project = part.slice(0, colon).trim();
-        const dirPath = path.resolve(part.slice(colon + 1).trim());
-        return { project: project || path.basename(dirPath) || 'shared', path: dirPath };
-      }
-      const dirPath = path.resolve(part);
-      return { project: path.basename(dirPath) || 'shared', path: dirPath };
-    });
 }
 
 /**
@@ -254,23 +295,40 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
   const entries = getSharedDirsEntries();
   const result = { indexed: 0, errors: [] as string[] };
   if (entries.length === 0) return result;
-  const client = new QdrantClient({ url: QDRANT_URL } as { url: string; checkCompatibility?: boolean });
+  const client = getQdrantClient();
   await ensureCollection(client);
+  const existingKeys = await loadExistingIndexedKeys(client);
+  const limit = pLimit(INDEX_CONCURRENCY);
   for (const { project, path: root } of entries) {
     if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
       result.errors.push(`SHARED_DIR no existe o no es carpeta: ${root} (proyecto: ${project})`);
       continue;
     }
+    const files: { relativePath: string; content: string }[] = [];
     try {
-      for (const { relativePath, content } of walkTextFiles(root, root)) {
-        const source_path = `${project}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
-        if (await existsDocByProjectAndPath(project, source_path)) continue;
-        await indexDocument(client, source_path, content, { source_path, project });
-        result.indexed++;
-      }
+      for (const item of walkTextFiles(root, root)) files.push(item);
     } catch (e) {
       result.errors.push(`${project}:${root}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
     }
+    const toIndex = files.filter(
+      (f) =>
+        !existingKeys.has(
+          indexedKey(project, `${project}/${f.relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/'))
+        )
+    );
+    const counts = await Promise.all(
+      toIndex.map(({ relativePath, content }) => {
+        const source_path = `${project}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
+        return limit(async () => {
+          await indexDocument(client, source_path, content, { source_path, project });
+          existingKeys.add(indexedKey(project, source_path));
+          return 1;
+        });
+      })
+    );
+    result.indexed += counts.reduce((a, b) => a + b, 0);
   }
+  info('indexSharedDirs completed', { indexed: result.indexed, errors: result.errors.length });
   return result;
 }

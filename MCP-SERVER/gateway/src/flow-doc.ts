@@ -5,12 +5,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-
-function getInboxPath(): string {
-  const raw = process.env.INDEX_INBOX_DIR;
-  if (raw && raw.trim()) return path.resolve(raw.trim());
-  return path.resolve(__dirname, '..', '..', 'INDEX_INBOX');
-}
+import { getInboxPath } from './config';
 
 /** Convierte título a slug seguro para nombre de archivo (minúsculas, guiones, sin caracteres raros). */
 function slugify(title: string): string {

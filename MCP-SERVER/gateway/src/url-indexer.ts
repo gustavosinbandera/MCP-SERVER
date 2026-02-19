@@ -5,9 +5,11 @@
 import { createHash } from 'crypto';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { convert } from 'html-to-text';
+import { embed, hasEmbedding, getVectorSize } from './embedding';
+import { chunkText } from './chunking';
+import { getQdrantClient } from './qdrant-client';
+import { COLLECTION_NAME, BATCH_UPSERT_SIZE } from './config';
 
-const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
-const COLLECTION = 'mcp_docs';
 const FETCH_TIMEOUT_MS = 15000;
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB
 
@@ -127,6 +129,162 @@ function extractTitleFromHtml(html: string): string | null {
   return match ? match[1].replace(/\s+/g, ' ').trim().slice(0, 500) || null : null;
 }
 
+/** Extensiones consideradas "archivo" (no página HTML) para list_url_links. */
+const FILE_EXT = /\.(pdf|zip|tar|gz|rar|7z|doc|docx|xls|xlsx|ppt|pptx|png|jpg|jpeg|gif|svg|webp|mp4|mp3|wav|exe|dll|msi)(\?|#|$)/i;
+
+/**
+ * Obtiene el HTML crudo de una URL (para extraer enlaces). Respeta sesión y auth.
+ */
+async function fetchUrlHtml(url: string): Promise<string> {
+  await ensureSessionForUrl(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'MCP-Knowledge-Hub/1.0 (indexer)',
+        ...getAuthHeaders(),
+        ...getCookieHeader(getHost(url)),
+      },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const raw = await res.text();
+    if (raw.length > MAX_CONTENT_LENGTH) throw new Error(`Contenido mayor a ${MAX_CONTENT_LENGTH / 1024 / 1024} MB`);
+    return raw;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Extrae enlaces (href) del HTML y los resuelve a URLs absolutas.
+ * Separa en "enlaces" (páginas/sublinks) y "archivos" (por extensión).
+ */
+export function extractLinksFromHtml(html: string, baseUrl: string): { links: string[]; fileLinks: string[] } {
+  const links: string[] = [];
+  const fileLinks: string[] = [];
+  const seen = new Set<string>();
+  try {
+    const base = new URL(baseUrl);
+    const hrefRe = /href\s*=\s*["']([^"']+)["']/gi;
+    let m: RegExpExecArray | null;
+    while ((m = hrefRe.exec(html)) !== null) {
+      const href = m[1].trim();
+      if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue;
+      let absolute: string;
+      try {
+        absolute = new URL(href, base).href;
+      } catch {
+        continue;
+      }
+      if (seen.has(absolute)) continue;
+      seen.add(absolute);
+      if (FILE_EXT.test(absolute)) {
+        fileLinks.push(absolute);
+      } else {
+        links.push(absolute);
+      }
+    }
+  } catch {
+    // baseUrl inválida
+  }
+  return { links, fileLinks };
+}
+
+export type ListUrlLinksResult = {
+  url: string;
+  linkCount: number;
+  fileCount: number;
+  links: string[];
+  fileLinks: string[];
+  error?: string;
+};
+
+/**
+ * Lista todos los subenlaces y archivos encontrados en una URL.
+ * Devuelve conteos y listas; la tool MCP formatea la salida en Markdown.
+ */
+export async function listUrlLinks(url: string): Promise<ListUrlLinksResult> {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return { url, linkCount: 0, fileCount: 0, links: [], fileLinks: [], error: 'URL debe comenzar con http:// o https://' };
+  }
+  try {
+    const html = await fetchUrlHtml(url);
+    const { links, fileLinks } = extractLinksFromHtml(html, url);
+    return {
+      url,
+      linkCount: links.length,
+      fileCount: fileLinks.length,
+      links,
+      fileLinks,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { url, linkCount: 0, fileCount: 0, links: [], fileLinks: [], error: msg };
+  }
+}
+
+/**
+ * Formatea el resultado de listUrlLinks en Markdown para la consola/cliente.
+ */
+export function formatListUrlLinksMarkdown(r: ListUrlLinksResult): string {
+  if (r.error) {
+    return `## Error\n\nNo se pudo analizar la URL: **${r.url}**\n\n${r.error}`;
+  }
+  const lines: string[] = [
+    `## Enlaces en la URL`,
+    '',
+    `**URL:** ${r.url}`,
+    '',
+    `| Tipo | Cantidad |`,
+    `|------|----------|`,
+    `| Sublinks / páginas | ${r.linkCount} |`,
+    `| Archivos | ${r.fileCount} |`,
+    '',
+    `**Total:** ${r.linkCount + r.fileCount} elementos`,
+    '',
+  ];
+  if (r.links.length > 0) {
+    lines.push('### Sublinks (páginas)', '');
+    r.links.slice(0, 200).forEach((u) => lines.push(`- ${u}`));
+    if (r.links.length > 200) lines.push('', `_… y ${r.links.length - 200} enlaces más._`, '');
+    lines.push('');
+  }
+  if (r.fileLinks.length > 0) {
+    lines.push('### Archivos', '');
+    r.fileLinks.slice(0, 100).forEach((u) => lines.push(`- ${u}`));
+    if (r.fileLinks.length > 100) lines.push('', `_… y ${r.fileLinks.length - 100} archivos más._`, '');
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Devuelve el contenido de una URL en formato Markdown (título + texto) para mostrar en consola.
+ */
+export async function viewUrlContent(url: string): Promise<{ url: string; title: string; content: string; error?: string }> {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return { url, title: '', content: '', error: 'URL debe comenzar con http:// o https://' };
+  }
+  try {
+    const { title, content } = await fetchUrlContent(url);
+    const md = [
+      `## ${title}`,
+      '',
+      `**URL:** ${url}`,
+      '',
+      '---',
+      '',
+      content || '_Sin contenido de texto._',
+    ].join('\n');
+    return { url, title, content: md, error: undefined };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { url, title: '', content: '', error: msg };
+  }
+}
+
 export async function fetchUrlContent(url: string): Promise<{ title: string; content: string }> {
   await ensureSessionForUrl(url);
   const controller = new AbortController();
@@ -163,21 +321,53 @@ function stableIdFromUrl(url: string): string {
 
 async function ensureCollection(client: QdrantClient): Promise<void> {
   const collections = await client.getCollections();
-  const exists = collections.collections.some((c) => c.name === COLLECTION);
+  const exists = collections.collections.some((c) => c.name === COLLECTION_NAME);
   if (!exists) {
-    await client.createCollection(COLLECTION, {
-      vectors: { size: 1, distance: 'Cosine' },
+    await client.createCollection(COLLECTION_NAME, {
+      vectors: { size: getVectorSize(), distance: 'Cosine' },
     });
   }
 }
 
 export async function indexUrl(url: string): Promise<{ indexed: boolean; title: string; error?: string }> {
-  const client = new QdrantClient({ url: QDRANT_URL, checkCompatibility: false } as { url: string; checkCompatibility?: boolean });
+  const client = getQdrantClient({ checkCompatibility: false });
   await ensureCollection(client);
   try {
     const { title, content } = await fetchUrlContent(url);
+
+    if (hasEmbedding()) {
+      const chunks = chunkText(content);
+      const points: { id: string; vector: number[]; payload: Record<string, unknown> }[] = [];
+      for (const chunk of chunks) {
+        const vector = await embed(chunk.text);
+        if (vector == null) continue;
+        const id = createHash('sha256').update(`${url}#${chunk.chunk_index}`).digest('hex').slice(0, 32);
+        points.push({
+          id,
+          vector,
+          payload: {
+            title,
+            content: chunk.text,
+            url,
+            chunk_index: chunk.chunk_index,
+            total_chunks: chunk.total_chunks,
+          },
+        });
+      }
+      if (points.length > 0) {
+        await client.delete(COLLECTION_NAME, {
+          filter: { must: [{ key: 'url', match: { value: url } }] },
+        });
+        for (let i = 0; i < points.length; i += BATCH_UPSERT_SIZE) {
+          const batch = points.slice(i, i + BATCH_UPSERT_SIZE);
+          await client.upsert(COLLECTION_NAME, { wait: true, points: batch });
+        }
+      }
+      return { indexed: true, title };
+    }
+
     const id = stableIdFromUrl(url);
-    await client.upsert(COLLECTION, {
+    await client.upsert(COLLECTION_NAME, {
       wait: true,
       points: [{ id, vector: [0], payload: { title, content, url } }],
     });

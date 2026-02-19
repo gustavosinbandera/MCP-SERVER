@@ -5,24 +5,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { getSharedRoots } from './config';
 
 const SEP = path.sep;
-
-/** Acepta "proyecto:ruta" o "ruta"; devuelve solo las rutas absolutas (para listar/leer). */
-function getSharedRoots(): string[] {
-  const raw = process.env.SHARED_DIRS;
-  if (!raw || !raw.trim()) return [];
-  return raw
-    .split(/[;|]/)
-    .map((part) => part.trim())
-    .filter((p) => p.length > 0)
-    .map((part) => {
-      const colon = part.indexOf(':');
-      if (colon > 0) return path.resolve(part.slice(colon + 1).trim());
-      return path.resolve(part);
-    })
-    .filter((p) => p.length > 0);
-}
 
 function isInsideRoot(resolved: string, root: string): boolean {
   const nRes = path.normalize(resolved);
