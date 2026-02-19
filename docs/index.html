@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP Knowledge Hub — Gateway, búsqueda vectorial y documentación</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --surface: #18181c;
+      --border: #2a2a32;
+      --text: #e4e4e7;
+      --text-muted: #a1a1aa;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --amber: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 0 1.5rem; }
+
+    /* Hero */
+    .hero {
+      padding: 4rem 0 3rem;
+      text-align: center;
+      background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent);
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.75rem;
+    }
+    .hero p {
+      color: var(--text-muted);
+      font-size: 1.125rem;
+      max-width: 36ch;
+      margin: 0 auto 2rem;
+    }
+    .hero .badge {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      padding: 0.35rem 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+    }
+
+    /* Section */
+    section {
+      padding: 3rem 0;
+      border-top: 1px solid var(--border);
+    }
+    section h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      color: var(--text);
+    }
+
+    /* Architecture diagram */
+    .arch-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      overflow-x: auto;
+    }
+    .arch-diagram {
+      min-width: 600px;
+      margin: 0 auto;
+      display: block;
+    }
+    .arch-diagram .box {
+      fill: var(--surface);
+      stroke: var(--border);
+      stroke-width: 1.5;
+      rx: 8;
+    }
+    .arch-diagram .box-gateway { fill: rgba(99, 102, 241, 0.2); stroke: var(--accent); }
+    .arch-diagram .box-db { fill: rgba(34, 197, 94, 0.12); stroke: var(--green); }
+    .arch-diagram .box-queue { fill: rgba(245, 158, 11, 0.12); stroke: var(--amber); }
+    .arch-diagram .box-ide { fill: rgba(59, 130, 246, 0.15); stroke: var(--blue); }
+    .arch-diagram text {
+      font-family: 'JetBrains Mono', 'DM Sans', sans-serif;
+      fill: var(--text);
+      font-size: 13px;
+    }
+    .arch-diagram .label-title { font-weight: 600; font-size: 14px; }
+    .arch-diagram .arrow { stroke: var(--text-muted); stroke-width: 1.5; fill: none; }
+    .arch-diagram .arrow-head { fill: var(--text-muted); }
+
+    /* Tech grid */
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 1rem;
+    }
+    .tech-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      text-align: center;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .tech-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .tech-card .icon {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 0.75rem;
+      background: var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+    .tech-card .name { font-weight: 600; font-size: 0.95rem; }
+    .tech-card .desc { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.25rem; }
+
+    /* CTA */
+    .cta {
+      text-align: center;
+      padding: 3rem 0 4rem;
+    }
+    .cta a {
+      display: inline-block;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      background: var(--accent);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      margin: 0 0.5rem 0.5rem 0;
+      transition: background 0.2s;
+    }
+    .cta a:hover { background: var(--accent-hover); }
+    .cta a.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .cta a.secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Image section - optional visual */
+    .visual-section {
+      background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+      padding: 3rem 0;
+    }
+    .visual-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .visual-card {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .visual-card .img-wrap {
+      height: 160px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+    }
+    .visual-card .img-wrap.db { background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.05) 100%); }
+    .visual-card .img-wrap.ide { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%); }
+    .visual-card .body { padding: 1.25rem; }
+    .visual-card .body h3 { font-size: 1rem; margin-bottom: 0.35rem; }
+    .visual-card .body p { color: var(--text-muted); font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <h1>MCP Knowledge Hub</h1>
+      <p>Gateway MCP con búsqueda vectorial (Qdrant), indexación de documentación y herramientas para el IDE.</p>
+      <span class="badge">Model Context Protocol · Node.js · TypeScript</span>
+    </header>
+
+    <section>
+      <h2>Arquitectura</h2>
+      <div class="arch-wrap">
+        <svg class="arch-diagram" viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg">
+          <!-- IDE / Cursor -->
+          <rect class="box box-ide" x="20" y="120" width="120" height="80"/>
+          <text x="80" y="155" class="label-title" text-anchor="middle">Cursor / IDE</text>
+          <text x="80" y="175" text-anchor="middle">Cliente MCP</text>
+          <!-- Arrow to Gateway -->
+          <path class="arrow" d="M 150 160 L 220 160"/>
+          <polygon class="arrow-head" points="212,156 212,164 222,160"/>
+          <!-- MCP Gateway -->
+          <rect class="box box-gateway" x="230" y="80" width="180" height="160"/>
+          <text x="320" y="110" class="label-title" text-anchor="middle">MCP Gateway</text>
+          <text x="320" y="130" text-anchor="middle">Node.js + TypeScript</text>
+          <text x="320" y="150" text-anchor="middle">search_docs · index_url</text>
+          <text x="320" y="170" text-anchor="middle">view_url · mediawiki_login</text>
+          <text x="320" y="190" text-anchor="middle">list_url_links · write_flow_doc</text>
+          <text x="320" y="210" text-anchor="middle">…</text>
+          <!-- Arrows to DBs -->
+          <path class="arrow" d="M 320 240 L 320 270 L 120 270 L 120 300"/>
+          <polygon class="arrow-head" points="112,296 112,304 122,300"/>
+          <path class="arrow" d="M 320 240 L 320 300"/>
+          <polygon class="arrow-head" points="316,292 324,292 320,302"/>
+          <path class="arrow" d="M 320 240 L 320 270 L 520 270 L 520 300"/>
+          <polygon class="arrow-head" points="512,296 512,304 522,300"/>
+          <!-- Qdrant -->
+          <rect class="box box-db" x="40" y="300" width="160" height="60"/>
+          <text x="120" y="330" class="label-title" text-anchor="middle">Qdrant</text>
+          <text x="120" y="348" text-anchor="middle">Vectores · Búsqueda</text>
+          <!-- Postgres -->
+          <rect class="box box-db" x="260" y="300" width="120" height="60"/>
+          <text x="320" y="330" class="label-title" text-anchor="middle">PostgreSQL</text>
+          <text x="320" y="348" text-anchor="middle">Metadata</text>
+          <!-- Redis -->
+          <rect class="box box-queue" x="440" y="300" width="160" height="60"/>
+          <text x="520" y="330" class="label-title" text-anchor="middle">Redis</text>
+          <text x="520" y="348" text-anchor="middle">Cola · Worker</text>
+        </svg>
+      </div>
+    </section>
+
+    <section class="visual-section">
+      <h2>Infraestructura</h2>
+      <div class="visual-grid">
+        <div class="visual-card">
+          <div class="img-wrap">🖥️</div>
+          <div class="body">
+            <h3>IDE / Cursor</h3>
+            <p>El cliente MCP se conecta al gateway por stdio. La IA usa search_docs, view_url, index_url y el resto de herramientas.</p>
+          </div>
+        </div>
+        <div class="visual-card">
+          <div class="img-wrap">⚡</div>
+          <div class="body">
+            <h3>MCP Gateway</h3>
+            <p>Servidor Node.js + TypeScript que indexa documentación en Qdrant, convierte HTML a texto y expone las herramientas al IDE.</p>
+          </div>
+        </div>
+        <div class="visual-card">
+          <div class="img-wrap db">📊</div>
+          <div class="body">
+            <h3>Qdrant</h3>
+            <p>Base de datos vectorial para embeddings y búsqueda semántica. Colección mcp_docs con chunks indexados.</p>
+          </div>
+        </div>
+        <div class="visual-card">
+          <div class="img-wrap ide">🐳</div>
+          <div class="body">
+            <h3>Docker Compose</h3>
+            <p>Stack completo: Postgres, Redis, Qdrant, Gateway, Webapp, Nginx. O solo Qdrant + gateway en local.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tecnologías</h2>
+      <div class="tech-grid">
+        <div class="tech-card"><div class="icon">🟢</div><span class="name">Node.js</span><div class="desc">Gateway MCP</div></div>
+        <div class="tech-card"><div class="icon">📘</div><span class="name">TypeScript</span><div class="desc">Tipado y MCP SDK</div></div>
+        <div class="tech-card"><div class="icon">🔍</div><span class="name">Qdrant</span><div class="desc">Vectores y búsqueda</div></div>
+        <div class="tech-card"><div class="icon">🐘</div><span class="name">PostgreSQL</span><div class="desc">Metadata</div></div>
+        <div class="tech-card"><div class="icon">📮</div><span class="name">Redis</span><div class="desc">Cola para worker</div></div>
+        <div class="tech-card"><div class="icon">⚛️</div><span class="name">Next.js</span><div class="desc">Webapp</div></div>
+        <div class="tech-card"><div class="icon">🐍</div><span class="name">Python</span><div class="desc">Worker</div></div>
+        <div class="tech-card"><div class="icon">🔐</div><span class="name">OpenAI</span><div class="desc">Embeddings (opcional)</div></div>
+      </div>
+    </section>
+
+    <section class="cta">
+      <a href="https://github.com/gustavosinbandera/MCP-SERVER">Ver en GitHub</a>
+      <a href="https://github.com/gustavosinbandera/MCP-SERVER/blob/master/README.md" class="secondary">Leer README</a>
+    </section>
+  </div>
+</body>
+</html>

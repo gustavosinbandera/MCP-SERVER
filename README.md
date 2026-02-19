@@ -2,6 +2,8 @@
 
 Gateway MCP con búsqueda vectorial (Qdrant), indexación de documentación, webapp tipo ChatGPT y trazabilidad.
 
+**Página de presentación:** si tienes [GitHub Pages](https://docs.github.com/en/pages) activado desde la carpeta `docs/`, la página está en **https://gustavosinbandera.github.io/MCP-SERVER/** (diagrama de arquitectura, tecnologías e infraestructura).
+
 ---
 
 ## Índice (navegación)
@@ -166,3 +168,15 @@ La configuración MCP está en **`.cursor/mcp.json`** (servidor `mcp-knowledge-h
 - **Login MediaWiki:** el gateway obtiene token vía API MediaWiki, hace `action=login` y guarda cookies para ese host. Probar: `cd gateway && npm run test-login [URL]`.
 - **Scripts del gateway:** `npm run build`, `npm run supervisor`, `npm run mcp`, `npm run index-example`, `npm run tools` (menú de herramientas).
 - **Documentación completa:** ver **docs_repo/** y **gateway/docs/tools/**.
+
+---
+
+## Página de presentación (GitHub Pages)
+
+En el repo hay una página web en **`docs/index.html`** con diagrama de la infraestructura MCP, tecnologías y enlaces al README. Para publicarla:
+
+1. En GitHub: **Settings** → **Pages**.
+2. En **Build and deployment** → **Source**: elige **Deploy from a branch**.
+3. **Branch:** `master` (o `main`).
+4. **Folder:** `/docs`.
+5. Guarda. La página quedará en `https://<usuario>.github.io/MCP-SERVER/`.
