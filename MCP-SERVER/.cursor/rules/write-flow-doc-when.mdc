@@ -1,0 +1,36 @@
+---
+description: Regla clara: cuándo SÍ y cuándo NO usar write_flow_doc
+alwaysApply: true
+---
+
+# Regla: write_flow_doc
+
+**No guardes conversaciones ni crees documentos de flujo por defecto.** Solo usa `write_flow_doc` cuando se cumpla una de las condiciones siguientes.
+
+---
+
+## SÍ usar write_flow_doc
+
+1. **El usuario dice "usar-mcp"** (o invoca el MCP de forma explícita):
+   - **Crea el documento MD** y empieza a añadir la información que te ayude a formar un **mapa de cómo se interconecta el código** (archivos, funciones, descripción del flujo). Evalúa si la salida de las tools justifica un nodo; si sí, llama a `write_flow_doc`.
+
+2. **Se usa una tool de análisis de código o revisión de flujo** (`analize_code`, `search_docs`, etc.):
+   - **También crea el documento y almacénalo**: si obtuviste resultados relevantes (archivos, funciones, flujo), usa `write_flow_doc` para persistir ese nodo del mapa.
+
+3. **El usuario pide explícitamente** guardar, indexar o persistir: "guarda este flujo", "indexa esto", "persistir en el mapa de flujos".
+
+**Campo explícito de documento generado por IA:** Los archivos generados por esta herramienta llevan en el **frontmatter** `generated_by_ia: true` y `source: ai_generated`, y en el cuerpo del markdown una línea explícita "*Documento generado por IA*". Así se identifica claramente qué documentos del Knowledge Hub son generados por la IA.
+
+---
+
+## NO usar write_flow_doc
+
+- Conversación **sin** "usar-mcp" ni uso de tools de análisis/revisión de flujo ni petición de guardar/indexar.
+- **No** guardar todas las conversaciones.
+- **No** crear un flow doc en cada charla ni "por si acaso".
+
+---
+
+## Resumen
+
+Crear e indexar el doc cuando: (A) el usuario dijo usar-mcp y creas información para el mapa de interconexión del código, (B) usaste una tool de análisis/revisión de flujo y hay resultados que almacenar, o (C) el usuario pide explícitamente guardar/indexar. Los documentos generados quedan marcados como `generated_by_ia: true` y `source: ai_generated`.

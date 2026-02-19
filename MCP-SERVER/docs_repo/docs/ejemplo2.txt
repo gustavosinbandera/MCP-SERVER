@@ -1,0 +1,18 @@
+MCP Knowledge Hub - Documento de ejemplo 2
+==========================================
+
+Segundo documento de prueba para preguntar a la IA. Sirve para comprobar que
+search_docs encuentra varios documentos indexados en Qdrant.
+
+Contenido de prueba:
+- Proyecto: MCP-SERVER
+- Documento: ejemplo2
+- Frase secreta para verificar: "La IA leyó el ejemplo 2 vía MCP."
+
+Preguntas que puedes hacer a la IA para probar:
+- "¿Qué dice el documento ejemplo2?"
+- "¿Cuál es la frase secreta del ejemplo 2?"
+- "¿Qué documentos de ejemplo hay en el Knowledge Hub?"
+
+Si la IA responde con el contenido de este archivo (o la frase secreta de arriba),
+está leyendo correctamente a través de la herramienta search_docs del MCP.

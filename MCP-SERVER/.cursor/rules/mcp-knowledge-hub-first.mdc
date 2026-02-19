@@ -1,0 +1,14 @@
+---
+description: Priorizar MCP search_docs para documentación del proyecto
+alwaysApply: true
+---
+
+# Consultar documentación solo vía MCP
+
+Para cualquier pregunta sobre **documentación del proyecto**, **archivos de ejemplo** o contenido que pueda estar en el Knowledge Hub (p. ej. `docs_repo/docs/`, ejemplo.txt, ADRs, docs corporativos):
+
+1. **Usar primero** la herramienta MCP `search_docs` del servidor **user-mcp-knowledge-hub**.
+2. **No usar** la herramienta Read (ni otras del editor) para leer archivos bajo `docs_repo/` o documentación indexada hasta haber intentado `search_docs` con una o más consultas razonables (ej.: "ejemplo", "documento de ejemplo", términos del contenido que busque el usuario).
+3. Solo si `search_docs` no devuelve resultados útiles después de probar varias consultas, considerar leer archivos directamente.
+
+Así se garantiza que la IA use el índice en Qdrant y la herramienta MCP, no el sistema de archivos del editor.

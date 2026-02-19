@@ -1,0 +1,15 @@
+MCP Knowledge Hub - Documento de ejemplo
+========================================
+
+Este archivo está en el Knowledge Hub para probar que la IA puede leer contenido
+solo a través del MCP (herramienta search_docs), sin usar sus propias herramientas
+para escanear el sistema de archivos.
+
+Contenido de prueba:
+- Proyecto: MCP-SERVER
+- Fecha de ejemplo: 2025
+- Frase secreta para verificar: "La IA leyó este texto vía MCP."
+
+Si la IA te responde con esta frase o con el contenido de este párrafo, significa
+que está usando correctamente la herramienta search_docs del servidor MCP y está
+leyendo lo indexado en Qdrant.
