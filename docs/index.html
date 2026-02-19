@@ -27,8 +27,9 @@
       color: var(--text);
       line-height: 1.6;
       min-height: 100vh;
+      overflow-x: hidden;
     }
-    .container { max-width: 960px; margin: 0 auto; padding: 0 1.5rem; }
+    .container { max-width: 960px; margin: 0 auto; padding: 0 1.5rem; overflow: visible; }
 
     /* Hero */
     .hero {
@@ -77,10 +78,13 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 2rem;
-      overflow-x: auto;
+      overflow: auto;
+      min-height: 0;
     }
     .arch-diagram {
-      min-width: 600px;
+      width: 100%;
+      max-width: 640px;
+      height: auto;
       margin: 0 auto;
       display: block;
     }
@@ -174,9 +178,11 @@
       overflow: hidden;
       border: 1px solid var(--border);
       background: var(--surface);
+      min-height: 280px;
     }
     .visual-card .img-wrap {
-      height: 160px;
+      height: 140px;
+      flex-shrink: 0;
       background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
       display: flex;
       align-items: center;
@@ -185,9 +191,9 @@
     }
     .visual-card .img-wrap.db { background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.05) 100%); }
     .visual-card .img-wrap.ide { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%); }
-    .visual-card .body { padding: 1.25rem; }
+    .visual-card .body { padding: 1.25rem; overflow: visible; }
     .visual-card .body h3 { font-size: 1rem; margin-bottom: 0.35rem; }
-    .visual-card .body p { color: var(--text-muted); font-size: 0.875rem; }
+    .visual-card .body p { color: var(--text-muted); font-size: 0.875rem; line-height: 1.5; word-wrap: break-word; }
   </style>
 </head>
 <body>
@@ -201,7 +207,7 @@
     <section>
       <h2>Arquitectura</h2>
       <div class="arch-wrap">
-        <svg class="arch-diagram" viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg">
+        <svg class="arch-diagram" viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg">
           <!-- IDE / Cursor -->
           <rect class="box box-ide" x="20" y="120" width="120" height="80"/>
           <text x="80" y="155" class="label-title" text-anchor="middle">Cursor / IDE</text>
