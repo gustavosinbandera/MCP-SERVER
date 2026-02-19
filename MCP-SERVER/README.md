@@ -65,7 +65,7 @@ El gateway incluye un **servidor MCP** (stdio) para que el cliente MCP del IDE s
 
 **La configuración MCP ya está en el repo:**
 
-- **`.cursor/mcp.json`** — Cursor lee este archivo y conecta el servidor **mcp-knowledge-hub** (herramientas `search_docs`, `count_docs`, `analize_code`, `write_flow_doc`, `index_url`, `index_site`, `list_shared_dir`, `read_shared_file`, etc., autoaprobadas).
+- **`.cursor/mcp.json`** — Cursor lee este archivo y conecta el servidor **mcp-knowledge-hub** (herramientas `search_docs`, `count_docs`, `analize_code`, `write_flow_doc`, `index_url`, `index_url_with_links`, `index_site`, `list_shared_dir`, `read_shared_file`, `list_url_links`, `view_url`, etc., autoaprobadas).
 
 ### Pasos
 
@@ -83,7 +83,7 @@ El gateway incluye un **servidor MCP** (stdio) para que el cliente MCP del IDE s
 
 4. **Reiniciar Cursor** por completo después de crear o cambiar `.cursor/mcp.json` para que cargue el servidor MCP.
 
-Cuando esté conectado, la IA tendrá las herramientas **search_docs**, **count_docs**, **analize_code**, **write_flow_doc**, **index_url**, **index_site**, **list_shared_dir**, **read_shared_file** y podrá buscar, contar, analizar código con contexto, guardar nodos de flujo (mapa del proyecto) e indexar URLs desde el Knowledge Hub.
+Cuando esté conectado, la IA tendrá las herramientas **search_docs**, **count_docs**, **analize_code**, **write_flow_doc**, **index_url**, **index_url_with_links**, **index_site**, **list_shared_dir**, **read_shared_file**, **list_url_links** y **view_url**, y podrá buscar, contar, analizar código con contexto, guardar nodos de flujo (mapa del proyecto), indexar URLs, listar enlaces/archivos de una URL y ver el contenido de una URL en Markdown desde el Knowledge Hub.
 
 ## Probar que la IA lee por MCP (sin escanear archivos)
 
@@ -136,6 +136,8 @@ El servidor MCP expone estas herramientas para el IDE (Cursor, etc.):
 | **write_flow_doc** | Crea un markdown (nodo del mapa de flujos) y lo guarda en **INDEX_INBOX_DIR** para que el supervisor lo indexe. **Cuándo:** (1) Si el usuario dice "usar-mcp": crea el doc y añade información para formar un mapa de cómo se interconecta el código. (2) Si usas una tool de análisis/revisión de flujo (analize_code, search_docs) y hay resultados relevantes: también crea y almacena el doc. Los documentos generados por la IA llevan en el frontmatter `generated_by_ia: true` y `source: ai_generated` para identificarlos explícitamente. Parámetros: `title`, `description`; opcional: `files`, `functions`, `flow_summary`, `bug_id`, `project`. |
 | **list_shared_dir** | Lista directorios/archivos en un directorio compartido. Parámetros: `relative_path` (opcional; vacío = raíz). |
 | **read_shared_file** | Lee el contenido de un archivo de un directorio compartido. Parámetros: `relative_path`. |
+| **list_url_links** | Lista cuántos subenlaces y archivos contiene una URL. Salida en Markdown (tabla + listas). Parámetros: `url`. Alias: listar urls, listar archivos remotos, listar enlaces. |
+| **view_url** | Muestra el contenido de una URL en Markdown (título + texto) para ver/inspeccionar en consola sin indexar. Parámetros: `url`. Alias: ver url, ver contenido url, inspeccionar url. |
 
 ### Indexación (supervisor vs bajo demanda)
 
@@ -198,3 +200,4 @@ Ver **gateway/.env.example** para una plantilla.
 | `npm run mcp` | Arranca el servidor MCP (stdio); Cursor suele arrancarlo automáticamente. |
 | `npm run test-login [URL]` | Prueba login (MediaWiki/Basic Auth) y fetch de una URL. |
 | `npm run index-example` | Indexa el documento de ejemplo en Qdrant (para pruebas de search_docs). |
+| `npm run tools` | Menú de consola: listar herramientas MCP, ver documentación por número o alias (ej. `listar urls`, `ver url`). Ver **gateway/docs/tools/** para la documentación detallada de cada tool. |

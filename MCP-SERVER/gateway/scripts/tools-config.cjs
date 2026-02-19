@@ -61,4 +61,9 @@ module.exports = [
     aliases: ['ver url', 'ver contenido url', 'inspeccionar url', 'ver página', 'contenido url', 'fetch url'],
     keywords: ['ver contenido de la url', 'ver url en consola', 'inspeccionar url', 'ver el contenido de la página', 'mostrar contenido remoto'],
   },
+  {
+    name: 'mediawiki_login',
+    aliases: ['login mediawiki', 'iniciar sesión', 'login url', 'login sitio', 'mediawiki login'],
+    keywords: ['iniciar sesión en mediawiki', 'login en sitio protegido', 'obtener token mediawiki', 'autenticación url', 'sesión para view_url'],
+  },
 ];

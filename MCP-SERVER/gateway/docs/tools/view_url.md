@@ -48,3 +48,5 @@ Texto de la página convertido a texto plano...
 - Usa la misma lógica que la indexación (html-to-text) para convertir HTML a texto.
 - No guarda nada en Qdrant; solo devuelve el contenido para visualización.
 - Se respetan sesión y autenticación si están configurados.
+- **Documento completo:** por defecto view_url devuelve hasta 10 MB de contenido (no se recorta como en indexación). Puedes configurar `VIEW_URL_MAX_LENGTH` en gateway/.env (en bytes; máximo 50 MB) si necesitas páginas más largas.
+- **Formato de salida:** en MediaWiki solo se convierte el contenido principal (`.mw-parser-output`), sin menús ni pie. Los bloques de código (`<pre>`, `.mw-highlight`) se devuelven envueltos en markdown con \`\`\` (y opcionalmente \`\`\`javascript si se detecta el idioma por clase), para que el cliente muestre código formateado. La IA debe presentar siempre al usuario el contenido completo devuelto por la herramienta.

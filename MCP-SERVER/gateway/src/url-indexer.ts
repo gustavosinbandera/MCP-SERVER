@@ -11,7 +11,16 @@ import { getQdrantClient } from './qdrant-client';
 import { COLLECTION_NAME, BATCH_UPSERT_SIZE } from './config';
 
 const FETCH_TIMEOUT_MS = 15000;
-const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB
+const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB (indexación)
+/** Límite para view_url: documento completo. Env VIEW_URL_MAX_LENGTH en bytes (default 10 MB, máx 50 MB). 0 = 50 MB. */
+const VIEW_URL_MAX_LENGTH = (() => {
+  const n = process.env.VIEW_URL_MAX_LENGTH;
+  if (n == null || n === '') return 10 * 1024 * 1024;
+  const v = parseInt(n, 10);
+  if (!Number.isFinite(v) || v < 0) return 10 * 1024 * 1024;
+  if (v === 0) return 50 * 1024 * 1024;
+  return Math.min(v, 50 * 1024 * 1024);
+})();
 
 const cookieJar = new Map<string, string>();
 
@@ -124,9 +133,131 @@ async function ensureSessionForUrl(url: string): Promise<void> {
   }
 }
 
+export type LoginMediaWikiResult = { success: boolean; message: string };
+
+/**
+ * Inicia sesión en un sitio MediaWiki (obtiene token de login vía API y establece cookies).
+ * Usa INDEX_URL_USER e INDEX_URL_PASSWORD de gateway/.env.
+ * Tras un login correcto, view_url/index_url/list_url_links usarán la sesión para ese host.
+ */
+export async function loginMediaWiki(urlOrOrigin: string): Promise<LoginMediaWikiResult> {
+  const user = process.env.INDEX_URL_USER;
+  const pass = process.env.INDEX_URL_PASSWORD;
+  if (!user || !pass) {
+    return {
+      success: false,
+      message: 'Faltan INDEX_URL_USER o INDEX_URL_PASSWORD en gateway/.env. Configúralos para poder iniciar sesión.',
+    };
+  }
+  let origin: string;
+  try {
+    const u = new URL(urlOrOrigin.trim());
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    return { success: false, message: `URL u origen inválido: ${urlOrOrigin}` };
+  }
+  const host = getHost(origin);
+  if (!host) return { success: false, message: `No se pudo obtener el host de: ${origin}` };
+  try {
+    const ok = await mediaWikiLogin(origin);
+    if (ok) {
+      return {
+        success: true,
+        message: `Sesión iniciada en **${host}**. Las herramientas view_url, index_url y list_url_links usarán esta sesión para este sitio.`,
+      };
+    }
+    return {
+      success: false,
+      message: `No se pudo iniciar sesión en ${host}. Comprueba usuario/contraseña en gateway/.env y que el sitio sea MediaWiki con API de login.`,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, message: `Error al iniciar sesión: ${msg}` };
+  }
+}
+
 function extractTitleFromHtml(html: string): string | null {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   return match ? match[1].replace(/\s+/g, ' ').trim().slice(0, 500) || null : null;
+}
+
+/** Obtiene el texto de un nodo DOM (domhandler: type, data, children). Para que view_url devuelva código en bloques ```. */
+function getTextContentFromNode(node: { type?: string; data?: string; children?: unknown[] } | null | undefined): string {
+  if (!node) return '';
+  if (node.type === 'text' && typeof node.data === 'string') return node.data.replace(/\r\n/g, '\n');
+  if (Array.isArray(node.children) && node.children.length > 0) {
+    return node.children
+      .map((c) => getTextContentFromNode(c as { type?: string; data?: string; children?: unknown[] }))
+      .join('');
+  }
+  return '';
+}
+
+/** Detecta idioma de código por clase (language-js, mw-highlight-source-javascript, etc.). */
+function getCodeLanguageFromElem(elem: { attribs?: Record<string, string>; parent?: { attribs?: Record<string, string> } }): string {
+  const cls = elem.attribs?.class ?? elem.parent?.attribs?.class ?? '';
+  const m = cls.match(/\b(?:language-|mw-highlight-source-)(\w+)/i) ?? cls.match(/\bsource-(\w+)/i);
+  if (m) {
+    const lang = m[1].toLowerCase();
+    if (['javascript', 'js', 'node'].includes(lang)) return 'javascript';
+    if (['typescript', 'ts'].includes(lang)) return 'typescript';
+    if (['json'].includes(lang)) return 'json';
+    if (['html', 'xml'].includes(lang)) return 'html';
+    if (['css', 'scss'].includes(lang)) return 'css';
+    if (['bash', 'sh', 'shell'].includes(lang)) return 'bash';
+    return lang;
+  }
+  return '';
+}
+
+/**
+ * Opciones para html-to-text. Si preserveCodeBlocks es true (view_url), se conservan pre/code y bloques MediaWiki (.mw-highlight),
+ * se usa solo .mw-parser-output y los bloques de código se envuelven en ``` para que la salida sea markdown listo para mostrar.
+ */
+function getHtmlToTextOptions(preserveCodeBlocks: boolean): {
+  wordwrap: number;
+  preserveNewlines?: boolean;
+  selectors?: Array<{ selector: string; format: string; options?: Record<string, unknown> }>;
+  baseElements?: { selectors: string[]; returnDomByDefault: boolean };
+  formatters?: Record<string, (elem: unknown, walk: unknown, builder: unknown, formatOptions: unknown) => void>;
+} {
+  const base = { wordwrap: 120 };
+  if (!preserveCodeBlocks) return base;
+
+  const preAsMarkdownCode: (elem: unknown, walk: unknown, builder: unknown, formatOptions: unknown) => void = (
+    elem,
+    _walk,
+    builder,
+    formatOptions,
+  ) => {
+    const b = builder as { openBlock: (o?: Record<string, unknown>) => void; closeBlock: (o?: Record<string, unknown>) => void; addLiteral: (s: string) => void };
+    const opts = (formatOptions as Record<string, unknown>) || {};
+    const leading = (opts.leadingLineBreaks as number) ?? 2;
+    const trailing = (opts.trailingLineBreaks as number) ?? 2;
+    const text = getTextContentFromNode(elem as { type?: string; data?: string; children?: unknown[] });
+    const lang = getCodeLanguageFromElem(elem as { attribs?: Record<string, string>; parent?: { attribs?: Record<string, string> } });
+    const fence = lang ? `\`\`\`${lang}\n` : '```\n';
+    b.openBlock({ leadingLineBreaks: leading });
+    b.addLiteral(fence + text.trimEnd() + '\n```');
+    b.closeBlock({ trailingLineBreaks: trailing });
+  };
+
+  return {
+    ...base,
+    preserveNewlines: true,
+    baseElements: {
+      selectors: ['.mw-parser-output'],
+      returnDomByDefault: true,
+    },
+    formatters: {
+      preAsMarkdownCode,
+    },
+    selectors: [
+      { selector: 'pre', format: 'preAsMarkdownCode', options: { leadingLineBreaks: 2, trailingLineBreaks: 2 } },
+      { selector: 'div.mw-highlight', format: 'preAsMarkdownCode', options: { leadingLineBreaks: 2, trailingLineBreaks: 2 } },
+      { selector: 'div[class*="mw-highlight"]', format: 'preAsMarkdownCode', options: { leadingLineBreaks: 2, trailingLineBreaks: 2 } },
+    ],
+  };
 }
 
 /** Extensiones consideradas "archivo" (no página HTML) para list_url_links. */
@@ -262,13 +393,14 @@ export function formatListUrlLinksMarkdown(r: ListUrlLinksResult): string {
 
 /**
  * Devuelve el contenido de una URL en formato Markdown (título + texto) para mostrar en consola.
+ * Usa VIEW_URL_MAX_LENGTH para devolver el documento completo (sin recortar a 2 MB).
  */
 export async function viewUrlContent(url: string): Promise<{ url: string; title: string; content: string; error?: string }> {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return { url, title: '', content: '', error: 'URL debe comenzar con http:// o https://' };
   }
   try {
-    const { title, content } = await fetchUrlContent(url);
+    const { title, content } = await fetchUrlContent(url, { maxContentLength: VIEW_URL_MAX_LENGTH });
     const md = [
       `## ${title}`,
       '',
@@ -285,7 +417,17 @@ export async function viewUrlContent(url: string): Promise<{ url: string; title:
   }
 }
 
-export async function fetchUrlContent(url: string): Promise<{ title: string; content: string }> {
+export type FetchUrlContentOptions = { maxContentLength?: number };
+
+/**
+ * Obtiene título y contenido de texto de una URL (HTML convertido a texto).
+ * Para indexación usa MAX_CONTENT_LENGTH (2 MB). Para view_url usa maxContentLength (ej. VIEW_URL_MAX_LENGTH).
+ */
+export async function fetchUrlContent(
+  url: string,
+  options?: FetchUrlContentOptions,
+): Promise<{ title: string; content: string }> {
+  const maxLen = options?.maxContentLength ?? MAX_CONTENT_LENGTH;
   await ensureSessionForUrl(url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -302,14 +444,15 @@ export async function fetchUrlContent(url: string): Promise<{ title: string; con
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
     const raw = await res.text();
-    if (raw.length > MAX_CONTENT_LENGTH) throw new Error(`Contenido mayor a ${MAX_CONTENT_LENGTH / 1024 / 1024} MB`);
+    if (raw.length > maxLen) throw new Error(`Contenido mayor a ${maxLen / 1024 / 1024} MB`);
     if (contentType.includes('text/html')) {
       const title = extractTitleFromHtml(raw) || url;
-      const html = raw.length > MAX_CONTENT_LENGTH ? raw.slice(0, MAX_CONTENT_LENGTH) : raw;
-      const content = convert(html, { wordwrap: 120 });
-      return { title: title.slice(0, 500), content: content.slice(0, MAX_CONTENT_LENGTH) };
+      const html = raw.length > maxLen ? raw.slice(0, maxLen) : raw;
+      const htmlToTextOptions = getHtmlToTextOptions(maxLen === VIEW_URL_MAX_LENGTH);
+      const content = convert(html, htmlToTextOptions);
+      return { title: title.slice(0, 500), content: content.slice(0, maxLen) };
     }
-    return { title: url, content: raw.slice(0, MAX_CONTENT_LENGTH) };
+    return { title: url, content: raw.slice(0, maxLen) };
   } finally {
     clearTimeout(timeout);
   }

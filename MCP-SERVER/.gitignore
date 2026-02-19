@@ -1,5 +1,6 @@
 # Environment
 .env
+gateway/.env
 .env.local
 *.env.local
 

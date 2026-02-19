@@ -2,16 +2,19 @@
  * MCP Knowledge Hub - MCP Server (stdio)
  * Los IDEs (Cursor, VS Code, etc.) conectan con su cliente MCP y la IA usa la herramienta search_docs.
  * Ejecutar: node dist/mcp-server.js (el IDE suele arrancar este proceso y comunica por stdin/stdout).
- * Env: se cargan desde gateway/.env si existe (dotenv).
+ * Env: se cargan desde gateway/.env (ruta fija respecto a dist/mcp-server.js para que funcione aunque el cwd no sea gateway).
  */
 
-import 'dotenv/config';
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import { z } from 'zod';
 import { searchDocs, countDocs } from './search';
 import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './shared-dirs';
-import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent } from './url-indexer';
+import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent, loginMediaWiki } from './url-indexer';
 import { writeFlowDocToInbox } from './flow-doc';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
@@ -325,7 +328,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'view_url',
-  'Muestra el contenido de una URL en formato Markdown (título + texto extraído del HTML). Úsala para ver el contenido de una página en la consola sin indexarla: ver url, inspeccionar url, ver contenido remoto.',
+  'Muestra el contenido de una URL en formato Markdown (título, texto y bloques de código con ```). En MediaWiki solo se devuelve el artículo (.mw-parser-output), sin menús ni pie. Siempre presenta al usuario el contenido completo que devuelve la herramienta, con secciones y código formateado. Úsala para ver una página: ver url, inspeccionar url.',
   { url: z.string() } as any,
   async (args: { url: string }) => {
     const url = (args.url || '').trim();
@@ -342,6 +345,26 @@ mcpServer.tool(
     }
     return {
       content: [{ type: 'text' as const, text: result.content }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'mediawiki_login',
+  'Inicia sesión en un sitio MediaWiki (obtiene token de login vía API y guarda la sesión en cookies). Usa las credenciales INDEX_URL_USER e INDEX_URL_PASSWORD de gateway/.env. Después de un login correcto, view_url, index_url y list_url_links podrán acceder a páginas protegidas de ese sitio. Úsala cuando una URL pida login: login mediawiki, iniciar sesión, login url.',
+  { url: z.string() } as any,
+  async (args: { url: string }) => {
+    const url = (args.url || '').trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return {
+        content: [{ type: 'text' as const, text: '## Error\n\nLa URL u origen debe comenzar con http:// o https://' }],
+      };
+    }
+    const result = await loginMediaWiki(url);
+    const title = result.success ? 'Sesión iniciada' : 'Error de login';
+    const text = `## ${title}\n\n${result.message}`;
+    return {
+      content: [{ type: 'text' as const, text }],
     };
   },
 );

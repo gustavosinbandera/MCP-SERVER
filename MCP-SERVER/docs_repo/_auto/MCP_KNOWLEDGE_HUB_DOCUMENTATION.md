@@ -201,7 +201,7 @@ Permite acceso eficiente al proyecto y soporte para mejoras.
 - **Gateway**: Solo usa **Qdrant** para el Knowledge Hub (búsqueda e indexación). **No** usa Postgres para búsqueda.
 - **Postgres**: Usado por **worker** y **webapp** (metadata, trazabilidad). Necesario cuando se levanta el stack completo o se construye la webapp.
 - **Supervisor** (`node dist/supervisor.js`): Cada 2 min (o `SUPERVISOR_INTERVAL_MS`) revisa **INDEX_INBOX_DIR** (indexa y borra) y **SHARED_DIRS** (indexa sin borrar). **No indexa URLs**; las URLs/sitios se indexan solo **bajo demanda** con las herramientas MCP `index_url`, `index_url_with_links`, `index_site`.
-- **Herramientas MCP**: search_docs, count_docs, analize_code, index_url, index_url_with_links, index_site, list_shared_dir, read_shared_file. Variables del gateway en **gateway/.env** (ver **gateway/.env.example**). Raíz **.env** es para Docker (Postgres, Redis, etc.).
+- **Herramientas MCP**: search_docs, count_docs, analize_code, index_url, index_url_with_links, index_site, list_shared_dir, read_shared_file, **list_url_links** (listar enlaces/archivos de una URL; salida Markdown), **view_url** (ver contenido de una URL en Markdown sin indexar). Variables del gateway en **gateway/.env** (ver **gateway/.env.example**). Raíz **.env** es para Docker (Postgres, Redis, etc.).
 
 ---
 

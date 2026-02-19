@@ -42,6 +42,7 @@ node scripts/mcp-tools-menu.cjs index_url --help
 | [read_shared_file](read_shared_file.md) | Lee un archivo del directorio compartido. |
 | [list_url_links](list_url_links.md) | Lista subenlaces y archivos de una URL (salida en Markdown). |
 | [view_url](view_url.md) | Muestra el contenido de una URL en Markdown (ver/inspeccionar sin indexar). |
+| [mediawiki_login](mediawiki_login.md) | Inicia sesión en un sitio MediaWiki (token + cookies) para acceder a páginas protegidas con view_url/index_url. |
 
 Cada documento incluye una sección **"Cómo usarla: qué argumentos pasar"** con los parámetros que debes enviar al invocar la tool (obligatorios y opcionales) y un ejemplo concreto de invocación.
 
