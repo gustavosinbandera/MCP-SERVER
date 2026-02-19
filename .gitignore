@@ -1,5 +1,6 @@
 # Environment
 .env
+gateway/.env
 .env.local
 *.env.local
 
@@ -29,6 +30,3 @@ Thumbs.db
 # Logs
 *.log
 logs/
-
-# Inbox (temporary index queue)
-INDEX_INBOX/

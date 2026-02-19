@@ -2,7 +2,7 @@
   "mcpServers": {
     "mcp-knowledge-hub": {
       "command": "node",
-      "args": ["C:/PROYECTOS/MCP-SERVER/MCP-SERVER/gateway/dist/mcp-server.js"],
+      "args": ["C:/PROYECTOS/MCP-SERVER/gateway/dist/mcp-server.js"],
       "env": {
         "QDRANT_URL": "http://localhost:6333",
         "SHARED_DIRS": "C:/PROYECTOS/testSuvie"
