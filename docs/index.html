@@ -1,303 +1,438 @@
-<!DOCTYPE html>
-<html lang="es">
+<!doctype html>
+<html lang="es" class="h-full">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MCP Knowledge Hub — Gateway, búsqueda vectorial y documentación</title>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #0f0f12;
-      --surface: #18181c;
-      --border: #2a2a32;
-      --text: #e4e4e7;
-      --text-muted: #a1a1aa;
-      --accent: #6366f1;
-      --accent-hover: #818cf8;
-      --green: #22c55e;
-      --blue: #3b82f6;
-      --amber: #f59e0b;
+    * { box-sizing: border-box; }
+    .font-display { font-family: 'Space Grotesk', system-ui, sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .gradient-mesh {
+      background:
+        radial-gradient(ellipse 100% 100% at 20% 0%, rgba(124, 58, 237, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 80% 80% at 80% 20%, rgba(6, 182, 212, 0.12) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 60% at 40% 80%, rgba(236, 72, 153, 0.08) 0%, transparent 50%);
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'DM Sans', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      min-height: 100vh;
-      overflow-x: hidden;
+    .glow-border { position: relative; }
+    .glow-border::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.5), rgba(6, 182, 212, 0.5), rgba(236, 72, 153, 0.3));
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      opacity: 0;
+      transition: opacity 0.3s ease;
     }
-    .container { max-width: 960px; margin: 0 auto; padding: 0 1.5rem; overflow: visible; }
-
-    /* Hero */
-    .hero {
-      padding: 4rem 0 3rem;
-      text-align: center;
-      background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent);
-    }
-    .hero h1 {
-      font-size: clamp(2rem, 5vw, 2.75rem);
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin-bottom: 0.75rem;
-    }
-    .hero p {
-      color: var(--text-muted);
-      font-size: 1.125rem;
-      max-width: 36ch;
-      margin: 0 auto 2rem;
-    }
-    .hero .badge {
-      display: inline-block;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem;
-      padding: 0.35rem 0.75rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--text-muted);
-    }
-
-    /* Section */
-    section {
-      padding: 3rem 0;
-      border-top: 1px solid var(--border);
-    }
-    section h2 {
-      font-size: 1.5rem;
-      font-weight: 600;
-      margin-bottom: 1.5rem;
-      color: var(--text);
-    }
-
-    /* Architecture diagram */
-    .arch-wrap {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 2rem;
-      overflow: auto;
-      min-height: 0;
-    }
-    .arch-diagram {
-      width: 100%;
-      max-width: 640px;
-      height: auto;
-      margin: 0 auto;
-      display: block;
-    }
-    .arch-diagram .box {
-      fill: var(--surface);
-      stroke: var(--border);
-      stroke-width: 1.5;
-      rx: 8;
-    }
-    .arch-diagram .box-gateway { fill: rgba(99, 102, 241, 0.2); stroke: var(--accent); }
-    .arch-diagram .box-db { fill: rgba(34, 197, 94, 0.12); stroke: var(--green); }
-    .arch-diagram .box-queue { fill: rgba(245, 158, 11, 0.12); stroke: var(--amber); }
-    .arch-diagram .box-ide { fill: rgba(59, 130, 246, 0.15); stroke: var(--blue); }
-    .arch-diagram text {
-      font-family: 'JetBrains Mono', 'DM Sans', sans-serif;
-      fill: var(--text);
-      font-size: 13px;
-    }
-    .arch-diagram .label-title { font-weight: 600; font-size: 14px; }
-    .arch-diagram .arrow { stroke: var(--text-muted); stroke-width: 1.5; fill: none; }
-    .arch-diagram .arrow-head { fill: var(--text-muted); }
-
-    /* Tech grid */
-    .tech-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 1rem;
-    }
-    .tech-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem;
-      text-align: center;
-      transition: border-color 0.2s, transform 0.2s;
-    }
-    .tech-card:hover {
-      border-color: var(--accent);
-      transform: translateY(-2px);
-    }
-    .tech-card .icon {
-      width: 40px;
-      height: 40px;
-      margin: 0 auto 0.75rem;
-      background: var(--border);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.25rem;
-    }
-    .tech-card .name { font-weight: 600; font-size: 0.95rem; }
-    .tech-card .desc { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.25rem; }
-
-    /* CTA */
-    .cta {
-      text-align: center;
-      padding: 3rem 0 4rem;
-    }
-    .cta a {
-      display: inline-block;
-      font-weight: 600;
-      padding: 0.75rem 1.5rem;
-      background: var(--accent);
-      color: white;
-      text-decoration: none;
-      border-radius: 8px;
-      margin: 0 0.5rem 0.5rem 0;
-      transition: background 0.2s;
-    }
-    .cta a:hover { background: var(--accent-hover); }
-    .cta a.secondary {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-    .cta a.secondary:hover { border-color: var(--accent); color: var(--accent); }
-
-    /* Image section - optional visual */
-    .visual-section {
-      background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
-      padding: 3rem 0;
-    }
-    .visual-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
-    }
-    .visual-card {
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      min-height: 280px;
-    }
-    .visual-card .img-wrap {
-      height: 140px;
-      flex-shrink: 0;
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 3rem;
-    }
-    .visual-card .img-wrap.db { background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.05) 100%); }
-    .visual-card .img-wrap.ide { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%); }
-    .visual-card .body { padding: 1.25rem; overflow: visible; }
-    .visual-card .body h3 { font-size: 1rem; margin-bottom: 0.35rem; }
-    .visual-card .body p { color: var(--text-muted); font-size: 0.875rem; line-height: 1.5; word-wrap: break-word; }
+    .glow-border:hover::before { opacity: 1; }
+    .float-animation { animation: float 6s ease-in-out infinite; }
+    .float-animation-delayed { animation: float 6s ease-in-out infinite; animation-delay: -3s; }
+    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+    @keyframes pulse-glow { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+    .pulse-dot { animation: pulse-glow 2s ease-in-out infinite; }
+    .connection-line { stroke-dasharray: 8 4; animation: dash-flow 1.5s linear infinite; }
+    @keyframes dash-flow { to { stroke-dashoffset: -12; } }
+    .tech-card-hover { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .tech-card-hover:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 20px 40px -12px rgba(124, 58, 237, 0.25); }
+    .scroll-fade-in { opacity: 0; transform: translateY(20px); animation: fadeInUp 0.6s ease forwards; }
+    @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
+    .stagger-1 { animation-delay: 0.1s; } .stagger-2 { animation-delay: 0.2s; } .stagger-3 { animation-delay: 0.3s; }
+    .stagger-4 { animation-delay: 0.4s; } .stagger-5 { animation-delay: 0.5s; } .stagger-6 { animation-delay: 0.6s; }
   </style>
+  <style>body { box-sizing: border-box; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
 </head>
-<body>
-  <div class="container">
-    <header class="hero">
-      <h1>MCP Knowledge Hub</h1>
-      <p>Gateway MCP con búsqueda vectorial (Qdrant), indexación de documentación y herramientas para el IDE.</p>
-      <span class="badge">Model Context Protocol · Node.js · TypeScript</span>
+<body class="h-full font-display bg-slate-950 text-slate-100 overflow-auto">
+  <div class="w-full min-h-full gradient-mesh">
+    <div class="fixed top-20 left-10 w-72 h-72 bg-violet-500/10 rounded-full blur-3xl float-animation pointer-events-none"></div>
+    <div class="fixed bottom-20 right-10 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl float-animation-delayed pointer-events-none"></div>
+
+    <nav class="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/70 border-b border-slate-800/50">
+      <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center">
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+          </div>
+          <span class="font-semibold text-lg">MCP Hub</span>
+        </div>
+        <div class="flex items-center gap-6">
+          <a href="#architecture" class="text-slate-400 hover:text-white transition-colors text-sm">Arquitectura</a>
+          <a href="#stack" class="text-slate-400 hover:text-white transition-colors text-sm">Stack</a>
+          <a href="#features" class="text-slate-400 hover:text-white transition-colors text-sm">Características</a>
+          <span class="font-mono text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">v2.1.0</span>
+        </div>
+      </div>
+    </nav>
+
+    <header class="relative pt-20 pb-16 px-6">
+      <div class="max-w-4xl mx-auto text-center">
+        <div class="scroll-fade-in">
+          <span class="inline-flex items-center gap-2 font-mono text-xs px-4 py-2 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 mb-8">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span> Sistema en producción
+          </span>
+        </div>
+        <h1 id="main-title" class="scroll-fade-in stagger-1 text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">MCP Knowledge Hub</h1>
+        <p id="subtitle" class="scroll-fade-in stagger-2 text-xl md:text-2xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">Gateway inteligente, búsqueda vectorial y documentación unificada para tu ecosistema MCP</p>
+        <div class="scroll-fade-in stagger-3 flex flex-wrap items-center justify-center gap-4">
+          <button class="group relative px-8 py-4 bg-gradient-to-r from-violet-600 to-cyan-600 rounded-xl font-semibold text-white overflow-hidden transition-all hover:shadow-lg hover:shadow-violet-500/25">
+            <span class="relative z-10 flex items-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> Comenzar
+            </span>
+            <div class="absolute inset-0 bg-gradient-to-r from-violet-500 to-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
+          <button class="px-8 py-4 rounded-xl font-semibold text-slate-300 border border-slate-700 hover:border-slate-500 hover:bg-slate-800/50 transition-all flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> Documentación
+          </button>
+        </div>
+      </div>
     </header>
 
-    <section>
-      <h2>Arquitectura</h2>
-      <div class="arch-wrap">
-        <svg class="arch-diagram" viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg">
-          <!-- IDE / Cursor -->
-          <rect class="box box-ide" x="20" y="120" width="120" height="80"/>
-          <text x="80" y="155" class="label-title" text-anchor="middle">Cursor / IDE</text>
-          <text x="80" y="175" text-anchor="middle">Cliente MCP</text>
-          <!-- Arrow to Gateway -->
-          <path class="arrow" d="M 150 160 L 220 160"/>
-          <polygon class="arrow-head" points="212,156 212,164 222,160"/>
-          <!-- MCP Gateway -->
-          <rect class="box box-gateway" x="230" y="80" width="180" height="160"/>
-          <text x="320" y="110" class="label-title" text-anchor="middle">MCP Gateway</text>
-          <text x="320" y="130" text-anchor="middle">Node.js + TypeScript</text>
-          <text x="320" y="150" text-anchor="middle">search_docs · index_url</text>
-          <text x="320" y="170" text-anchor="middle">view_url · mediawiki_login</text>
-          <text x="320" y="190" text-anchor="middle">list_url_links · write_flow_doc</text>
-          <text x="320" y="210" text-anchor="middle">…</text>
-          <!-- Arrows to DBs -->
-          <path class="arrow" d="M 320 240 L 320 270 L 120 270 L 120 300"/>
-          <polygon class="arrow-head" points="112,296 112,304 122,300"/>
-          <path class="arrow" d="M 320 240 L 320 300"/>
-          <polygon class="arrow-head" points="316,292 324,292 320,302"/>
-          <path class="arrow" d="M 320 240 L 320 270 L 520 270 L 520 300"/>
-          <polygon class="arrow-head" points="512,296 512,304 522,300"/>
-          <!-- Qdrant -->
-          <rect class="box box-db" x="40" y="300" width="160" height="60"/>
-          <text x="120" y="330" class="label-title" text-anchor="middle">Qdrant</text>
-          <text x="120" y="348" text-anchor="middle">Vectores · Búsqueda</text>
-          <!-- Postgres -->
-          <rect class="box box-db" x="260" y="300" width="120" height="60"/>
-          <text x="320" y="330" class="label-title" text-anchor="middle">PostgreSQL</text>
-          <text x="320" y="348" text-anchor="middle">Metadata</text>
-          <!-- Redis -->
-          <rect class="box box-queue" x="440" y="300" width="160" height="60"/>
-          <text x="520" y="330" class="label-title" text-anchor="middle">Redis</text>
-          <text x="520" y="348" text-anchor="middle">Cola · Worker</text>
-        </svg>
+    <section id="architecture" class="py-20 px-6">
+      <div class="max-w-6xl mx-auto">
+        <div class="text-center mb-16">
+          <span class="font-mono text-xs text-cyan-400 tracking-wider uppercase mb-4 block">Sistema</span>
+          <h2 id="architecture-title" class="text-3xl md:text-4xl font-bold mb-4">Arquitectura del Sistema</h2>
+          <p class="text-slate-400 max-w-xl mx-auto">Diseño modular con gateway centralizado para máxima escalabilidad y rendimiento</p>
+        </div>
+        <div class="relative glow-border rounded-3xl bg-slate-900/50 backdrop-blur-sm border border-slate-800 p-8 md:p-12">
+          <svg viewBox="0 0 900 500" class="w-full h-auto">
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(148,163,184,0.05)" stroke-width="1" />
+              </pattern>
+              <linearGradient id="grad-violet" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:rgba(139,92,246,0.3)" />
+                <stop offset="100%" style="stop-color:rgba(139,92,246,0.1)" />
+              </linearGradient>
+              <linearGradient id="grad-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:rgba(6,182,212,0.3)" />
+                <stop offset="100%" style="stop-color:rgba(6,182,212,0.1)" />
+              </linearGradient>
+              <linearGradient id="grad-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:rgba(16,185,129,0.3)" />
+                <stop offset="100%" style="stop-color:rgba(16,185,129,0.1)" />
+              </linearGradient>
+              <linearGradient id="grad-amber" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:rgba(245,158,11,0.3)" />
+                <stop offset="100%" style="stop-color:rgba(245,158,11,0.1)" />
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+            </defs>
+            <rect width="900" height="500" fill="url(#grid)" />
+            <!-- Cliente: Cursor / IDE -->
+            <g transform="translate(50, 200)">
+              <rect width="140" height="100" rx="12" fill="url(#grad-cyan)" stroke="rgba(6,182,212,0.6)" stroke-width="2" />
+              <text x="70" y="35" text-anchor="middle" fill="#22d3ee" font-size="12" font-weight="600" class="font-mono">CLIENTE</text>
+              <text x="70" y="55" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">Cursor</text>
+              <text x="70" y="72" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">IDE</text>
+              <circle cx="70" cy="88" r="4" fill="#22d3ee" class="pulse-dot" />
+            </g>
+            <!-- Gateway: Node.js + TypeScript, search_docs -->
+            <g transform="translate(330, 170)">
+              <rect width="220" height="160" rx="16" fill="url(#grad-violet)" stroke="rgba(139,92,246,0.8)" stroke-width="2" filter="url(#glow)" />
+              <text x="110" y="35" text-anchor="middle" fill="#a78bfa" font-size="14" font-weight="700" class="font-mono">MCP GATEWAY</text>
+              <line x1="30" y1="50" x2="190" y2="50" stroke="rgba(139,92,246,0.3)" stroke-width="1" />
+              <text x="110" y="75" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">Node.js + TypeScript</text>
+              <text x="110" y="95" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">search_docs</text>
+              <text x="110" y="115" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">(búsqueda Qdrant)</text>
+              <text x="110" y="135" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">stdio · REST /api</text>
+              <circle cx="110" cy="150" r="5" fill="#a78bfa" class="pulse-dot" />
+            </g>
+            <path d="M 190 250 Q 260 250 330 250" stroke="#22d3ee" stroke-width="2" fill="none" class="connection-line" />
+            <polygon points="325,245 335,250 325,255" fill="#22d3ee" />
+            <!-- Vector DB: Qdrant -->
+            <g transform="translate(680, 80)">
+              <rect width="160" height="90" rx="12" fill="url(#grad-emerald)" stroke="rgba(16,185,129,0.6)" stroke-width="2" />
+              <text x="80" y="30" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600" class="font-mono">VECTOR DB</text>
+              <text x="80" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">Qdrant</text>
+              <text x="80" y="72" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">Vectores · Búsqueda</text>
+            </g>
+            <!-- Queue: Redis -->
+            <g transform="translate(680, 200)">
+              <rect width="160" height="90" rx="12" fill="url(#grad-amber)" stroke="rgba(245,158,11,0.6)" stroke-width="2" />
+              <text x="80" y="30" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="600" class="font-mono">QUEUE</text>
+              <text x="80" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">Redis</text>
+              <text x="80" y="72" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">Cola · Worker</text>
+            </g>
+            <!-- Storage: PostgreSQL Metadata -->
+            <g transform="translate(680, 320)">
+              <rect width="160" height="90" rx="12" fill="url(#grad-cyan)" stroke="rgba(6,182,212,0.6)" stroke-width="2" />
+              <text x="80" y="30" text-anchor="middle" fill="#22d3ee" font-size="12" font-weight="600" class="font-mono">STORAGE</text>
+              <text x="80" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">PostgreSQL</text>
+              <text x="80" y="72" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">Metadata</text>
+            </g>
+            <path d="M 550 210 Q 615 165 680 125" stroke="#34d399" stroke-width="2" fill="none" class="connection-line" />
+            <path d="M 550 250 L 680 245" stroke="#fbbf24" stroke-width="2" fill="none" class="connection-line" />
+            <path d="M 550 290 Q 615 335 680 365" stroke="#22d3ee" stroke-width="2" fill="none" class="connection-line" />
+            <!-- Herramienta MCP: search_docs -->
+            <g transform="translate(330, 380)">
+              <rect width="220" height="80" rx="12" fill="url(#grad-emerald)" stroke="rgba(16,185,129,0.6)" stroke-width="2" />
+              <text x="110" y="28" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600" class="font-mono">HERRAMIENTA MCP</text>
+              <text x="110" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" class="font-mono">search_docs</text>
+              <text x="110" y="70" text-anchor="middle" fill="#94a3b8" font-size="10" class="font-mono">(búsqueda en documentación indexada)</text>
+            </g>
+            <path d="M 440 330 L 440 380" stroke="#34d399" stroke-width="2" fill="none" class="connection-line" />
+            <polygon points="435,375 440,385 445,375" fill="#34d399" />
+            <text x="260" y="235" fill="#64748b" font-size="10" class="font-mono">stdio / JSON-RPC</text>
+            <text x="590" y="150" fill="#64748b" font-size="10" class="font-mono">embeddings</text>
+            <text x="600" y="240" fill="#64748b" font-size="10" class="font-mono">jobs</text>
+            <text x="590" y="355" fill="#64748b" font-size="10" class="font-mono">metadata</text>
+          </svg>
+        </div>
       </div>
     </section>
 
-    <section class="visual-section">
-      <h2>Infraestructura</h2>
-      <div class="visual-grid">
-        <div class="visual-card">
-          <div class="img-wrap">🖥️</div>
-          <div class="body">
-            <h3>IDE / Cursor</h3>
-            <p>El cliente MCP se conecta al gateway por stdio. La IA usa search_docs, view_url, index_url y el resto de herramientas.</p>
-          </div>
+    <section id="stack" class="py-20 px-6 bg-slate-900/30">
+      <div class="max-w-6xl mx-auto">
+        <div class="text-center mb-16">
+          <span class="font-mono text-xs text-violet-400 tracking-wider uppercase mb-4 block">Tecnologías</span>
+          <h2 class="text-3xl md:text-4xl font-bold mb-4">Stack Tecnológico</h2>
+          <p class="text-slate-400 max-w-xl mx-auto">Construido con tecnologías modernas y probadas en producción</p>
         </div>
-        <div class="visual-card">
-          <div class="img-wrap">⚡</div>
-          <div class="body">
-            <h3>MCP Gateway</h3>
-            <p>Servidor Node.js + TypeScript que indexa documentación en Qdrant, convierte HTML a texto y expone las herramientas al IDE.</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-green-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">Node.js</h3>
+            <p class="text-slate-400 text-sm">Gateway MCP</p>
           </div>
-        </div>
-        <div class="visual-card">
-          <div class="img-wrap db">📊</div>
-          <div class="body">
-            <h3>Qdrant</h3>
-            <p>Base de datos vectorial para embeddings y búsqueda semántica. Colección mcp_docs con chunks indexados.</p>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-blue-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M3 3h18v18H3V3zm16.525 13.707c-.131-.821-.666-1.511-2.252-2.155-.552-.259-1.165-.438-1.349-.854-.068-.248-.048-.49.246-.601.532-.189 1.424-.09 1.908.086.086.041.199.03.304-.045.078-.058.116-.162.115-.247-.016-.242-.113-.334-.727-.508-.259-.063-.438-.081-.614-.081-.438-.008-.756.045-1.008.281-.285.262-.365.569-.239.922.132.372.479.531.893.738.323.164 1.18.359 1.336.811.108.312-.003.776-.479 1.078-.195.127-.568.247-.945.348-.621.164-1.235.229-1.649.224-.563-.008-.973-.193-1.237-.573-.265-.379-.325-.767-.221-1.148.142-.479.466-.787.972-.992.142-.063.281-.114.415-.163v-.303a.213.213 0 00-.177-.205h-.023a.367.367 0 00-.26.03.229.229 0 00-.093.093v2.644c-.001.121-.055.239-.15.318a.424.424 0 01-.283.11c-.056 0-.111-.014-.161-.041a.363.363 0 01-.119-.112.247.247 0 01-.041-.065v-.021a.644.644 0 00-.041-.076.362.362 0 00-.07-.078.229.229 0 00-.093-.054.259.259 0 00-.26.028.247.247 0 00-.041.041.351.351 0 00-.043.078.644.644 0 00-.041.076v.021a.096.096 0 01-.012.019.161.161 0 01-.041.065.363.363 0 01-.119.112.424.424 0 01-.283.11c-.056 0-.111-.014-.161-.041a.363.363 0 01-.119-.112.247.247 0 01-.041-.065v-.021a.644.644 0 00-.041-.076.362.362 0 00-.07-.078.229.229 0 00-.093-.054.258.258 0 00-.26.028.247.247 0 00-.041.041.362.362 0 00-.043.078.644.644 0 00-.041.076v2.774c.001.121.055.239.15.318a.42.42 0 00.283.11c.056 0 .111-.014.161-.041a.363.363 0 00.119-.112.247.247 0 00.041-.065v-.021a.644.644 0 01.041-.076.362.362 0 01.07-.078.229.229 0 01.093-.054.259.259 0 01.26.028.247.247 0 01.041.041.351.351 0 01.043.078.644.644 0 01.041.076v-.021c.004-.007.008-.015.012-.019a.161.161 0 01.041-.065.363.363 0 01.119-.112.424.424 0 01.283-.11c.056 0 .111.014.161.041a.363.363 0 01.119.112.247.247 0 01.041.065v.021a.644.644 0 00.041.076.362.362 0 00.07.078.229.229 0 00.093.054.259.259 0 00.26-.028.247.247 0 00.041-.041.362.362 0 00.043-.078.644.644 0 00.041-.076v-2.774a.247.247 0 00-.041-.065.363.363 0 00-.119-.112.424.424 0 00-.283-.11c-.056 0-.111.014-.161.041a.363.363 0 00-.119.112.247.247 0 00-.041.065v.021a.644.644 0 01-.041.076.362.362 0 01-.07.078.229.229 0 01-.093.054.259.259 0 01-.26-.028.247.247 0 01-.041-.041.362.362 0 01-.043-.078.644.644 0 01-.041-.076v-.021c-.004-.007-.008-.015-.012-.019a.161.161 0 00-.041-.065.363.363 0 00-.119-.112.424.424 0 00-.283-.11c-.056 0-.111.014-.161.041a.363.363 0 00-.119.112.247.247 0 00-.041.065v2.774z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">TypeScript</h3>
+            <p class="text-slate-400 text-sm">Tipado y MCP SDK</p>
           </div>
-        </div>
-        <div class="visual-card">
-          <div class="img-wrap ide">🐳</div>
-          <div class="body">
-            <h3>Docker Compose</h3>
-            <p>Stack completo: Postgres, Redis, Qdrant, Gateway, Webapp, Nginx. O solo Qdrant + gateway en local.</p>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-orange-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">Qdrant</h3>
+            <p class="text-slate-400 text-sm">Vector Store</p>
+          </div>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-red-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-red-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /><circle cx="12" cy="12" r="4" fill="currentColor" /></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">Redis</h3>
+            <p class="text-slate-400 text-sm">Cache &amp; Queue</p>
+          </div>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-blue-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">PostgreSQL</h3>
+            <p class="text-slate-400 text-sm">Database</p>
+          </div>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-cyan-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-cyan-400" fill="currentColor" viewBox="0 0 24 24"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.186.186 0 00-.185.186v1.887c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.186.186 0 00-.185.185v1.888c0 .102.082.185.185.186m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.186v1.887c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.186v1.887c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.185-.186h-2.12a.186.186 0 00-.185.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.186v1.887c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288z" /></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">Docker</h3>
+            <p class="text-slate-400 text-sm">Containerization</p>
+          </div>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-slate-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-slate-300" fill="currentColor" viewBox="0 0 24 24"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">OpenAI</h3>
+            <p class="text-slate-400 text-sm">Embeddings</p>
+          </div>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-green-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-green-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0L1.605 6v12L12 24l10.395-6V6L12 0zm6 16.59c0 .705-.646 1.29-1.529 1.29-.631 0-1.351-.255-1.801-.81l-4.905-6.405V17.49c0 .615-.54 1.17-1.17 1.17H7.53c-.705 0-1.17-.555-1.17-1.17V7.41c0-.705.585-1.29 1.35-1.29.645 0 1.395.264 1.86.84l4.89 6.39V7.41c0-.615.555-1.17 1.17-1.17h.06c.705 0 1.17.555 1.17 1.17v9.18h.14z" /></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">Nginx</h3>
+            <p class="text-slate-400 text-sm">Reverse Proxy</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section>
-      <h2>Tecnologías</h2>
-      <div class="tech-grid">
-        <div class="tech-card"><div class="icon">🟢</div><span class="name">Node.js</span><div class="desc">Gateway MCP</div></div>
-        <div class="tech-card"><div class="icon">📘</div><span class="name">TypeScript</span><div class="desc">Tipado y MCP SDK</div></div>
-        <div class="tech-card"><div class="icon">🔍</div><span class="name">Qdrant</span><div class="desc">Vectores y búsqueda</div></div>
-        <div class="tech-card"><div class="icon">🐘</div><span class="name">PostgreSQL</span><div class="desc">Metadata</div></div>
-        <div class="tech-card"><div class="icon">📮</div><span class="name">Redis</span><div class="desc">Cola para worker</div></div>
-        <div class="tech-card"><div class="icon">⚛️</div><span class="name">Next.js</span><div class="desc">Webapp</div></div>
-        <div class="tech-card"><div class="icon">🐍</div><span class="name">Python</span><div class="desc">Worker</div></div>
-        <div class="tech-card"><div class="icon">🔐</div><span class="name">OpenAI</span><div class="desc">Embeddings (opcional)</div></div>
+    <section id="features" class="py-20 px-6">
+      <div class="max-w-6xl mx-auto">
+        <div class="text-center mb-16">
+          <span class="font-mono text-xs text-emerald-400 tracking-wider uppercase mb-4 block">Capacidades</span>
+          <h2 class="text-3xl md:text-4xl font-bold mb-4">Características Principales</h2>
+          <p class="text-slate-400 max-w-xl mx-auto">Funcionalidades diseñadas para maximizar la productividad de tu equipo</p>
+        </div>
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-violet-500/50 transition-all duration-300">
+            <div class="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+            <div class="relative">
+              <div class="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center mb-5">
+                <svg class="w-6 h-6 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-white mb-3">Búsqueda Vectorial</h3>
+              <p class="text-slate-400 leading-relaxed">Búsqueda semántica potenciada por embeddings de OpenAI y Qdrant para encontrar documentación relevante al instante.</p>
+            </div>
+          </div>
+          <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-cyan-500/50 transition-all duration-300">
+            <div class="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+            <div class="relative">
+              <div class="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center mb-5">
+                <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-white mb-3">Gateway Unificado</h3>
+              <p class="text-slate-400 leading-relaxed">Punto de entrada único (Node.js + TypeScript) con herramienta MCP search_docs, stdio y REST /api para el IDE.</p>
+            </div>
+          </div>
+          <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-emerald-500/50 transition-all duration-300">
+            <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+            <div class="relative">
+              <div class="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center mb-5">
+                <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-white mb-3">Auto-Documentación</h3>
+              <p class="text-slate-400 leading-relaxed">Indexación de documentación en Qdrant (colección mcp_docs) y herramienta search_docs para la IA en el IDE.</p>
+            </div>
+          </div>
+          <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-amber-500/50 transition-all duration-300">
+            <div class="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+            <div class="relative">
+              <div class="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center mb-5">
+                <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-white mb-3">Jobs Async</h3>
+              <p class="text-slate-400 leading-relaxed">Procesamiento de tareas pesadas en segundo plano con Redis (y opcionalmente worker en Python) sin bloquear el gateway.</p>
+            </div>
+          </div>
+          <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-pink-500/50 transition-all duration-300">
+            <div class="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+            <div class="relative">
+              <div class="w-12 h-12 rounded-xl bg-pink-500/20 flex items-center justify-center mb-5">
+                <svg class="w-6 h-6 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-white mb-3">Seguridad Robusta</h3>
+              <p class="text-slate-400 leading-relaxed">Autenticación, rate limiting y logging de operaciones. Configuración MCP por proyecto (.cursor/mcp.json).</p>
+            </div>
+          </div>
+          <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-blue-500/50 transition-all duration-300">
+            <div class="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+            <div class="relative">
+              <div class="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center mb-5">
+                <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" /></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-white mb-3">Hot Reload</h3>
+              <p class="text-slate-400 leading-relaxed">Recarga automática de configuración y descubrimiento dinámico de la documentación indexada en Qdrant.</p>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="cta">
-      <a href="https://github.com/gustavosinbandera/MCP-SERVER">Ver en GitHub</a>
-      <a href="https://github.com/gustavosinbandera/MCP-SERVER/blob/master/README.md" class="secondary">Leer README</a>
+    <section class="py-20 px-6">
+      <div class="max-w-4xl mx-auto">
+        <div class="relative rounded-3xl bg-gradient-to-r from-violet-600/20 via-cyan-600/20 to-violet-600/20 border border-violet-500/30 p-12 text-center overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-r from-violet-500/10 to-cyan-500/10 animate-pulse"></div>
+          <div class="relative">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4">¿Listo para empezar?</h2>
+            <p class="text-slate-300 text-lg mb-8 max-w-xl mx-auto">Configura tu MCP Gateway en minutos y comienza a construir experiencias increíbles con IA.</p>
+            <div class="flex flex-wrap items-center justify-center gap-4">
+              <a href="https://github.com/gustavosinbandera/MCP-SERVER/archive/refs/heads/master.zip" class="px-8 py-4 bg-white text-slate-900 rounded-xl font-semibold hover:bg-slate-100 transition-colors flex items-center gap-2 inline-flex">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg> Descargar
+              </a>
+              <a href="https://github.com/gustavosinbandera/MCP-SERVER" class="px-8 py-4 rounded-xl font-semibold text-white border border-white/30 hover:bg-white/10 transition-colors flex items-center gap-2 inline-flex">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg> Ver en GitHub
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
+
+    <footer class="py-12 px-6 border-t border-slate-800">
+      <div class="max-w-6xl mx-auto">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center">
+              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            </div>
+            <span class="text-slate-400 text-sm">MCP Knowledge Hub © 2024</span>
+          </div>
+          <div class="flex items-center gap-6">
+            <a href="https://github.com/gustavosinbandera/MCP-SERVER/blob/master/README.md" class="text-slate-400 hover:text-white transition-colors text-sm">Documentación</a>
+            <a href="https://github.com/gustavosinbandera/MCP-SERVER" class="text-slate-400 hover:text-white transition-colors text-sm">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </footer>
   </div>
+
+  <script>
+    const defaultConfig = {
+      main_title: 'MCP Knowledge Hub',
+      subtitle: 'Gateway inteligente, búsqueda vectorial y documentación unificada para tu ecosistema MCP',
+      architecture_title: 'Arquitectura del Sistema',
+      background_color: '#020617',
+      surface_color: '#0f172a',
+      text_color: '#f1f5f9',
+      primary_color: '#8b5cf6',
+      secondary_color: '#06b6d4',
+      font_family: 'Space Grotesk',
+      font_size: 16
+    };
+
+    async function onConfigChange(config) {
+      const mainTitle = document.getElementById('main-title');
+      const subtitle = document.getElementById('subtitle');
+      const archTitle = document.getElementById('architecture-title');
+      if (mainTitle) mainTitle.textContent = config.main_title || defaultConfig.main_title;
+      if (subtitle) subtitle.textContent = config.subtitle || defaultConfig.subtitle;
+      if (archTitle) archTitle.textContent = config.architecture_title || defaultConfig.architecture_title;
+      document.body.style.fontFamily = (config.font_family || defaultConfig.font_family) + ', system-ui, sans-serif';
+      const baseFontSize = config.font_size || defaultConfig.font_size;
+      document.documentElement.style.fontSize = baseFontSize + 'px';
+    }
+
+    function mapToCapabilities(config) {
+      return {
+        recolorables: [
+          { get: () => config.background_color || defaultConfig.background_color, set: (v) => { config.background_color = v; if (window.elementSdk) window.elementSdk.setConfig({ background_color: v }); } },
+          { get: () => config.surface_color || defaultConfig.surface_color, set: (v) => { config.surface_color = v; if (window.elementSdk) window.elementSdk.setConfig({ surface_color: v }); } },
+          { get: () => config.text_color || defaultConfig.text_color, set: (v) => { config.text_color = v; if (window.elementSdk) window.elementSdk.setConfig({ text_color: v }); } },
+          { get: () => config.primary_color || defaultConfig.primary_color, set: (v) => { config.primary_color = v; if (window.elementSdk) window.elementSdk.setConfig({ primary_color: v }); } },
+          { get: () => config.secondary_color || defaultConfig.secondary_color, set: (v) => { config.secondary_color = v; if (window.elementSdk) window.elementSdk.setConfig({ secondary_color: v }); } }
+        ],
+        borderables: [],
+        fontEditable: { get: () => config.font_family || defaultConfig.font_family, set: (v) => { config.font_family = v; if (window.elementSdk) window.elementSdk.setConfig({ font_family: v }); } },
+        fontSizeable: { get: () => config.font_size || defaultConfig.font_size, set: (v) => { config.font_size = v; if (window.elementSdk) window.elementSdk.setConfig({ font_size: v }); } }
+      };
+    }
+
+    function mapToEditPanelValues(config) {
+      return new Map([
+        ['main_title', config.main_title || defaultConfig.main_title],
+        ['subtitle', config.subtitle || defaultConfig.subtitle],
+        ['architecture_title', config.architecture_title || defaultConfig.architecture_title]
+      ]);
+    }
+
+    if (window.elementSdk) {
+      window.elementSdk.init({ defaultConfig, onConfigChange, mapToCapabilities, mapToEditPanelValues });
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  </script>
 </body>
 </html>
