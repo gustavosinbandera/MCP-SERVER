@@ -1,0 +1,7 @@
+{
+  "sshKeyPath": "C:/PROYECTOS/MCP-SERVER/infra/mcp-server-key.pem",
+  "ec2Host": "ec2-user@52.91.217.181",
+  "remoteRepoPath": "~/MCP-SERVER",
+  "remoteIndexInboxPath": "~/MCP-SERVER/INDEX_INBOX",
+  "branch": "master"
+}

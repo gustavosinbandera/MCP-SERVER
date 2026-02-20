@@ -9,6 +9,9 @@ infra/parameters.json
 infra/route53-mcp-record-temp.json
 *.pem
 
+# Sync EC2 (host/key no subir al repo)
+scripts/sync-config.json
+
 # Dependencies
 node_modules/
 __pycache__/
@@ -36,8 +39,6 @@ Thumbs.db
 *.log
 logs/
 
-# Local project source trees (keep folder placeholders only)
-classic/**
-blueivory/**
-!classic/.gitkeep
-!blueivory/.gitkeep
+# Local project source trees (ignored for now)
+classic/
+blueivory/

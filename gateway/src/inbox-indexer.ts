@@ -25,8 +25,10 @@ import { getQdrantClient } from './qdrant-client';
 import {
   getInboxPath,
   getSharedDirsEntries,
+  getSharedDirsOnce,
   getSharedReindexChanged,
   getSharedSyncDeleted,
+  getRequireEmbeddings,
   getBranchForProject,
   getDomainForPath,
   COLLECTION_NAME,
@@ -34,6 +36,7 @@ import {
   MAX_FILE_SIZE_BYTES,
   INDEX_CONCURRENCY,
 } from './config';
+import { loadOneTimeIndexedProjects, addOneTimeIndexedProject } from './one-time-indexed-db';
 import { info, error as logError } from './logger';
 import { extractCodeMetadata, isCodeFileForMetadata, type CodeMetadata } from './code-metadata';
 
@@ -127,6 +130,12 @@ async function ensureCollection(client: QdrantClient): Promise<void> {
     await client.createCollection(COLLECTION_NAME, {
       vectors: { size: getVectorSize(), distance: 'Cosine' },
     });
+  }
+}
+
+function assertEmbeddingsReady(context: 'inbox' | 'shared'): void {
+  if (getRequireEmbeddings() && !hasEmbedding()) {
+    throw new Error(`[${context}] INDEX_REQUIRE_EMBEDDINGS=true and OPENAI_API_KEY is missing. Indexing blocked.`);
   }
 }
 
@@ -411,6 +420,7 @@ export async function processInbox(): Promise<{
   }
   const inboxProject = (process.env.INDEX_INBOX_PROJECT || '').trim() || undefined;
   const embeddingConfig = getEmbeddingConfig();
+  assertEmbeddingsReady('inbox');
   info('processInbox starting', {
     inboxPath,
     embedding: embeddingConfig.apiKeySet ? 'enabled' : 'disabled',
@@ -468,15 +478,34 @@ export function getInboxPathOrNull(): string | null {
  * Con INDEX_SHARED_SYNC_DELETED borra de Qdrant los (project, title) que ya no existen en disco.
  */
 export async function indexSharedDirs(): Promise<{ indexed: number; newCount: number; reindexedCount: number; errors: string[] }> {
-  const entries = getSharedDirsEntries();
+  const allEntries = getSharedDirsEntries();
+  const onceProjects = new Set(getSharedDirsOnce().map((p) => p.toLowerCase()));
+  const oneTimeDone = loadOneTimeIndexedProjects();
+  const entries = allEntries.filter((e) => {
+    const key = e.project.toLowerCase();
+    if (onceProjects.has(key) && oneTimeDone.has(key)) {
+      return false;
+    }
+    return true;
+  });
+  const skippedOneTime = allEntries.filter((e) => {
+    const key = e.project.toLowerCase();
+    return onceProjects.has(key) && oneTimeDone.has(key);
+  });
   const result = { indexed: 0, newCount: 0, reindexedCount: 0, errors: [] as string[] };
-  if (entries.length === 0) return result;
+  if (allEntries.length === 0) return result;
   const embeddingConfig = getEmbeddingConfig();
+  assertEmbeddingsReady('shared');
   info('indexSharedDirs starting', {
     projects: entries.map((e) => e.project),
+    skippedOneTime: skippedOneTime.length > 0 ? skippedOneTime.map((e) => e.project) : undefined,
+    oneTimeDone: onceProjects.size > 0 ? Array.from(oneTimeDone) : undefined,
     embedding: embeddingConfig.apiKeySet ? 'enabled' : 'disabled',
     embeddingModel: embeddingConfig.apiKeySet ? embeddingConfig.model : undefined,
   });
+  if (skippedOneTime.length > 0) {
+    info('indexSharedDirs skipping one-time-already-done', { projects: skippedOneTime.map((e) => e.project) });
+  }
   const client = getQdrantClient();
   await ensureCollection(client);
   const needHashes = getSharedReindexChanged();
@@ -571,6 +600,11 @@ export async function indexSharedDirs(): Promise<{ indexed: number; newCount: nu
           return 0;
         });
       }
+    }
+    if (onceProjects.has(project.toLowerCase())) {
+      addOneTimeIndexedProject(project);
+      oneTimeDone.add(project.toLowerCase());
+      info('indexSharedDirs one-time complete', { project });
     }
   }
   info('indexSharedDirs completed', {

@@ -81,6 +81,24 @@ export function getSharedSyncDeleted(): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
+/**
+ * Proyectos que se indexan una sola vez (p. ej. classic, blueivory).
+ * Tras completar un ciclo, se persisten y no se vuelven a indexar aunque se reinicie.
+ * Formato: SHARED_DIRS_ONCE=classic;blueivory
+ */
+export function getSharedDirsOnce(): string[] {
+  const raw = process.env.SHARED_DIRS_ONCE?.trim();
+  if (!raw) return [];
+  return raw.split(/[;|,]/).map((p) => p.trim().toLowerCase()).filter(Boolean);
+}
+
+/** Ruta del archivo SQLite que persiste los proyectos ya indexados una vez (evita reindexar). */
+export function getOneTimeIndexedDbPath(): string {
+  const raw = process.env.ONE_TIME_INDEXED_DB?.trim();
+  if (raw) return path.resolve(raw);
+  return path.resolve(__dirname, '..', 'data', 'one_time_indexed.db');
+}
+
 /** Ruta del archivo SQLite para el índice persistente de claves (project, source_path). */
 export function getIndexedKeysDbPath(): string {
   const raw = process.env.INDEXED_KEYS_DB?.trim();
@@ -98,6 +116,12 @@ export function getIndexingStatsDbPath(): string {
 /** Si true, se usa el índice persistente SQLite en lugar del scroll completo de Qdrant. */
 export function getUsePersistentIndexedKeys(): boolean {
   const v = process.env.INDEX_USE_PERSISTENT_KEYS?.toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/** If true, indexing is blocked unless embeddings are enabled (OPENAI_API_KEY set). */
+export function getRequireEmbeddings(): boolean {
+  const v = process.env.INDEX_REQUIRE_EMBEDDINGS?.toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
 

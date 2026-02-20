@@ -7,8 +7,8 @@ import OpenAI from 'openai';
 import { warn, error as logError } from './logger';
 
 const MODEL = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
-/** text-embedding-3-small max tokens per input is 8191; ~4 chars per token -> ~32k chars safe */
-export const MAX_INPUT_CHARS = 32_000;
+/** text-embedding-3-small max 8192 tokens; worst case ~1 token/char -> cap at 8000 chars */
+export const MAX_INPUT_CHARS = 8000;
 
 const EMBED_TIMEOUT_MS = Number(process.env.OPENAI_EMBED_TIMEOUT_MS) || 30_000;
 const EMBED_RETRY_ATTEMPTS = Math.min(Math.max(0, Number(process.env.OPENAI_EMBED_RETRY_ATTEMPTS) || 2), 5);
@@ -97,7 +97,11 @@ export async function embedBatch(texts: string[]): Promise<(number[] | null)[]> 
   const client = getClient();
   if (!client) return texts.map(() => null);
 
-  const truncated = texts.map((t) => (t.length > MAX_INPUT_CHARS ? t.slice(0, MAX_INPUT_CHARS) : t));
+  const truncated = texts.map((t) => {
+    const s = typeof t === 'string' ? t : String(t);
+    const out = s.length > MAX_INPUT_CHARS ? s.slice(0, MAX_INPUT_CHARS) : s;
+    return out.trim().length === 0 ? ' ' : out;
+  });
   const result: (number[] | null)[] = new Array(texts.length);
 
   for (let i = 0; i < truncated.length; i += EMBED_BATCH_SIZE) {
@@ -126,19 +130,21 @@ export async function embedBatch(texts: string[]): Promise<(number[] | null)[]> 
       } catch (err) {
         clearTimeout(timeoutId);
         lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        const isRateLimit = /429|rate limit|rate_limit/i.test(msg);
         const isRetryable =
           err instanceof Error &&
           (err.name === 'AbortError' ||
             err.message.includes('ECONNRESET') ||
             err.message.includes('ETIMEDOUT') ||
-            err.message.includes('rate_limit'));
+            err.message.includes('rate_limit') ||
+            isRateLimit);
         if (attempt < EMBED_RETRY_ATTEMPTS && isRetryable) {
-          const delayMs = 500 * Math.pow(2, attempt);
-          warn('Embedding batch retry', { attempt: attempt + 1, maxAttempts: EMBED_RETRY_ATTEMPTS + 1, delayMs, err: err instanceof Error ? err.message : String(err) });
+          const delayMs = isRateLimit ? 90_000 : 500 * Math.pow(2, attempt);
+          warn('Embedding batch retry', { attempt: attempt + 1, maxAttempts: EMBED_RETRY_ATTEMPTS + 1, delayMs, rateLimit: isRateLimit, err: msg });
           await new Promise((r) => setTimeout(r, delayMs));
           continue;
         }
-        const msg = lastErr instanceof Error ? (lastErr as Error).message : String(lastErr);
         logError('Embedding batch failed after retries', { attempts: attempt + 1, err: msg });
         throw new Error(`Embedding batch failed after ${attempt + 1} attempt(s): ${msg}`);
       }

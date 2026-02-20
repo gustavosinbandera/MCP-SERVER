@@ -8,7 +8,7 @@ import { convert } from 'html-to-text';
 import { embedBatch, hasEmbedding, getVectorSize } from './embedding';
 import { chunkText } from './chunking';
 import { getQdrantClient } from './qdrant-client';
-import { COLLECTION_NAME, BATCH_UPSERT_SIZE, getBranchForProject } from './config';
+import { COLLECTION_NAME, BATCH_UPSERT_SIZE, getBranchForProject, getRequireEmbeddings } from './config';
 import { recordUrl } from './indexing-stats';
 import { recordIndexingEventMetric } from './metrics';
 
@@ -500,6 +500,13 @@ export type IndexUrlOptions = { renderJs?: boolean; project?: string };
 const DEFAULT_URL_PROJECT = (process.env.INDEX_URL_DEFAULT_PROJECT || 'urls').trim() || 'urls';
 
 export async function indexUrl(url: string, options?: IndexUrlOptions): Promise<{ indexed: boolean; title: string; error?: string }> {
+  if (getRequireEmbeddings() && !hasEmbedding()) {
+    return {
+      indexed: false,
+      title: url,
+      error: 'INDEX_REQUIRE_EMBEDDINGS=true and OPENAI_API_KEY is missing. URL indexing blocked.',
+    };
+  }
   const client = getQdrantClient({ checkCompatibility: false });
   await ensureCollection(client);
   try {
