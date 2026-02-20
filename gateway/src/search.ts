@@ -1,11 +1,17 @@
 /**
  * Search implementation with Qdrant (semantic when OpenAI is configured, else keyword).
  */
+import * as fs from 'fs';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { embed, hasEmbedding } from './embedding';
 import { getQdrantClient } from './qdrant-client';
-import { COLLECTION_NAME } from './config';
+import { COLLECTION_NAME, getIndexedKeysDbPath } from './config';
 import { error as logError } from './logger';
+import {
+  isPersistentIndexEnabled,
+  getKeysAndHashes as getPersistentKeysAndHashes,
+  rebuildFromQdrant,
+} from './indexed-keys-db';
 
 export type SearchOptions = { project?: string };
 
@@ -23,35 +29,90 @@ export function indexedKey(project: string, sourcePath: string): string {
  * Used to avoid per-file existsDocByProjectAndPath round-trips during indexation.
  */
 export async function loadExistingIndexedKeys(client: QdrantClient): Promise<Set<string>> {
+  const { keys } = await loadExistingIndexedKeysAndHashes(client);
+  return keys;
+}
+
+/**
+ * Loads (project, title) keys and optional content_hash per key.
+ * When INDEX_USE_PERSISTENT_KEYS is set, uses SQLite; otherwise (or if DB missing) scrolls Qdrant.
+ * On first run with persistent keys, rebuilds SQLite from Qdrant and returns that result.
+ */
+export async function loadExistingIndexedKeysAndHashes(client: QdrantClient): Promise<{
+  keys: Set<string>;
+  hashes: Map<string, string>;
+}> {
+  if (isPersistentIndexEnabled() && fs.existsSync(getIndexedKeysDbPath())) {
+    try {
+      return getPersistentKeysAndHashes();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logError('loadExistingIndexedKeysAndHashes from SQLite failed, falling back to Qdrant', { err: msg });
+    }
+  }
+
   const keys = new Set<string>();
+  const hashes = new Map<string, string>();
   let offset: string | number | Record<string, unknown> | null | undefined = undefined;
   try {
     const collections = await client.getCollections();
     const exists = collections.collections.some((c) => c.name === COLLECTION_NAME);
-    if (!exists) return keys;
+    if (!exists) return { keys, hashes };
 
     for (;;) {
       const { points, next_page_offset } = await client.scroll(COLLECTION_NAME, {
         limit: SCROLL_PAGE_SIZE,
         offset,
-        with_payload: { include: ['project', 'title'] },
+        with_payload: { include: ['project', 'title', 'content_hash'] },
         with_vector: false,
       });
       for (const p of points) {
-        const payload = p.payload as { project?: string; title?: string } | undefined;
+        const payload = p.payload as { project?: string; title?: string; content_hash?: string } | undefined;
         const project = payload?.project ?? '';
         const title = payload?.title ?? '';
-        if (project || title) keys.add(indexedKey(project, title));
+        if (project || title) {
+          const key = indexedKey(project, title);
+          keys.add(key);
+          const h = payload?.content_hash;
+          if (typeof h === 'string' && h && !hashes.has(key)) hashes.set(key, h);
+        }
       }
       if (next_page_offset == null) break;
       offset = next_page_offset;
     }
+
+    if (isPersistentIndexEnabled()) {
+      try {
+        await rebuildFromQdrant(client);
+      } catch (e) {
+        logError('rebuildFromQdrant after scroll failed', { err: e instanceof Error ? e.message : String(e) });
+      }
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logError('loadExistingIndexedKeys failed', { err: msg });
-    throw new Error(`loadExistingIndexedKeys failed: ${msg}`);
+    logError('loadExistingIndexedKeysAndHashes failed', { err: msg });
+    throw new Error(`loadExistingIndexedKeysAndHashes failed: ${msg}`);
   }
-  return keys;
+  return { keys, hashes };
+}
+
+/**
+ * Deletes all points in the collection with the given project and title (source_path).
+ * Used when reindexing or syncing deleted files in SHARED_DIRS.
+ */
+export async function deleteByProjectAndTitle(
+  client: QdrantClient,
+  project: string,
+  title: string
+): Promise<void> {
+  await client.delete(COLLECTION_NAME, {
+    filter: {
+      must: [
+        { key: 'project', match: { value: project } },
+        { key: 'title', match: { value: title } },
+      ],
+    },
+  });
 }
 
 export async function searchDocs(

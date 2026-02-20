@@ -11,15 +11,27 @@ import {
   getInboxPath,
   getSharedDirsEntries,
   getSharedRoots,
+  getSharedReindexChanged,
+  getSharedSyncDeleted,
+  getIndexedKeysDbPath,
+  getUsePersistentIndexedKeys,
 } from './config';
 
 describe('config', () => {
   const origIndexInbox = process.env.INDEX_INBOX_DIR;
   const origSharedDirs = process.env.SHARED_DIRS;
+  const origReindex = process.env.INDEX_SHARED_REINDEX_CHANGED;
+  const origSyncDeleted = process.env.INDEX_SHARED_SYNC_DELETED;
+  const origIndexedKeysDb = process.env.INDEXED_KEYS_DB;
+  const origUsePersistent = process.env.INDEX_USE_PERSISTENT_KEYS;
 
   afterEach(() => {
     process.env.INDEX_INBOX_DIR = origIndexInbox;
     process.env.SHARED_DIRS = origSharedDirs;
+    process.env.INDEX_SHARED_REINDEX_CHANGED = origReindex;
+    process.env.INDEX_SHARED_SYNC_DELETED = origSyncDeleted;
+    process.env.INDEXED_KEYS_DB = origIndexedKeysDb;
+    process.env.INDEX_USE_PERSISTENT_KEYS = origUsePersistent;
   });
 
   describe('constants', () => {
@@ -106,6 +118,66 @@ describe('config', () => {
       const dir = path.join(path.sep, 'shared');
       process.env.SHARED_DIRS = `p:${dir}`;
       expect(getSharedRoots()).toEqual([path.resolve(dir)]);
+    });
+  });
+
+  describe('getSharedReindexChanged', () => {
+    it('returns false when unset or 0/false', () => {
+      delete process.env.INDEX_SHARED_REINDEX_CHANGED;
+      expect(getSharedReindexChanged()).toBe(false);
+      process.env.INDEX_SHARED_REINDEX_CHANGED = '0';
+      expect(getSharedReindexChanged()).toBe(false);
+      process.env.INDEX_SHARED_REINDEX_CHANGED = 'false';
+      expect(getSharedReindexChanged()).toBe(false);
+    });
+
+    it('returns true for 1, true, yes (case insensitive)', () => {
+      process.env.INDEX_SHARED_REINDEX_CHANGED = '1';
+      expect(getSharedReindexChanged()).toBe(true);
+      process.env.INDEX_SHARED_REINDEX_CHANGED = 'true';
+      expect(getSharedReindexChanged()).toBe(true);
+      process.env.INDEX_SHARED_REINDEX_CHANGED = 'YES';
+      expect(getSharedReindexChanged()).toBe(true);
+    });
+  });
+
+  describe('getSharedSyncDeleted', () => {
+    it('returns false when unset', () => {
+      delete process.env.INDEX_SHARED_SYNC_DELETED;
+      expect(getSharedSyncDeleted()).toBe(false);
+    });
+
+    it('returns true for 1, true, yes', () => {
+      process.env.INDEX_SHARED_SYNC_DELETED = 'true';
+      expect(getSharedSyncDeleted()).toBe(true);
+    });
+  });
+
+  describe('getIndexedKeysDbPath', () => {
+    it('returns resolved path when INDEXED_KEYS_DB is set', () => {
+      const custom = path.join(path.sep, 'var', 'data', 'keys.db');
+      process.env.INDEXED_KEYS_DB = custom;
+      expect(getIndexedKeysDbPath()).toBe(path.resolve(custom));
+    });
+
+    it('returns default path containing data/indexed_keys.db when unset', () => {
+      delete process.env.INDEXED_KEYS_DB;
+      const p = getIndexedKeysDbPath();
+      expect(p).toContain('data');
+      expect(p).toContain('indexed_keys.db');
+      expect(path.isAbsolute(p)).toBe(true);
+    });
+  });
+
+  describe('getUsePersistentIndexedKeys', () => {
+    it('returns false when unset', () => {
+      delete process.env.INDEX_USE_PERSISTENT_KEYS;
+      expect(getUsePersistentIndexedKeys()).toBe(false);
+    });
+
+    it('returns true for 1, true, yes', () => {
+      process.env.INDEX_USE_PERSISTENT_KEYS = 'true';
+      expect(getUsePersistentIndexedKeys()).toBe(true);
     });
   });
 });

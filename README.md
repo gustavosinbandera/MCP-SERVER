@@ -152,6 +152,7 @@ El servidor MCP expone estas herramientas para el IDE (Cursor, VS Code, etc.):
 | **list_shared_dir** | Lista archivos en un directorio compartido. Parámetros: `relative_path` (opcional). |
 | **read_shared_file** | Lee un archivo de un directorio compartido. Parámetros: `relative_path`. |
 | **repo_git** | Manipula el repositorio Git del workspace. Alias: hacer push, commit, subir cambios. Parámetros: `action` (status \| add \| commit \| push \| pull), `message` (obligatorio si action=commit), opcional `directory`, opcional `paths` (para add). |
+| **search_github_repos** | Busca repositorios en GitHub por tema. Devuelve repos con temas acordes, ordenados por actualidad (updated) o por mejor puntuación (stars). Parámetros: `topic` (tema específico), opcional `limit` (máx. 30), opcional `sort` (updated \| stars \| forks). |
 
 Documentación detallada de cada herramienta: **gateway/docs/tools/** (y menú en consola: `cd gateway && npm run tools`).
 

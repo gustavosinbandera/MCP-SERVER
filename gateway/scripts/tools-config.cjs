@@ -71,4 +71,9 @@ module.exports = [
     aliases: ['git', 'hacer push', 'hacer commit', 'subir cambios', 'push', 'commit', 'estado repo', 'git status', 'git push', 'git commit', 'subir al repo', 'guardar en git'],
     keywords: ['manipular repositorio', 'hacer push', 'hacer commit', 'subir cambios a github', 'estado del repo', 'git status', 'git add', 'git commit', 'git push', 'git pull', 'subir al remoto'],
   },
+  {
+    name: 'search_github_repos',
+    aliases: ['buscar en github', 'buscar repos github', 'repos por tema', 'listar repos github', 'encontrar repos', 'github repos', 'repos actualidad tech', 'mejores repos tema', 'solo buscar repos'],
+    keywords: ['buscar en github', 'buscar repositorios github', 'encontrar repos', 'listar repos por tema', 'repos de X', 'solo búsqueda no crear', 'no crear repo', 'no crear scripts', 'repos por tema', 'lo último en tech', 'mejor puntuación github', 'repos actualizados'],
+  },
 ];

@@ -41,7 +41,7 @@ describe('chunking', () => {
     });
 
     it('uses default options when none provided', () => {
-      const long = 'b'.repeat(DEFAULT_CHUNK_THRESHOLD + 500);
+      const long = 'b'.repeat(DEFAULT_CHUNK_THRESHOLD + DEFAULT_CHUNK_SIZE + 500);
       const result = chunkText(long);
       expect(result.length).toBeGreaterThan(1);
       expect(result[0].total_chunks).toBe(result.length);

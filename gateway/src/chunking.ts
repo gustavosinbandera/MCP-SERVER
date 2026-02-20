@@ -44,6 +44,7 @@ export function chunkText(
     const text = content.slice(start, end);
     chunks.push({ text, chunk_index: index, total_chunks: -1 });
     index++;
+    if (end >= content.length) break;
     start = end - overlap;
     if (start >= content.length) break;
   }

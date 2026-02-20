@@ -17,6 +17,7 @@ import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './share
 import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent, loginMediaWiki } from './url-indexer';
 import { writeFlowDocToInbox } from './flow-doc';
 import { runRepoGit } from './repo-git';
+import { searchGitHubRepos } from './github-search';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
 const KNOWLEDGE_HUB_NAME = (process.env.KNOWLEDGE_HUB_NAME || process.env.PROJECT_NAME || '').trim();
@@ -366,6 +367,50 @@ mcpServer.tool(
     const text = `## ${title}\n\n${result.message}`;
     return {
       content: [{ type: 'text' as const, text }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'search_github_repos',
+  'SOLO BÚSQUEDA en GitHub: lista repositorios existentes por tema (no crea repos, no escribe scripts). Cuando el usuario diga "buscar en github X", "repos de X", "encontrar repos esp32/mcp/etc" → usa esta tool y devuelve los resultados; no crear repos ni código. Parámetros: topic (tema, ej. esp32, MCP server), opcional limit (máx. 30), opcional sort (updated | stars | forks).',
+  {
+    topic: z.string(),
+    limit: z.number().optional(),
+    sort: z.enum(['updated', 'stars', 'forks']).optional(),
+  } as any,
+  async (args: { topic: string; limit?: number; sort?: 'updated' | 'stars' | 'forks' }) => {
+    const topic = (args.topic ?? '').trim();
+    if (!topic) {
+      return {
+        content: [{ type: 'text' as const, text: 'Indica un tema (topic) para buscar repositorios en GitHub.' }],
+      };
+    }
+    const limit = args.limit != null ? Math.min(Math.max(1, args.limit), 30) : 10;
+    const sort = args.sort ?? 'updated';
+    const result = await searchGitHubRepos(topic, { limit, sort });
+    if (!result.ok) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `[search_github_repos – error]\n\n${result.error ?? 'Error desconocido'}`,
+          },
+        ],
+      };
+    }
+    const lines: string[] = [
+      `Búsqueda: "${topic}" | Orden: ${sort} | Total en GitHub: ${result.total_count}`,
+      '',
+      ...result.repos.map((r, i) => {
+        const desc = r.description ? `\n  ${r.description.slice(0, 200)}${r.description.length > 200 ? '…' : ''}` : '';
+        const meta = [r.language && `Lang: ${r.language}`, `★ ${r.stargazers_count}`, `Fork: ${r.forks_count}`, `Actualizado: ${r.updated_at.slice(0, 10)}`].filter(Boolean).join(' | ');
+        const topics = r.topics.length > 0 ? `\n  Topics: ${r.topics.slice(0, 8).join(', ')}` : '';
+        return `[${i + 1}] ${r.full_name}\n  ${r.html_url}${desc}\n  ${meta}${topics}`;
+      }),
+    ];
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
     };
   },
 );

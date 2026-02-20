@@ -18,7 +18,8 @@
         "index_site",
         "list_shared_dir",
         "read_shared_file",
-        "repo_git"
+        "repo_git",
+        "search_github_repos"
       ]
     }
   }

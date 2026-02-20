@@ -1,0 +1,13 @@
+---
+description: Usar search_github_repos cuando el usuario pida buscar en GitHub; no crear repos ni scripts
+globs: 
+alwaysApply: true
+---
+
+# Cuándo usar search_github_repos (buscar en GitHub)
+
+1. **Usar la herramienta MCP `search_github_repos`** cuando el usuario diga cosas como:
+   - "buscar en github X", "buscar repos esp32", "repos de mcp", "encontrar repos sobre..."
+   - "mejores repos open source [tema]", "repos por tema [X]"
+2. **Solo invocar la tool y devolver los resultados.** No crear repositorios nuevos, no escribir scripts ni código a menos que el usuario lo pida explícitamente.
+3. Si el usuario no especifica orden, usar por defecto `sort: "stars"` para "mejores" o `sort: "updated"` para actualidad.

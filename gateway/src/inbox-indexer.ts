@@ -6,20 +6,25 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import pLimit from 'p-limit';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import {
   existsDocByProjectAndPath,
   loadExistingIndexedKeys,
+  loadExistingIndexedKeysAndHashes,
   indexedKey,
+  deleteByProjectAndTitle,
 } from './search';
-import { embed, hasEmbedding, getVectorSize } from './embedding';
+import { isPersistentIndexEnabled, addKey as addPersistentKey, removeKey as removePersistentKey } from './indexed-keys-db';
+import { embedBatch, hasEmbedding, getVectorSize } from './embedding';
 import { chunkText } from './chunking';
 import { getQdrantClient } from './qdrant-client';
 import {
   getInboxPath,
   getSharedDirsEntries,
+  getSharedReindexChanged,
+  getSharedSyncDeleted,
   COLLECTION_NAME,
   BATCH_UPSERT_SIZE,
   MAX_FILE_SIZE_BYTES,
@@ -40,6 +45,26 @@ const BLOCKED_EXT = new Set([
   '.exe', '.dll', '.so', '.dylib', '.bin', '.msi', '.com',
   '.jar', '.war', '.class', '.o', '.obj', '.a', '.lib',
 ]);
+
+/** Directorios que no se indexan por defecto. Evita node_modules, .git, etc. */
+const DEFAULT_IGNORE_DIRS = new Set([
+  '.git', '.svn', '.hg', '.idea', '.vscode', '.cursor',
+  'node_modules', 'bower_components', 'jspm_packages',
+  '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+  '.venv', 'venv', 'env', '.env',
+  'dist', 'build', 'out', '.next', '.nuxt', '.output',
+  'coverage', '.nyc_output', '.turbo', 'target',
+  '.cache', 'tmp', 'temp', '.tmp', '.temp',
+]);
+
+function getIgnoreDirs(): Set<string> {
+  const set = new Set(DEFAULT_IGNORE_DIRS);
+  const raw = process.env.INDEX_IGNORE_DIRS?.trim();
+  if (raw) {
+    raw.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean).forEach((d) => set.add(d));
+  }
+  return set;
+}
 
 function isBlockedFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
@@ -63,7 +88,8 @@ function readFileSafe(absPath: string): string | null {
 
 function* walkTextFiles(
   dirPath: string,
-  baseDir: string = dirPath
+  baseDir: string = dirPath,
+  ignoreDirs: Set<string> = getIgnoreDirs()
 ): Generator<{ relativePath: string; content: string }> {
   const names = fs.readdirSync(dirPath);
   for (const name of names) {
@@ -75,7 +101,9 @@ function* walkTextFiles(
       continue;
     }
     if (stat.isDirectory()) {
-      yield* walkTextFiles(full, baseDir);
+      if (!ignoreDirs.has(name.toLowerCase())) {
+        yield* walkTextFiles(full, baseDir, ignoreDirs);
+      }
     } else if (stat.isFile() && isTextFile(full)) {
       const content = readFileSafe(full);
       if (content != null) {
@@ -112,23 +140,25 @@ async function indexDocument(
   const project = meta?.project ?? '';
 
   if (hasEmbedding()) {
+    const contentHash = createHash('sha256').update(content).digest('hex');
     const chunks = chunkText(content);
+    const texts = chunks.map((c) => c.text);
+    const vectors = await embedBatch(texts);
     const points: { id: string; vector: number[]; payload: Record<string, unknown> }[] = [];
-    for (const chunk of chunks) {
-      const vector = await embed(chunk.text);
-      if (vector == null) break;
-      points.push({
-        id: randomUUID(),
-        vector,
-        payload: {
-          title: source_path,
-          content: chunk.text,
-          source_path,
-          project,
-          chunk_index: chunk.chunk_index,
-          total_chunks: chunk.total_chunks,
-        },
-      });
+    for (let i = 0; i < chunks.length; i++) {
+      const vector = vectors[i];
+      if (vector == null) continue;
+      const chunk = chunks[i];
+      const payload: Record<string, unknown> = {
+        title: source_path,
+        content: chunk.text,
+        source_path,
+        project,
+        chunk_index: chunk.chunk_index,
+        total_chunks: chunk.total_chunks,
+      };
+      if (contentHash != null) payload.content_hash = contentHash;
+      points.push({ id: randomUUID(), vector, payload });
     }
     if (points.length === 0) return;
     for (let i = 0; i < points.length; i += BATCH_UPSERT_SIZE) {
@@ -189,6 +219,7 @@ export async function processInboxItem(
     }
     await indexDocument(client, source_path, content, { source_path, project });
     if (existingKeys) existingKeys.add(indexedKey(project, source_path));
+    if (isPersistentIndexEnabled()) addPersistentKey(project, source_path, createHash('sha256').update(content).digest('hex'));
     indexed = 1;
     removeItemSync(absPath);
     return { indexed, removed: true };
@@ -208,6 +239,7 @@ export async function processInboxItem(
       if (existingKeys ? existingKeys.has(indexedKey(project, source_path)) : await existsDocByProjectAndPath(project, source_path)) continue;
       await indexDocument(client, source_path, content, { source_path, project });
       if (existingKeys) existingKeys.add(indexedKey(project, source_path));
+      if (isPersistentIndexEnabled()) addPersistentKey(project, source_path, createHash('sha256').update(content).digest('hex'));
       indexed++;
     }
     removeItemSync(absPath);
@@ -290,6 +322,8 @@ export function getInboxPathOrNull(): string | null {
 /**
  * Indexa en Qdrant el contenido de los directorios en SHARED_DIRS.
  * Identidad por (proyecto + ruta): mismo path en otro proyecto no colisiona.
+ * Con INDEX_SHARED_REINDEX_CHANGED reindexa archivos cuyo contenido cambió (hash).
+ * Con INDEX_SHARED_SYNC_DELETED borra de Qdrant los (project, title) que ya no existen en disco.
  */
 export async function indexSharedDirs(): Promise<{ indexed: number; errors: string[] }> {
   const entries = getSharedDirsEntries();
@@ -297,7 +331,8 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
   if (entries.length === 0) return result;
   const client = getQdrantClient();
   await ensureCollection(client);
-  const existingKeys = await loadExistingIndexedKeys(client);
+  const needHashes = getSharedReindexChanged();
+  const { keys: existingKeys, hashes: existingHashes } = await loadExistingIndexedKeysAndHashes(client);
   const limit = pLimit(INDEX_CONCURRENCY);
   for (const { project, path: root } of entries) {
     if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
@@ -311,23 +346,60 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
       result.errors.push(`${project}:${root}: ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }
-    const toIndex = files.filter(
-      (f) =>
-        !existingKeys.has(
-          indexedKey(project, `${project}/${f.relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/'))
-        )
-    );
-    const counts = await Promise.all(
-      toIndex.map(({ relativePath, content }) => {
-        const source_path = `${project}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
-        return limit(async () => {
-          await indexDocument(client, source_path, content, { source_path, project });
-          existingKeys.add(indexedKey(project, source_path));
+    const norm = (rp: string) => `${project}/${rp}`.replace(/\\/g, '/').replace(/\/+/g, '/');
+    const currentOnDisk = new Set(files.map((f) => indexedKey(project, norm(f.relativePath))));
+    const toIndex: { relativePath: string; content: string; source_path: string; key: string; hash: string }[] = [];
+    const toReindex: { relativePath: string; content: string; source_path: string; key: string; hash: string }[] = [];
+    for (const f of files) {
+      const source_path = norm(f.relativePath);
+      const key = indexedKey(project, source_path);
+      const hash = createHash('sha256').update(f.content).digest('hex');
+      if (!existingKeys.has(key)) {
+        toIndex.push({ ...f, source_path, key, hash });
+      } else if (needHashes && existingHashes.get(key) !== hash) {
+        toReindex.push({ ...f, source_path, key, hash });
+      }
+    }
+    const reindexCounts = await Promise.all(
+      toReindex.map((item) =>
+        limit(async () => {
+          await deleteByProjectAndTitle(client, project, item.source_path);
+          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project });
+          existingKeys.add(item.key);
+          existingHashes.set(item.key, item.hash);
+          if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
           return 1;
-        });
-      })
+        })
+      )
+    );
+    result.indexed += reindexCounts.reduce((a, b) => a + b, 0);
+    const counts = await Promise.all(
+      toIndex.map((item) =>
+        limit(async () => {
+          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project });
+          existingKeys.add(item.key);
+          existingHashes.set(item.key, item.hash);
+          if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
+          return 1;
+        })
+      )
     );
     result.indexed += counts.reduce((a, b) => a + b, 0);
+    if (getSharedSyncDeleted()) {
+      const prefix = project + '\0';
+      const keysForProject = [...existingKeys].filter((k) => k.startsWith(prefix));
+      const toDelete = keysForProject.filter((k) => !currentOnDisk.has(k));
+      for (const key of toDelete) {
+        const title = key.slice(prefix.length);
+        await limit(async () => {
+          await deleteByProjectAndTitle(client, project, title);
+          existingKeys.delete(key);
+          existingHashes.delete(key);
+          if (isPersistentIndexEnabled()) removePersistentKey(project, title);
+          return 0;
+        });
+      }
+    }
   }
   info('indexSharedDirs completed', { indexed: result.indexed, errors: result.errors.length });
   return result;

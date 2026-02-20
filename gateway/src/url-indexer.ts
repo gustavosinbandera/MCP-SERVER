@@ -5,7 +5,7 @@
 import { createHash } from 'crypto';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { convert } from 'html-to-text';
-import { embed, hasEmbedding, getVectorSize } from './embedding';
+import { embedBatch, hasEmbedding, getVectorSize } from './embedding';
 import { chunkText } from './chunking';
 import { getQdrantClient } from './qdrant-client';
 import { COLLECTION_NAME, BATCH_UPSERT_SIZE } from './config';
@@ -480,10 +480,13 @@ export async function indexUrl(url: string): Promise<{ indexed: boolean; title: 
 
     if (hasEmbedding()) {
       const chunks = chunkText(content);
+      const texts = chunks.map((c) => c.text);
+      const vectors = await embedBatch(texts);
       const points: { id: string; vector: number[]; payload: Record<string, unknown> }[] = [];
-      for (const chunk of chunks) {
-        const vector = await embed(chunk.text);
+      for (let i = 0; i < chunks.length; i++) {
+        const vector = vectors[i];
         if (vector == null) continue;
+        const chunk = chunks[i];
         const id = createHash('sha256').update(`${url}#${chunk.chunk_index}`).digest('hex').slice(0, 32);
         points.push({
           id,

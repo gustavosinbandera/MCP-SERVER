@@ -59,3 +59,28 @@ export function getSharedDirsEntries(): { project: string; path: string }[] {
 export function getSharedRoots(): string[] {
   return getSharedDirsEntries().map((e) => e.path).filter((p) => p.length > 0);
 }
+
+/** Si true, en indexSharedDirs se reindexan archivos cuyo contenido cambió (por hash). */
+export function getSharedReindexChanged(): boolean {
+  const v = process.env.INDEX_SHARED_REINDEX_CHANGED?.toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/** Si true, en indexSharedDirs se borran de Qdrant los (project, title) que ya no existen en disco. */
+export function getSharedSyncDeleted(): boolean {
+  const v = process.env.INDEX_SHARED_SYNC_DELETED?.toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/** Ruta del archivo SQLite para el índice persistente de claves (project, source_path). */
+export function getIndexedKeysDbPath(): string {
+  const raw = process.env.INDEXED_KEYS_DB?.trim();
+  if (raw) return path.resolve(raw);
+  return path.resolve(__dirname, '..', 'data', 'indexed_keys.db');
+}
+
+/** Si true, se usa el índice persistente SQLite en lugar del scroll completo de Qdrant. */
+export function getUsePersistentIndexedKeys(): boolean {
+  const v = process.env.INDEX_USE_PERSISTENT_KEYS?.toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}

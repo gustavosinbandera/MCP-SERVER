@@ -69,7 +69,7 @@
           <a href="#architecture" class="text-slate-400 hover:text-white transition-colors text-sm">Arquitectura</a>
           <a href="#stack" class="text-slate-400 hover:text-white transition-colors text-sm">Stack</a>
           <a href="#features" class="text-slate-400 hover:text-white transition-colors text-sm">Características</a>
-          <span class="font-mono text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">v2.1.0</span>
+          <span class="font-mono text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">v2.2.0</span>
         </div>
       </div>
     </nav>
@@ -146,8 +146,8 @@
               <text x="110" y="35" text-anchor="middle" fill="#a78bfa" font-size="14" font-weight="700" class="font-mono">MCP GATEWAY</text>
               <line x1="30" y1="50" x2="190" y2="50" stroke="rgba(139,92,246,0.3)" stroke-width="1" />
               <text x="110" y="75" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">Node.js + TypeScript</text>
-              <text x="110" y="95" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">search_docs</text>
-              <text x="110" y="115" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">(búsqueda Qdrant)</text>
+              <text x="110" y="95" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">search_docs · indexación</text>
+              <text x="110" y="115" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">Qdrant + SQLite (claves)</text>
               <text x="110" y="135" text-anchor="middle" fill="#e2e8f0" font-size="11" class="font-mono">stdio · REST /api</text>
               <circle cx="110" cy="150" r="5" fill="#a78bfa" class="pulse-dot" />
             </g>
@@ -236,7 +236,14 @@
               <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
             </div>
             <h3 class="font-semibold text-white mb-1">PostgreSQL</h3>
-            <p class="text-slate-400 text-sm">Database</p>
+            <p class="text-slate-400 text-sm">Metadata</p>
+          </div>
+          <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-amber-500/20 flex items-center justify-center">
+              <svg class="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg>
+            </div>
+            <h3 class="font-semibold text-white mb-1">SQLite</h3>
+            <p class="text-slate-400 text-sm">Índice de claves (gateway)</p>
           </div>
           <div class="tech-card-hover glow-border rounded-2xl bg-slate-900/80 border border-slate-800 p-6 text-center">
             <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-cyan-500/20 flex items-center justify-center">
@@ -298,7 +305,7 @@
                 <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
               </div>
               <h3 class="text-xl font-semibold text-white mb-3">Auto-Documentación</h3>
-              <p class="text-slate-400 leading-relaxed">Indexación de documentación en Qdrant (colección mcp_docs) y herramienta search_docs para la IA en el IDE.</p>
+              <p class="text-slate-400 leading-relaxed">Indexación en Qdrant (mcp_docs) con exclusiones por carpeta, embeddings por lote, reindexado al cambiar contenido y sincronización de borrados. Índice persistente de claves en SQLite para evitar scroll completo. Herramienta search_docs para la IA en el IDE.</p>
             </div>
           </div>
           <div class="group relative rounded-2xl bg-slate-900/50 border border-slate-800 p-8 hover:border-amber-500/50 transition-all duration-300">
@@ -362,7 +369,7 @@
             <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center">
               <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
-            <span class="text-slate-400 text-sm">MCP Knowledge Hub © 2024</span>
+            <span class="text-slate-400 text-sm">MCP Knowledge Hub © 2025</span>
           </div>
           <div class="flex items-center gap-6">
             <a href="https://github.com/gustavosinbandera/MCP-SERVER/blob/master/README.md" class="text-slate-400 hover:text-white transition-colors text-sm">Documentación</a>

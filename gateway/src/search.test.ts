@@ -1,9 +1,13 @@
 /**
  * Unit tests for search (indexedKey pure; loadExistingIndexedKeys, searchDocs with mocked Qdrant).
  */
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { indexedKey, loadExistingIndexedKeys, searchDocs, countDocs } from './search';
 import { getQdrantClient } from './qdrant-client';
 import { COLLECTION_NAME } from './config';
+import { addKey as addPersistentKey, close as closeIndexedKeysDb } from './indexed-keys-db';
 
 jest.mock('./qdrant-client');
 jest.mock('./embedding', () => ({
@@ -70,7 +74,30 @@ describe('search', () => {
         getCollections: jest.fn().mockRejectedValue(new Error('connection refused')),
       };
       mockGetQdrantClient.mockReturnValue(client as never);
-      await expect(loadExistingIndexedKeys(client as never)).rejects.toThrow('loadExistingIndexedKeys failed');
+      await expect(loadExistingIndexedKeys(client as never)).rejects.toThrow('loadExistingIndexedKeysAndHashes failed');
+    });
+
+    it('returns keys from SQLite when INDEX_USE_PERSISTENT_KEYS and DB file exist', async () => {
+      const tmpPath = path.join(os.tmpdir(), `search-test-keys-${Date.now()}.db`);
+      const origUse = process.env.INDEX_USE_PERSISTENT_KEYS;
+      const origDb = process.env.INDEXED_KEYS_DB;
+      process.env.INDEX_USE_PERSISTENT_KEYS = 'true';
+      process.env.INDEXED_KEYS_DB = tmpPath;
+      addPersistentKey('sqlite_proj', 'doc/path', 'hash1');
+      const client = { getCollections: jest.fn().mockRejectedValue(new Error('should not be called')) };
+      mockGetQdrantClient.mockReturnValue(client as never);
+      const keys = await loadExistingIndexedKeys(client as never);
+      expect(keys.size).toBe(1);
+      expect(keys.has(indexedKey('sqlite_proj', 'doc/path'))).toBe(true);
+      expect(client.getCollections).not.toHaveBeenCalled();
+      closeIndexedKeysDb();
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {
+        // ignore
+      }
+      process.env.INDEX_USE_PERSISTENT_KEYS = origUse;
+      process.env.INDEXED_KEYS_DB = origDb;
     });
   });
 
