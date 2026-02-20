@@ -12,7 +12,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import { z } from 'zod';
-import { searchDocs, countDocs } from './search';
+import { searchDocs, countDocs, type SearchOptions } from './search';
 import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './shared-dirs';
 import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent, loginMediaWiki } from './url-indexer';
 import { writeFlowDocToInbox } from './flow-doc';
@@ -22,6 +22,49 @@ import { searchGitHubRepos } from './github-search';
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
 const KNOWLEDGE_HUB_NAME = (process.env.KNOWLEDGE_HUB_NAME || process.env.PROJECT_NAME || '').trim();
 
+type SearchFilterArgs = {
+  project?: string;
+  branch?: string;
+  source_type?: string;
+  domain?: string;
+  class_name?: string;
+  referenced_type?: string;
+  file_name?: string;
+};
+
+function buildSearchOptionsFromArgs(args: SearchFilterArgs): SearchOptions | undefined {
+  const project = args.project?.trim();
+  const branch = args.branch?.trim();
+  const source_type = args.source_type?.trim();
+  const domain = args.domain?.trim();
+  const class_name = args.class_name?.trim();
+  const referenced_type = args.referenced_type?.trim();
+  const file_name = args.file_name?.trim();
+  if (!project && !branch && !source_type && !domain && !class_name && !referenced_type && !file_name) return undefined;
+  return {
+    project: project || undefined,
+    branch: branch || undefined,
+    source_type: source_type || undefined,
+    domain: domain || undefined,
+    class_name: class_name || undefined,
+    referenced_type: referenced_type || undefined,
+    file_name: file_name || undefined,
+  };
+}
+
+function formatFilterInfo(opts: SearchOptions): string {
+  const parts = [
+    opts.project && `project=${opts.project}`,
+    opts.branch && `branch=${opts.branch}`,
+    opts.source_type && `source_type=${opts.source_type}`,
+    opts.domain && `domain=${opts.domain}`,
+    opts.class_name && `class_name=${opts.class_name}`,
+    opts.referenced_type && `referenced_type=${opts.referenced_type}`,
+    opts.file_name && `file_name=${opts.file_name}`,
+  ].filter(Boolean);
+  return parts.join(', ');
+}
+
 const mcpServer = new McpServer({
   name: 'mcp-knowledge-hub',
   version: '0.1.0',
@@ -29,14 +72,36 @@ const mcpServer = new McpServer({
 
 mcpServer.tool(
   'search_docs',
-  'Busca en la documentación indexada del Knowledge Hub (Qdrant). Usa esta herramienta cuando necesites información de la documentación del proyecto, ADRs, bugs, flujos o docs corporativos.',
-  { query: z.string(), limit: z.number().optional() } as any,
-  async (args: { query: string; limit?: number }) => {
+  'Busca en la documentación indexada del Knowledge Hub (Qdrant). Filtros opcionales (alineados con el payload indexado): project, branch (classic|blueivory), source_type (code|doc|url), domain, class_name (clase que contiene el doc), referenced_type (tipo referenciado), file_name. Usa esta herramienta cuando necesites información de la documentación del proyecto, ADRs, bugs, flujos o docs corporativos.',
+  {
+    query: z.string(),
+    limit: z.number().optional(),
+    project: z.string().optional(),
+    branch: z.string().optional(),
+    source_type: z.string().optional(),
+    domain: z.string().optional(),
+    class_name: z.string().optional(),
+    referenced_type: z.string().optional(),
+    file_name: z.string().optional(),
+  } as any,
+  async (args: {
+    query: string;
+    limit?: number;
+    project?: string;
+    branch?: string;
+    source_type?: string;
+    domain?: string;
+    class_name?: string;
+    referenced_type?: string;
+    file_name?: string;
+  }) => {
     const query = args.query ?? '';
     const limit = args.limit ?? 10;
     const maxResults = Math.min(Math.max(1, limit), 100);
-    const { results, total } = await searchDocs(query, maxResults);
+    const opts = buildSearchOptionsFromArgs(args);
+    const { results, total } = await searchDocs(query, maxResults, opts);
     const header = KNOWLEDGE_HUB_NAME ? `[${KNOWLEDGE_HUB_NAME}] ` : '';
+    const filterInfo = opts ? ` Filtros: ${formatFilterInfo(opts)}` : '';
     const text =
       results.length === 0
         ? `Sin resultados para "${query}".`
@@ -50,7 +115,7 @@ mcpServer.tool(
       content: [
         {
           type: 'text' as const,
-          text: `${header}Búsqueda: "${query}" (${total} resultado(s))\n\n${text}`,
+          text: `${header}Búsqueda: "${query}" (${total} resultado(s))${filterInfo}\n\n${text}`,
         },
       ],
     };
@@ -78,25 +143,37 @@ mcpServer.tool(
     description: z.string(),
     component: z.string().optional(),
     project: z.string().optional(),
+    branch: z.string().optional(),
+    source_type: z.string().optional(),
+    domain: z.string().optional(),
+    class_name: z.string().optional(),
+    referenced_type: z.string().optional(),
+    file_name: z.string().optional(),
     limit: z.number().optional(),
   } as any,
   async (args: {
     description: string;
     component?: string;
     project?: string;
+    branch?: string;
+    source_type?: string;
+    domain?: string;
+    class_name?: string;
+    referenced_type?: string;
+    file_name?: string;
     limit?: number;
   }) => {
     const description = (args.description || '').trim();
     const component = (args.component || '').trim();
-    const project = (args.project || '').trim();
     const limit = Math.min(Math.max(1, args.limit ?? 15), 30);
     const queryParts = [description];
     if (component) queryParts.push(component);
     const query = queryParts.join(' ');
     const { count } = await countDocs();
-    const { results, total } = await searchDocs(query, limit, project ? { project } : undefined);
+    const opts = buildSearchOptionsFromArgs(args);
+    const { results, total } = await searchDocs(query, limit, opts);
     const hubName = KNOWLEDGE_HUB_NAME ? ` – ${KNOWLEDGE_HUB_NAME}` : '';
-    const projectInfo = project ? ` | Proyecto: ${project}` : '';
+    const projectInfo = opts?.project ? ` | Proyecto: ${opts.project}` : opts ? ` | Filtros: ${formatFilterInfo(opts)}` : '';
     const header = [
       `[ANÁLISIS DE CÓDIGO${hubName} – contexto desde la BD]`,
       `Colección: mcp_docs | Documentos totales indexados: ${count}${projectInfo}`,
@@ -127,16 +204,16 @@ mcpServer.tool(
 
 mcpServer.tool(
   'index_url',
-  'Indexa el contenido de una URL en Qdrant (Knowledge Hub). Obtiene la página, convierte HTML a texto y lo guarda en mcp_docs. Si la URL ya existía, se actualiza. Úsala para añadir documentación o páginas importantes desde internet.',
-  { url: z.string() } as any,
-  async (args: { url: string }) => {
+  'Indexa el contenido de una URL en Qdrant (Knowledge Hub). Obtiene la página, convierte HTML a texto y lo guarda en mcp_docs. Si la URL ya existía, se actualiza. project opcional (ej. magaya-help) para filtrar después por source_type=url. Para páginas SPA usa render_js: true. Úsala para añadir documentación o páginas importantes desde internet.',
+  { url: z.string(), render_js: z.boolean().optional(), project: z.string().optional() } as any,
+  async (args: { url: string; render_js?: boolean; project?: string }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
         content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
       };
     }
-    const result = await indexUrl(url);
+    const result = await indexUrl(url, { renderJs: args.render_js, project: args.project?.trim() });
     if (result.indexed) {
       return {
         content: [{ type: 'text' as const, text: `URL indexada: ${result.title}\n${url}` }],
@@ -150,9 +227,9 @@ mcpServer.tool(
 
 mcpServer.tool(
   'index_url_with_links',
-  'Indexa una URL y hasta max_links páginas enlazadas del mismo dominio (documentación, FAQ, etc.). Úsala para indexar un sitio y sus subpáginas relacionadas.',
-  { url: z.string(), max_links: z.number().optional() } as any,
-  async (args: { url: string; max_links?: number }) => {
+  'Indexa una URL y hasta max_links páginas enlazadas del mismo dominio (documentación, FAQ, etc.). Para sitios SPA (ej. help.magaya.com) usa render_js: true. Úsala para indexar un sitio y sus subpáginas relacionadas.',
+  { url: z.string(), max_links: z.number().optional(), render_js: z.boolean().optional() } as any,
+  async (args: { url: string; max_links?: number; render_js?: boolean }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
@@ -160,7 +237,7 @@ mcpServer.tool(
       };
     }
     const maxLinks = Math.min(Math.max(0, args.max_links ?? 20), 50);
-    const result = await indexUrlWithLinks(url, maxLinks);
+    const result = await indexUrlWithLinks(url, maxLinks, { renderJs: args.render_js });
     const lines = [
       `Indexadas: ${result.indexed}/${result.total} páginas.`,
       result.urls.length > 0 ? `URLs: ${result.urls.join(', ')}` : '',
@@ -174,9 +251,9 @@ mcpServer.tool(
 
 mcpServer.tool(
   'index_site',
-  'Indexa todo un sitio desde una URL semilla: recorre enlaces del mismo dominio (BFS) hasta indexar max_pages páginas. Úsala para indexar documentación completa (ej. wiki o dev center).',
-  { url: z.string(), max_pages: z.number().optional() } as any,
-  async (args: { url: string; max_pages?: number }) => {
+  'Indexa todo un sitio desde una URL semilla: recorre enlaces del mismo dominio (BFS) hasta indexar max_pages páginas. Para sitios SPA (ej. help.magaya.com) usa render_js: true. Úsala para indexar documentación completa (ej. wiki o dev center).',
+  { url: z.string(), max_pages: z.number().optional(), render_js: z.boolean().optional() } as any,
+  async (args: { url: string; max_pages?: number; render_js?: boolean }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
@@ -184,7 +261,7 @@ mcpServer.tool(
       };
     }
     const maxPages = Math.min(Math.max(1, args.max_pages ?? 1000), 10000);
-    const result = await indexSite(url, maxPages);
+    const result = await indexSite(url, maxPages, { renderJs: args.render_js });
     const lines = [
       `Indexadas: ${result.indexed} páginas.`,
       result.urls.length > 0 ? `URLs (primeras 20): ${result.urls.slice(0, 20).join(', ')}${result.urls.length > 20 ? '...' : ''}` : '',
@@ -330,16 +407,16 @@ mcpServer.tool(
 
 mcpServer.tool(
   'view_url',
-  'Muestra el contenido de una URL en formato Markdown (título, texto y bloques de código con ```). En MediaWiki solo se devuelve el artículo (.mw-parser-output), sin menús ni pie. Siempre presenta al usuario el contenido completo que devuelve la herramienta, con secciones y código formateado. Úsala para ver una página: ver url, inspeccionar url.',
-  { url: z.string() } as any,
-  async (args: { url: string }) => {
+  'Muestra el contenido de una URL en formato Markdown (título, texto y bloques de código con ```). En MediaWiki solo se devuelve el artículo (.mw-parser-output), sin menús ni pie. Para páginas que cargan el contenido por JavaScript (SPA, ej. help.magaya.com), usa render_js: true para abrir la URL en un navegador headless y obtener el HTML renderizado. Úsala para ver una página: ver url, inspeccionar url.',
+  { url: z.string(), render_js: z.boolean().optional() } as any,
+  async (args: { url: string; render_js?: boolean }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
         content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
       };
     }
-    const result = await viewUrlContent(url);
+    const result = await viewUrlContent(url, { renderJs: args.render_js });
     if (result.error) {
       return {
         content: [{ type: 'text' as const, text: `## Error\n\n**URL:** ${url}\n\n${result.error}` }],

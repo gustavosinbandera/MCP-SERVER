@@ -8,7 +8,7 @@ import { convert } from 'html-to-text';
 import { embedBatch, hasEmbedding, getVectorSize } from './embedding';
 import { chunkText } from './chunking';
 import { getQdrantClient } from './qdrant-client';
-import { COLLECTION_NAME, BATCH_UPSERT_SIZE } from './config';
+import { COLLECTION_NAME, BATCH_UPSERT_SIZE, getBranchForProject } from './config';
 
 const FETCH_TIMEOUT_MS = 15000;
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB (indexación)
@@ -391,16 +391,25 @@ export function formatListUrlLinksMarkdown(r: ListUrlLinksResult): string {
   return lines.join('\n');
 }
 
+export type ViewUrlContentOptions = { renderJs?: boolean };
+
 /**
  * Devuelve el contenido de una URL en formato Markdown (título + texto) para mostrar en consola.
  * Usa VIEW_URL_MAX_LENGTH para devolver el documento completo (sin recortar a 2 MB).
+ * renderJs: si true, usa navegador headless (Puppeteer) para páginas que cargan contenido por JavaScript (SPA).
  */
-export async function viewUrlContent(url: string): Promise<{ url: string; title: string; content: string; error?: string }> {
+export async function viewUrlContent(
+  url: string,
+  options?: ViewUrlContentOptions,
+): Promise<{ url: string; title: string; content: string; error?: string }> {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return { url, title: '', content: '', error: 'URL debe comenzar con http:// o https://' };
   }
   try {
-    const { title, content } = await fetchUrlContent(url, { maxContentLength: VIEW_URL_MAX_LENGTH });
+    const { title, content } = await fetchUrlContent(url, {
+      maxContentLength: VIEW_URL_MAX_LENGTH,
+      renderJs: options?.renderJs,
+    });
     const md = [
       `## ${title}`,
       '',
@@ -417,45 +426,57 @@ export async function viewUrlContent(url: string): Promise<{ url: string; title:
   }
 }
 
-export type FetchUrlContentOptions = { maxContentLength?: number };
+export type FetchUrlContentOptions = { maxContentLength?: number; renderJs?: boolean };
 
 /**
  * Obtiene título y contenido de texto de una URL (HTML convertido a texto).
  * Para indexación usa MAX_CONTENT_LENGTH (2 MB). Para view_url usa maxContentLength (ej. VIEW_URL_MAX_LENGTH).
+ * Si renderJs es true o INDEX_URL_USE_BROWSER=true, usa Puppeteer para obtener el HTML (SPAs que cargan por JS).
  */
 export async function fetchUrlContent(
   url: string,
   options?: FetchUrlContentOptions,
 ): Promise<{ title: string; content: string }> {
   const maxLen = options?.maxContentLength ?? MAX_CONTENT_LENGTH;
-  await ensureSessionForUrl(url);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'MCP-Knowledge-Hub/1.0 (indexer)',
-        ...getAuthHeaders(),
-        ...getCookieHeader(getHost(url)),
-      },
-    });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    const raw = await res.text();
-    if (raw.length > maxLen) throw new Error(`Contenido mayor a ${maxLen / 1024 / 1024} MB`);
-    if (contentType.includes('text/html')) {
-      const title = extractTitleFromHtml(raw) || url;
-      const html = raw.length > maxLen ? raw.slice(0, maxLen) : raw;
-      const htmlToTextOptions = getHtmlToTextOptions(maxLen === VIEW_URL_MAX_LENGTH);
-      const content = convert(html, htmlToTextOptions);
-      return { title: title.slice(0, 500), content: content.slice(0, maxLen) };
+  const useBrowser = options?.renderJs === true || process.env.INDEX_URL_USE_BROWSER === 'true';
+
+  let raw: string;
+  let contentType = '';
+  if (useBrowser) {
+    const { getHtmlWithBrowser } = await import('./fetch-with-browser');
+    raw = await getHtmlWithBrowser(url);
+    contentType = 'text/html';
+  } else {
+    await ensureSessionForUrl(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'MCP-Knowledge-Hub/1.0 (indexer)',
+          ...getAuthHeaders(),
+          ...getCookieHeader(getHost(url)),
+        },
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      contentType = (res.headers.get('content-type') || '').toLowerCase();
+      raw = await res.text();
+    } finally {
+      clearTimeout(timeout);
     }
-    return { title: url, content: raw.slice(0, maxLen) };
-  } finally {
-    clearTimeout(timeout);
   }
+
+  if (raw.length > maxLen) throw new Error(`Contenido mayor a ${maxLen / 1024 / 1024} MB`);
+  if (contentType.includes('text/html')) {
+    const title = extractTitleFromHtml(raw) || url;
+    const html = raw.length > maxLen ? raw.slice(0, maxLen) : raw;
+    const htmlToTextOptions = getHtmlToTextOptions(maxLen === VIEW_URL_MAX_LENGTH);
+    const content = convert(html, htmlToTextOptions);
+    return { title: title.slice(0, 500), content: content.slice(0, maxLen) };
+  }
+  return { title: url, content: raw.slice(0, maxLen) };
 }
 
 function stableIdFromUrl(url: string): string {
@@ -472,11 +493,18 @@ async function ensureCollection(client: QdrantClient): Promise<void> {
   }
 }
 
-export async function indexUrl(url: string): Promise<{ indexed: boolean; title: string; error?: string }> {
+export type IndexUrlOptions = { renderJs?: boolean; project?: string };
+
+const DEFAULT_URL_PROJECT = (process.env.INDEX_URL_DEFAULT_PROJECT || 'urls').trim() || 'urls';
+
+export async function indexUrl(url: string, options?: IndexUrlOptions): Promise<{ indexed: boolean; title: string; error?: string }> {
   const client = getQdrantClient({ checkCompatibility: false });
   await ensureCollection(client);
   try {
-    const { title, content } = await fetchUrlContent(url);
+    const { title, content } = await fetchUrlContent(url, { renderJs: options?.renderJs });
+
+    const project = (options?.project || DEFAULT_URL_PROJECT).trim();
+    const branch = getBranchForProject(project) ?? undefined;
 
     if (hasEmbedding()) {
       const chunks = chunkText(content);
@@ -488,17 +516,17 @@ export async function indexUrl(url: string): Promise<{ indexed: boolean; title: 
         if (vector == null) continue;
         const chunk = chunks[i];
         const id = createHash('sha256').update(`${url}#${chunk.chunk_index}`).digest('hex').slice(0, 32);
-        points.push({
-          id,
-          vector,
-          payload: {
-            title,
-            content: chunk.text,
-            url,
-            chunk_index: chunk.chunk_index,
-            total_chunks: chunk.total_chunks,
-          },
-        });
+        const payload: Record<string, unknown> = {
+          title,
+          content: chunk.text,
+          url,
+          chunk_index: chunk.chunk_index,
+          total_chunks: chunk.total_chunks,
+          source_type: 'url',
+          project,
+        };
+        if (branch) payload.branch = branch;
+        points.push({ id, vector, payload });
       }
       if (points.length > 0) {
         await client.delete(COLLECTION_NAME, {
@@ -513,9 +541,11 @@ export async function indexUrl(url: string): Promise<{ indexed: boolean; title: 
     }
 
     const id = stableIdFromUrl(url);
+    const payload: Record<string, unknown> = { title, content, url, source_type: 'url', project };
+    if (branch) payload.branch = branch;
     await client.upsert(COLLECTION_NAME, {
       wait: true,
-      points: [{ id, vector: [0], payload: { title, content, url } }],
+      points: [{ id, vector: [0], payload }],
     });
     return { indexed: true, title };
   } catch (e) {
@@ -574,7 +604,18 @@ function logProgress(msg: string): void {
   console.error(`[${ts}] ${msg}`);
 }
 
-export type IndexUrlWithLinksOptions = { onProgress?: (current: number, total: number, message: string) => void };
+export type IndexUrlWithLinksOptions = {
+  onProgress?: (current: number, total: number, message: string) => void;
+  renderJs?: boolean;
+};
+
+async function getPageHtml(url: string, renderJs?: boolean): Promise<string> {
+  if (renderJs) {
+    const { getHtmlWithBrowser } = await import('./fetch-with-browser');
+    return getHtmlWithBrowser(url);
+  }
+  return fetchHtml(url);
+}
 
 export async function indexUrlWithLinks(
   url: string,
@@ -586,8 +627,9 @@ export async function indexUrlWithLinks(
     logProgress(`[${current}/${total}] ${message}`);
     options?.onProgress?.(current, total, message);
   };
+  const indexOpts = options?.renderJs != null ? { renderJs: options.renderJs } : undefined;
   report(1, 1, `Descargando e indexando: ${url}`);
-  const r = await indexUrl(url);
+  const r = await indexUrl(url, indexOpts);
   if (r.indexed) {
     result.indexed++;
     report(1, 1, `OK: ${r.title}`);
@@ -598,7 +640,7 @@ export async function indexUrlWithLinks(
   result.total++;
   let html: string;
   try {
-    html = await fetchHtml(url);
+    html = await getPageHtml(url, options?.renderJs);
   } catch (e) {
     result.errors.push(`${url} (links): ${e instanceof Error ? e.message : String(e)}`);
     logProgress('No se pudieron obtener enlaces de la página.');
@@ -611,7 +653,7 @@ export async function indexUrlWithLinks(
     const link = links[i];
     const current = i + 2;
     report(current, total, `Indexando: ${link}`);
-    const r = await indexUrl(link);
+    const r = await indexUrl(link, indexOpts);
     if (r.indexed) {
       result.indexed++;
       result.urls.push(link);
@@ -626,7 +668,10 @@ export async function indexUrlWithLinks(
   return result;
 }
 
-export type IndexSiteOptions = { onProgress?: (indexed: number, queueLength: number, url: string) => void };
+export type IndexSiteOptions = {
+  onProgress?: (indexed: number, queueLength: number, url: string) => void;
+  renderJs?: boolean;
+};
 
 export async function indexSite(
   seedUrl: string,
@@ -636,6 +681,7 @@ export async function indexSite(
   const visited = new Set<string>();
   const queue: string[] = [seedUrl];
   const result = { indexed: 0, errors: [] as string[], urls: [] as string[] };
+  const indexOpts = options?.renderJs != null ? { renderJs: options.renderJs } : undefined;
   while (queue.length > 0 && result.indexed < maxPages) {
     const url = queue.shift()!;
     const urlNorm = url.split('#')[0].trim();
@@ -645,7 +691,7 @@ export async function indexSite(
     logProgress(`[SITE] (${n}/${maxPages}) Indexando: ${urlNorm}`);
     options?.onProgress?.(result.indexed, queue.length, urlNorm);
     try {
-      const r = await indexUrl(urlNorm);
+      const r = await indexUrl(urlNorm, indexOpts);
       if (r.indexed) {
         result.indexed++;
         result.urls.push(urlNorm);
@@ -662,7 +708,7 @@ export async function indexSite(
     if (result.indexed >= maxPages) break;
     let html: string;
     try {
-      html = await fetchHtml(urlNorm);
+      html = await getPageHtml(urlNorm, options?.renderJs);
     } catch {
       continue;
     }

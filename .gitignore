@@ -4,6 +4,10 @@ gateway/.env
 .env.local
 *.env.local
 
+# CloudFormation (evitar subir nombres de key pair y claves privadas)
+infra/parameters.json
+*.pem
+
 # Dependencies
 node_modules/
 __pycache__/

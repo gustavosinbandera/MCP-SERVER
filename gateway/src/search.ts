@@ -13,7 +13,44 @@ import {
   rebuildFromQdrant,
 } from './indexed-keys-db';
 
-export type SearchOptions = { project?: string };
+/**
+ * Filtros de búsqueda (alineados con el payload indexado en mcp_docs).
+ * Payload: project, branch, source_type, domain, file_name, class_names[], property_names[], referenced_types[], title, content, source_path, url (si aplica).
+ * branch y source_type se normalizan a minúsculas al filtrar.
+ */
+export type SearchOptions = {
+  project?: string;
+  branch?: string;
+  source_type?: string;
+  domain?: string;
+  /** Filtrar por clase (documentos cuyo class_names contiene este valor). */
+  class_name?: string;
+  /** Filtrar por tipo referenciado (documentos cuyo referenced_types contiene este valor). */
+  referenced_type?: string;
+  /** Filtrar por nombre de archivo (coincidencia exacta en file_name). */
+  file_name?: string;
+};
+
+type QdrantMustCondition =
+  | { key: string; match: { value: string } }
+  | { key: string; match: { any: string[] } };
+
+function buildSearchFilter(options?: SearchOptions): { must: QdrantMustCondition[] } | undefined {
+  if (!options) return undefined;
+  const must: QdrantMustCondition[] = [];
+  const add = (key: string, value: string) => {
+    if (!value) return;
+    must.push({ key, match: { value } });
+  };
+  if (options.project?.trim()) add('project', options.project.trim());
+  if (options.branch?.trim()) must.push({ key: 'branch', match: { value: options.branch.trim().toLowerCase() } });
+  if (options.source_type?.trim()) must.push({ key: 'source_type', match: { value: options.source_type.trim().toLowerCase() } });
+  if (options.domain?.trim()) must.push({ key: 'domain', match: { value: options.domain.trim().toLowerCase() } });
+  if (options.file_name?.trim()) add('file_name', options.file_name.trim());
+  if (options.class_name?.trim()) must.push({ key: 'class_names', match: { any: [options.class_name.trim()] } });
+  if (options.referenced_type?.trim()) must.push({ key: 'referenced_types', match: { any: [options.referenced_type.trim()] } });
+  return must.length > 0 ? { must } : undefined;
+}
 
 const SCROLL_PAGE_SIZE = 500;
 
@@ -137,11 +174,8 @@ export async function searchDocs(
           with_payload: true,
           with_vector: false,
         };
-        if (options?.project?.trim()) {
-          searchOpts.filter = {
-            must: [{ key: 'project', match: { value: options.project.trim() } }],
-          };
-        }
+        const filter = buildSearchFilter(options);
+        if (filter) searchOpts.filter = filter;
         const searchResult = await client.search(COLLECTION_NAME, searchOpts);
         const results = searchResult.map((p) => ({
           id: (p.id as string) ?? '',
@@ -157,11 +191,8 @@ export async function searchDocs(
       with_payload: true,
       with_vector: false,
     };
-    if (options?.project?.trim()) {
-      scrollOpts.filter = {
-        must: [{ key: 'project', match: { value: options.project.trim() } }],
-      };
-    }
+    const filter = buildSearchFilter(options);
+    if (filter) scrollOpts.filter = filter;
     const { points } = await client.scroll(COLLECTION_NAME, scrollOpts);
     let results = points.map((p) => ({
       id: p.id as string,

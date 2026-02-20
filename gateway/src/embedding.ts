@@ -21,7 +21,11 @@ function getClient(): OpenAI | null {
   if (_client != null) return _client;
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) return null;
-  _client = new OpenAI({ apiKey: key });
+  const baseURL = process.env.OPENAI_BASE_URL?.trim();
+  _client = new OpenAI({
+    apiKey: key,
+    ...(baseURL ? { baseURL } : {}),
+  });
   return _client;
 }
 

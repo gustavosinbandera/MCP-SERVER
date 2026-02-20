@@ -84,3 +84,55 @@ export function getUsePersistentIndexedKeys(): boolean {
   const v = process.env.INDEX_USE_PERSISTENT_KEYS?.toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
+
+/** Alias de proyecto que mapean a branch "classic" (comparación en minúsculas). */
+const CLASSIC_ALIASES = ['classic', 'clasic', 'core'];
+
+/** Alias de proyecto que mapean a branch "blueivory" (comparación en minúsculas). */
+const BLUEIVORY_ALIASES = ['bi', 'blueivory', 'blue-ivory'];
+
+/**
+ * Branch (classic vs blueivory) for a given project name.
+ * Uses BRANCH_PROJECTS env (format "classic:proj1,proj2;blueivory:proj3") or alias/convention:
+ * - Classic: project is or contains "classic", "clasic", "core"
+ * - BlueIvory: project is or contains "bi", "blueivory", "blue-ivory", or starts with "bi-" / "bi_"
+ */
+export function getBranchForProject(project: string): string | undefined {
+  const raw = process.env.BRANCH_PROJECTS?.trim();
+  if (raw) {
+    const lower = project.toLowerCase();
+    for (const part of raw.split(';')) {
+      const colon = part.indexOf(':');
+      if (colon > 0) {
+        const branch = part.slice(0, colon).trim().toLowerCase();
+        const projects = part.slice(colon + 1).split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+        if (branch && projects.some((p) => lower === p || lower.includes(p))) return branch;
+      }
+    }
+  }
+  const p = project.toLowerCase();
+  if (CLASSIC_ALIASES.some((a) => p === a || p.includes(a))) return 'classic';
+  if (BLUEIVORY_ALIASES.some((a) => p === a || p.includes(a))) return 'blueivory';
+  if (/^bi[-_]/.test(p)) return 'blueivory';
+  return undefined;
+}
+
+/**
+ * Domain inferred from project name or path (e.g. accounting, shipments, warehouse).
+ * Uses DOMAIN_KEYWORDS env: "domain:keyword1,keyword2;..." (path/project containing keyword → domain).
+ * Example: DOMAIN_KEYWORDS=accounting:accounting,account;shipments:shipment,shipping;warehouse:warehouse,wr,receipt
+ */
+export function getDomainForPath(project: string, relativePath: string): string | undefined {
+  const raw = process.env.DOMAIN_KEYWORDS?.trim();
+  if (!raw) return undefined;
+  const combined = `${project}/${relativePath}`.toLowerCase();
+  for (const part of raw.split(';')) {
+    const colon = part.indexOf(':');
+    if (colon > 0) {
+      const domain = part.slice(0, colon).trim().toLowerCase();
+      const keywords = part.slice(colon + 1).split(',').map((k) => k.trim().toLowerCase()).filter(Boolean);
+      if (domain && keywords.some((kw) => combined.includes(kw))) return domain;
+    }
+  }
+  return undefined;
+}

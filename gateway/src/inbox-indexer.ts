@@ -25,12 +25,15 @@ import {
   getSharedDirsEntries,
   getSharedReindexChanged,
   getSharedSyncDeleted,
+  getBranchForProject,
+  getDomainForPath,
   COLLECTION_NAME,
   BATCH_UPSERT_SIZE,
   MAX_FILE_SIZE_BYTES,
   INDEX_CONCURRENCY,
 } from './config';
 import { info, error as logError } from './logger';
+import { extractCodeMetadata, isCodeFileForMetadata, type CodeMetadata } from './code-metadata';
 
 const TEXT_EXT = new Set([
   '.txt', '.md', '.json', '.csv', '.html', '.xml', '.log', '.yml', '.yaml',
@@ -130,11 +133,20 @@ function projectFromPath(sourcePath: string): string {
   return first || norm || 'inbox';
 }
 
+type IndexDocumentMeta = {
+  source_path: string;
+  project: string;
+  source_type?: 'code' | 'doc';
+  branch?: string;
+  domain?: string;
+  code_metadata?: CodeMetadata | null;
+};
+
 async function indexDocument(
   client: QdrantClient,
   title: string,
   content: string,
-  meta?: { source_path: string; project: string }
+  meta?: IndexDocumentMeta
 ): Promise<void> {
   const source_path = meta?.source_path ?? title;
   const project = meta?.project ?? '';
@@ -157,6 +169,15 @@ async function indexDocument(
         chunk_index: chunk.chunk_index,
         total_chunks: chunk.total_chunks,
       };
+      if (meta?.source_type) payload.source_type = meta.source_type;
+      if (meta?.branch) payload.branch = meta.branch;
+      if (meta?.domain) payload.domain = meta.domain;
+      if (meta?.code_metadata) {
+        payload.file_name = meta.code_metadata.file_name;
+        payload.class_names = meta.code_metadata.class_names;
+        payload.property_names = meta.code_metadata.property_names;
+        payload.referenced_types = meta.code_metadata.referenced_types;
+      }
       if (contentHash != null) payload.content_hash = contentHash;
       points.push({ id: randomUUID(), vector, payload });
     }
@@ -173,6 +194,15 @@ async function indexDocument(
   if (meta) {
     payload.source_path = meta.source_path;
     payload.project = meta.project;
+    if (meta.source_type) payload.source_type = meta.source_type;
+    if (meta.branch) payload.branch = meta.branch;
+    if (meta.domain) payload.domain = meta.domain;
+    if (meta.code_metadata) {
+      payload.file_name = meta.code_metadata.file_name;
+      payload.class_names = meta.code_metadata.class_names;
+      payload.property_names = meta.code_metadata.property_names;
+      payload.referenced_types = meta.code_metadata.referenced_types;
+    }
   }
   await client.upsert(COLLECTION_NAME, {
     wait: true,
@@ -217,7 +247,11 @@ export async function processInboxItem(
       removeItemSync(absPath);
       return { indexed: 0, removed: true };
     }
-    await indexDocument(client, source_path, content, { source_path, project });
+    const branch = getBranchForProject(project);
+    const domain = getDomainForPath(project, path.basename(absPath));
+    const fileName = path.basename(absPath);
+    const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(content, fileName) : undefined;
+    await indexDocument(client, source_path, content, { source_path, project, source_type: 'doc', branch, domain, code_metadata });
     if (existingKeys) existingKeys.add(indexedKey(project, source_path));
     if (isPersistentIndexEnabled()) addPersistentKey(project, source_path, createHash('sha256').update(content).digest('hex'));
     indexed = 1;
@@ -234,10 +268,14 @@ export async function processInboxItem(
       fs.rmSync(absPath, { recursive: true });
       return { indexed: 0, removed: true };
     }
+    const branch = getBranchForProject(project);
     for (const { relativePath, content } of items) {
       const source_path = `${project}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
       if (existingKeys ? existingKeys.has(indexedKey(project, source_path)) : await existsDocByProjectAndPath(project, source_path)) continue;
-      await indexDocument(client, source_path, content, { source_path, project });
+      const domain = getDomainForPath(project, relativePath);
+      const fileName = path.basename(relativePath);
+      const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(content, fileName) : undefined;
+      await indexDocument(client, source_path, content, { source_path, project, source_type: 'doc', branch, domain, code_metadata });
       if (existingKeys) existingKeys.add(indexedKey(project, source_path));
       if (isPersistentIndexEnabled()) addPersistentKey(project, source_path, createHash('sha256').update(content).digest('hex'));
       indexed++;
@@ -360,11 +398,15 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
         toReindex.push({ ...f, source_path, key, hash });
       }
     }
+    const branch = getBranchForProject(project);
     const reindexCounts = await Promise.all(
       toReindex.map((item) =>
         limit(async () => {
           await deleteByProjectAndTitle(client, project, item.source_path);
-          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project });
+          const domain = getDomainForPath(project, item.relativePath);
+          const fileName = path.basename(item.relativePath);
+          const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
+          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project, source_type: 'code', branch, domain, code_metadata });
           existingKeys.add(item.key);
           existingHashes.set(item.key, item.hash);
           if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
@@ -376,7 +418,10 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
     const counts = await Promise.all(
       toIndex.map((item) =>
         limit(async () => {
-          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project });
+          const domain = getDomainForPath(project, item.relativePath);
+          const fileName = path.basename(item.relativePath);
+          const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
+          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project, source_type: 'code', branch, domain, code_metadata });
           existingKeys.add(item.key);
           existingHashes.set(item.key, item.hash);
           if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
