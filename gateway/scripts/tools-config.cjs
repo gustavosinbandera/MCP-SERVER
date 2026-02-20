@@ -66,4 +66,9 @@ module.exports = [
     aliases: ['login mediawiki', 'iniciar sesión', 'login url', 'login sitio', 'mediawiki login'],
     keywords: ['iniciar sesión en mediawiki', 'login en sitio protegido', 'obtener token mediawiki', 'autenticación url', 'sesión para view_url'],
   },
+  {
+    name: 'repo_git',
+    aliases: ['git', 'hacer push', 'hacer commit', 'subir cambios', 'push', 'commit', 'estado repo', 'git status', 'git push', 'git commit', 'subir al repo', 'guardar en git'],
+    keywords: ['manipular repositorio', 'hacer push', 'hacer commit', 'subir cambios a github', 'estado del repo', 'git status', 'git add', 'git commit', 'git push', 'git pull', 'subir al remoto'],
+  },
 ];

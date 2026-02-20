@@ -16,6 +16,7 @@ import { searchDocs, countDocs } from './search';
 import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './shared-dirs';
 import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent, loginMediaWiki } from './url-indexer';
 import { writeFlowDocToInbox } from './flow-doc';
+import { runRepoGit } from './repo-git';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
 const KNOWLEDGE_HUB_NAME = (process.env.KNOWLEDGE_HUB_NAME || process.env.PROJECT_NAME || '').trim();
@@ -363,6 +364,42 @@ mcpServer.tool(
     const result = await loginMediaWiki(url);
     const title = result.success ? 'Sesión iniciada' : 'Error de login';
     const text = `## ${title}\n\n${result.message}`;
+    return {
+      content: [{ type: 'text' as const, text }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'repo_git',
+  'Manipula el repositorio Git del workspace. Alias: hacer push, hacer commit, subir los cambios, ver estado del repo, etc. Acciones permitidas: status (ver estado), add (añadir archivos al stage), commit (crear commit; requiere message), push (subir al remoto), pull (traer del remoto). Por defecto opera en el directorio de trabajo del proceso (normalmente la raíz del proyecto abierto en el IDE). Opcionalmente pasa directory para otro repo.',
+  {
+    action: z.enum(['status', 'add', 'commit', 'push', 'pull']),
+    message: z.string().optional(),
+    directory: z.string().optional(),
+    paths: z.string().optional(),
+  } as any,
+  async (args: { action: string; message?: string; directory?: string; paths?: string }) => {
+    const action = (args.action || '').trim().toLowerCase();
+    if (!['status', 'add', 'commit', 'push', 'pull'].includes(action)) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Acción no permitida: "${args.action}". Usa: status, add, commit, push o pull.`,
+          },
+        ],
+      };
+    }
+    const result = runRepoGit({
+      action: action as 'status' | 'add' | 'commit' | 'push' | 'pull',
+      directory: args.directory?.trim() || undefined,
+      message: args.message?.trim() || undefined,
+      paths: args.paths?.trim() || undefined,
+    });
+    const text = result.ok
+      ? `[repo_git ${action}]\n\n${result.output}`
+      : `[repo_git ${action} – error]\n\n${result.error ?? result.output}`;
     return {
       content: [{ type: 'text' as const, text }],
     };

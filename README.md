@@ -11,6 +11,7 @@ Gateway MCP con búsqueda vectorial (Qdrant), indexación de documentación, web
 - [Tecnologías utilizadas](#tecnologías-utilizadas)
 - [Ejecución con Docker Compose](#ejecución-con-docker-compose)
 - [Ejecución sin Docker (solo MCP + Qdrant)](#ejecución-sin-docker-solo-mcp--qdrant)
+- [Ejecución de tests por fases](#ejecución-de-tests-por-fases)
 - [Herramientas MCP disponibles](#herramientas-mcp-disponibles)
 - [Conectar el IDE (Cursor / VS Code)](#conectar-el-ide-cursor--vs-code)
 - [Estructura del proyecto](#estructura-del-proyecto)
@@ -92,6 +93,46 @@ Para usar **solo el MCP en Cursor** (indexar y buscar documentación) no necesit
 
 ---
 
+## Ejecución de tests por fases
+
+El proyecto incluye un **sistema de validación por fases** (scripts en `scripts/`). Cada fase comprueba una parte del stack; puedes ejecutar una fase concreta o todas en secuencia.
+
+**Requisitos:** PowerShell. Para fases que usan Docker (1, 3, 5), tener el stack levantado cuando corresponda (`docker compose up -d`).
+
+| Fase | Qué valida |
+|------|------------|
+| **0** | Estructura del repo: `docker-compose.yml`, `.env.example`, `README.md`, carpetas `gateway/`, `worker/`, `webapp/`, `nginx/`, `scripts/`, `docs_repo/` y subcarpetas. |
+| **1** | Datastores: Postgres (`mcp-postgres`), Redis (`mcp-redis`) y Qdrant (http://localhost:6333) en marcha y accesibles. |
+| **2** | Git y `docs_repo`: que existan `docs_repo/`, subdirs y `docs_repo/README.md`. |
+| **3** | Esquema Postgres: tablas `submissions` y `trace_logs` en `mcp_hub` (migración `scripts/sql/001_traceability_schema.sql`). |
+| **4** | Gateway MCP: `npm install`, `npm run build` y `npm test` en `gateway/`. |
+| **5** | Worker: pytest y smoke del worker dentro del contenedor (`docker compose run --rm worker ...`). |
+| **6** | Búsqueda con Qdrant: build y tests del gateway que verifican la integración con Qdrant. |
+| **7** | Webapp: `npm install` y `npm run build` en `webapp/`. |
+| **8** | Nginx: existencia de `nginx/nginx.conf` con `proxy_pass` y cabeceras de seguridad (p. ej. `X-Frame-Options`). |
+
+**Ejecutar una fase concreta** (desde la raíz del repo):
+
+```powershell
+.\scripts\validate_phase0.ps1   # solo fase 0
+.\scripts\validate_phase1.ps1   # solo fase 1 (requiere docker compose up -d)
+# ... validate_phase2.ps1 .. validate_phase8.ps1
+```
+
+**Ejecutar todas las fases en orden** (0 → 8):
+
+```powershell
+.\scripts\validate_all.ps1
+```
+
+Si una fase falla, `validate_all.ps1` se detiene y devuelve código de salida 1. Para la fase 3, si Postgres no está disponible, el script muestra un aviso y sale con 0; aplica la migración cuando tengas el contenedor en marcha:
+
+```powershell
+Get-Content scripts\sql\001_traceability_schema.sql | docker exec -i mcp-postgres psql -U postgres -d mcp_hub
+```
+
+---
+
 ## Herramientas MCP disponibles
 
 El servidor MCP expone estas herramientas para el IDE (Cursor, VS Code, etc.):
@@ -110,6 +151,7 @@ El servidor MCP expone estas herramientas para el IDE (Cursor, VS Code, etc.):
 | **write_flow_doc** | Crea un markdown (nodo del mapa de flujos) y lo guarda en el inbox para indexar. Parámetros: `title`, `description`; opcionales: `files`, `functions`, `flow_summary`, `bug_id`, `project`. |
 | **list_shared_dir** | Lista archivos en un directorio compartido. Parámetros: `relative_path` (opcional). |
 | **read_shared_file** | Lee un archivo de un directorio compartido. Parámetros: `relative_path`. |
+| **repo_git** | Manipula el repositorio Git del workspace. Alias: hacer push, commit, subir cambios. Parámetros: `action` (status \| add \| commit \| push \| pull), `message` (obligatorio si action=commit), opcional `directory`, opcional `paths` (para add). |
 
 Documentación detallada de cada herramienta: **gateway/docs/tools/** (y menú en consola: `cd gateway && npm run tools`).
 

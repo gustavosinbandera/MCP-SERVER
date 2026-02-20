@@ -17,7 +17,8 @@
         "index_url_with_links",
         "index_site",
         "list_shared_dir",
-        "read_shared_file"
+        "read_shared_file",
+        "repo_git"
       ]
     }
   }
