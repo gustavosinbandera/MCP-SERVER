@@ -15,6 +15,8 @@ import {
   getSharedSyncDeleted,
   getIndexedKeysDbPath,
   getUsePersistentIndexedKeys,
+  getBranchForProject,
+  getDomainForPath,
 } from './config';
 
 describe('config', () => {
@@ -24,6 +26,8 @@ describe('config', () => {
   const origSyncDeleted = process.env.INDEX_SHARED_SYNC_DELETED;
   const origIndexedKeysDb = process.env.INDEXED_KEYS_DB;
   const origUsePersistent = process.env.INDEX_USE_PERSISTENT_KEYS;
+  const origBranchProjects = process.env.BRANCH_PROJECTS;
+  const origDomainKeywords = process.env.DOMAIN_KEYWORDS;
 
   afterEach(() => {
     process.env.INDEX_INBOX_DIR = origIndexInbox;
@@ -32,6 +36,8 @@ describe('config', () => {
     process.env.INDEX_SHARED_SYNC_DELETED = origSyncDeleted;
     process.env.INDEXED_KEYS_DB = origIndexedKeysDb;
     process.env.INDEX_USE_PERSISTENT_KEYS = origUsePersistent;
+    process.env.BRANCH_PROJECTS = origBranchProjects;
+    process.env.DOMAIN_KEYWORDS = origDomainKeywords;
   });
 
   describe('constants', () => {
@@ -178,6 +184,51 @@ describe('config', () => {
     it('returns true for 1, true, yes', () => {
       process.env.INDEX_USE_PERSISTENT_KEYS = 'true';
       expect(getUsePersistentIndexedKeys()).toBe(true);
+    });
+  });
+
+  describe('getBranchForProject', () => {
+    it('returns classic for alias classic, clasic, core (exact or contained)', () => {
+      delete process.env.BRANCH_PROJECTS;
+      expect(getBranchForProject('classic')).toBe('classic');
+      expect(getBranchForProject('clasic')).toBe('classic');
+      expect(getBranchForProject('core')).toBe('classic');
+      expect(getBranchForProject('classic-main')).toBe('classic');
+      expect(getBranchForProject('core-accounting')).toBe('classic');
+    });
+
+    it('returns blueivory for alias bi, BI, blueivory, blue-ivory and bi- prefix', () => {
+      delete process.env.BRANCH_PROJECTS;
+      expect(getBranchForProject('bi')).toBe('blueivory');
+      expect(getBranchForProject('BI')).toBe('blueivory');
+      expect(getBranchForProject('blueivory')).toBe('blueivory');
+      expect(getBranchForProject('blue-ivory')).toBe('blueivory');
+      expect(getBranchForProject('blueivory-main')).toBe('blueivory');
+      expect(getBranchForProject('bi-warehouse')).toBe('blueivory');
+    });
+
+    it('uses BRANCH_PROJECTS when set', () => {
+      process.env.BRANCH_PROJECTS = 'classic:classic-core;blueivory:bi-main';
+      expect(getBranchForProject('classic-core')).toBe('classic');
+      expect(getBranchForProject('bi-main')).toBe('blueivory');
+    });
+
+    it('returns undefined for unknown project when no env', () => {
+      delete process.env.BRANCH_PROJECTS;
+      expect(getBranchForProject('other-project')).toBeUndefined();
+    });
+  });
+
+  describe('getDomainForPath', () => {
+    it('returns undefined when DOMAIN_KEYWORDS unset', () => {
+      delete process.env.DOMAIN_KEYWORDS;
+      expect(getDomainForPath('proj', 'Accounting/foo.txt')).toBeUndefined();
+    });
+
+    it('returns domain when path contains keyword', () => {
+      process.env.DOMAIN_KEYWORDS = 'accounting:accounting,account;warehouse:warehouse,wr';
+      expect(getDomainForPath('proj', 'Accounting/foo.txt')).toBe('accounting');
+      expect(getDomainForPath('proj', 'src/warehouse/receipt.js')).toBe('warehouse');
     });
   });
 });

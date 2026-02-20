@@ -15,26 +15,32 @@ import {
   loadExistingIndexedKeysAndHashes,
   indexedKey,
   deleteByProjectAndTitle,
+  getPointsByProjectAndTitle,
 } from './search';
 import { isPersistentIndexEnabled, addKey as addPersistentKey, removeKey as removePersistentKey } from './indexed-keys-db';
-import { embedBatch, hasEmbedding, getVectorSize } from './embedding';
+import { embedBatch, hasEmbedding, getVectorSize, getEmbeddingConfig } from './embedding';
 import { chunkText } from './chunking';
+import { chunkCode, isCodeFileForChunking } from './code-chunking';
 import { getQdrantClient } from './qdrant-client';
 import {
   getInboxPath,
   getSharedDirsEntries,
   getSharedReindexChanged,
   getSharedSyncDeleted,
+  getBranchForProject,
+  getDomainForPath,
   COLLECTION_NAME,
   BATCH_UPSERT_SIZE,
   MAX_FILE_SIZE_BYTES,
   INDEX_CONCURRENCY,
 } from './config';
 import { info, error as logError } from './logger';
+import { extractCodeMetadata, isCodeFileForMetadata, type CodeMetadata } from './code-metadata';
 
 const TEXT_EXT = new Set([
   '.txt', '.md', '.json', '.csv', '.html', '.xml', '.log', '.yml', '.yaml',
   '.cpp', '.h', '.hpp', '.c', '.cc', '.cxx',
+  '.cs', '.cshtml', '.razor',
   '.js', '.ts', '.mjs', '.cjs',
   '.py', '.rb', '.go', '.rs', '.java', '.kt', '.scala',
   '.sql', '.sh', '.bash', '.ps1',
@@ -130,18 +136,30 @@ function projectFromPath(sourcePath: string): string {
   return first || norm || 'inbox';
 }
 
+type IndexDocumentMeta = {
+  source_path: string;
+  project: string;
+  source_type?: 'code' | 'doc';
+  branch?: string;
+  domain?: string;
+  code_metadata?: CodeMetadata | null;
+};
+
 async function indexDocument(
   client: QdrantClient,
   title: string,
   content: string,
-  meta?: { source_path: string; project: string }
+  meta?: IndexDocumentMeta
 ): Promise<void> {
   const source_path = meta?.source_path ?? title;
   const project = meta?.project ?? '';
 
   if (hasEmbedding()) {
     const contentHash = createHash('sha256').update(content).digest('hex');
-    const chunks = chunkText(content);
+    const fileName = path.basename(source_path);
+    const chunks = isCodeFileForChunking(fileName)
+      ? chunkCode(content, fileName)
+      : chunkText(content);
     const texts = chunks.map((c) => c.text);
     const vectors = await embedBatch(texts);
     const points: { id: string; vector: number[]; payload: Record<string, unknown> }[] = [];
@@ -157,6 +175,15 @@ async function indexDocument(
         chunk_index: chunk.chunk_index,
         total_chunks: chunk.total_chunks,
       };
+      if (meta?.source_type) payload.source_type = meta.source_type;
+      if (meta?.branch) payload.branch = meta.branch;
+      if (meta?.domain) payload.domain = meta.domain;
+      if (meta?.code_metadata) {
+        payload.file_name = meta.code_metadata.file_name;
+        payload.class_names = meta.code_metadata.class_names;
+        payload.property_names = meta.code_metadata.property_names;
+        payload.referenced_types = meta.code_metadata.referenced_types;
+      }
       if (contentHash != null) payload.content_hash = contentHash;
       points.push({ id: randomUUID(), vector, payload });
     }
@@ -173,11 +200,112 @@ async function indexDocument(
   if (meta) {
     payload.source_path = meta.source_path;
     payload.project = meta.project;
+    if (meta.source_type) payload.source_type = meta.source_type;
+    if (meta.branch) payload.branch = meta.branch;
+    if (meta.domain) payload.domain = meta.domain;
+    if (meta.code_metadata) {
+      payload.file_name = meta.code_metadata.file_name;
+      payload.class_names = meta.code_metadata.class_names;
+      payload.property_names = meta.code_metadata.property_names;
+      payload.referenced_types = meta.code_metadata.referenced_types;
+    }
   }
   await client.upsert(COLLECTION_NAME, {
     wait: true,
     points: [{ id, vector: [0], payload }],
   });
+}
+
+/**
+ * Reindexa un documento reutilizando vectores de chunks sin cambios (solo embed del diff).
+ * oldPoints = puntos actuales del documento en Qdrant (con vector y payload.content).
+ * Chunks con el mismo contenido (hash) reutilizan el vector; solo se llama a la API para chunks nuevos o modificados.
+ */
+async function indexDocumentReindexWithDiff(
+  client: QdrantClient,
+  content: string,
+  meta: IndexDocumentMeta,
+  oldPoints: Array<{ id: string; vector: number[]; payload: { content?: string } }>
+): Promise<void> {
+  const source_path = meta.source_path ?? '';
+  const project = meta.project ?? '';
+  const contentHash = createHash('sha256').update(content).digest('hex');
+  const fileName = path.basename(source_path);
+  const chunks = isCodeFileForChunking(fileName)
+    ? chunkCode(content, fileName)
+    : chunkText(content);
+
+  const oldMap = new Map<string, number[]>();
+  for (const p of oldPoints) {
+    const c = p.payload?.content;
+    if (typeof c === 'string' && c.length > 0) {
+      const h = createHash('sha256').update(c).digest('hex');
+      if (!oldMap.has(h)) oldMap.set(h, p.vector);
+    }
+  }
+
+  const toEmbed: { index: number; text: string }[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const text = chunks[i].text;
+    const h = createHash('sha256').update(text).digest('hex');
+    if (!oldMap.has(h)) toEmbed.push({ index: i, text });
+  }
+
+  const textsToEmbed = toEmbed.map((x) => x.text);
+  const embedResults = textsToEmbed.length > 0 ? await embedBatch(textsToEmbed) : [];
+  if (chunks.length > 0) {
+    info('reindex with diff', {
+      source_path,
+      totalChunks: chunks.length,
+      reusedChunks: chunks.length - toEmbed.length,
+      embeddedChunks: toEmbed.length,
+    });
+  }
+
+  const vectors: (number[] | null)[] = new Array(chunks.length);
+  for (let k = 0; k < toEmbed.length; k++) {
+    vectors[toEmbed[k].index] = embedResults[k] ?? null;
+  }
+  for (let i = 0; i < chunks.length; i++) {
+    if (vectors[i] == null) {
+      const h = createHash('sha256').update(chunks[i].text).digest('hex');
+      vectors[i] = oldMap.get(h) ?? null;
+    }
+  }
+
+  const points: { id: string; vector: number[]; payload: Record<string, unknown> }[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const vector = vectors[i];
+    if (vector == null) continue;
+    const chunk = chunks[i];
+    const payload: Record<string, unknown> = {
+      title: source_path,
+      content: chunk.text,
+      source_path,
+      project,
+      chunk_index: chunk.chunk_index,
+      total_chunks: chunk.total_chunks,
+    };
+    if (meta.source_type) payload.source_type = meta.source_type;
+    if (meta.branch) payload.branch = meta.branch;
+    if (meta.domain) payload.domain = meta.domain;
+    if (meta.code_metadata) {
+      payload.file_name = meta.code_metadata.file_name;
+      payload.class_names = meta.code_metadata.class_names;
+      payload.property_names = meta.code_metadata.property_names;
+      payload.referenced_types = meta.code_metadata.referenced_types;
+    }
+    payload.content_hash = contentHash;
+    points.push({ id: randomUUID(), vector, payload });
+  }
+
+  if (points.length === 0) return;
+
+  await deleteByProjectAndTitle(client, project, source_path);
+  for (let i = 0; i < points.length; i += BATCH_UPSERT_SIZE) {
+    const batch = points.slice(i, i + BATCH_UPSERT_SIZE);
+    await client.upsert(COLLECTION_NAME, { wait: true, points: batch });
+  }
 }
 
 function removeItemSync(absPath: string): void {
@@ -217,7 +345,11 @@ export async function processInboxItem(
       removeItemSync(absPath);
       return { indexed: 0, removed: true };
     }
-    await indexDocument(client, source_path, content, { source_path, project });
+    const branch = getBranchForProject(project);
+    const domain = getDomainForPath(project, path.basename(absPath));
+    const fileName = path.basename(absPath);
+    const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(content, fileName) : undefined;
+    await indexDocument(client, source_path, content, { source_path, project, source_type: 'doc', branch, domain, code_metadata });
     if (existingKeys) existingKeys.add(indexedKey(project, source_path));
     if (isPersistentIndexEnabled()) addPersistentKey(project, source_path, createHash('sha256').update(content).digest('hex'));
     indexed = 1;
@@ -234,10 +366,14 @@ export async function processInboxItem(
       fs.rmSync(absPath, { recursive: true });
       return { indexed: 0, removed: true };
     }
+    const branch = getBranchForProject(project);
     for (const { relativePath, content } of items) {
       const source_path = `${project}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
       if (existingKeys ? existingKeys.has(indexedKey(project, source_path)) : await existsDocByProjectAndPath(project, source_path)) continue;
-      await indexDocument(client, source_path, content, { source_path, project });
+      const domain = getDomainForPath(project, relativePath);
+      const fileName = path.basename(relativePath);
+      const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(content, fileName) : undefined;
+      await indexDocument(client, source_path, content, { source_path, project, source_type: 'doc', branch, domain, code_metadata });
       if (existingKeys) existingKeys.add(indexedKey(project, source_path));
       if (isPersistentIndexEnabled()) addPersistentKey(project, source_path, createHash('sha256').update(content).digest('hex'));
       indexed++;
@@ -274,6 +410,12 @@ export async function processInbox(): Promise<{
     return result;
   }
   const inboxProject = (process.env.INDEX_INBOX_PROJECT || '').trim() || undefined;
+  const embeddingConfig = getEmbeddingConfig();
+  info('processInbox starting', {
+    inboxPath,
+    embedding: embeddingConfig.apiKeySet ? 'enabled' : 'disabled',
+    embeddingModel: embeddingConfig.apiKeySet ? embeddingConfig.model : undefined,
+  });
   const client = getQdrantClient();
   await ensureCollection(client);
   const existingKeys = await loadExistingIndexedKeys(client);
@@ -325,10 +467,16 @@ export function getInboxPathOrNull(): string | null {
  * Con INDEX_SHARED_REINDEX_CHANGED reindexa archivos cuyo contenido cambió (hash).
  * Con INDEX_SHARED_SYNC_DELETED borra de Qdrant los (project, title) que ya no existen en disco.
  */
-export async function indexSharedDirs(): Promise<{ indexed: number; errors: string[] }> {
+export async function indexSharedDirs(): Promise<{ indexed: number; newCount: number; reindexedCount: number; errors: string[] }> {
   const entries = getSharedDirsEntries();
-  const result = { indexed: 0, errors: [] as string[] };
+  const result = { indexed: 0, newCount: 0, reindexedCount: 0, errors: [] as string[] };
   if (entries.length === 0) return result;
+  const embeddingConfig = getEmbeddingConfig();
+  info('indexSharedDirs starting', {
+    projects: entries.map((e) => e.project),
+    embedding: embeddingConfig.apiKeySet ? 'enabled' : 'disabled',
+    embeddingModel: embeddingConfig.apiKeySet ? embeddingConfig.model : undefined,
+  });
   const client = getQdrantClient();
   await ensureCollection(client);
   const needHashes = getSharedReindexChanged();
@@ -360,11 +508,28 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
         toReindex.push({ ...f, source_path, key, hash });
       }
     }
+    const branch = getBranchForProject(project);
     const reindexCounts = await Promise.all(
       toReindex.map((item) =>
         limit(async () => {
-          await deleteByProjectAndTitle(client, project, item.source_path);
-          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project });
+          const domain = getDomainForPath(project, item.relativePath);
+          const fileName = path.basename(item.relativePath);
+          const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
+          const meta: IndexDocumentMeta = {
+            source_path: item.source_path,
+            project,
+            source_type: 'code',
+            branch,
+            domain,
+            code_metadata,
+          };
+          if (hasEmbedding()) {
+            const oldPoints = await getPointsByProjectAndTitle(client, project, item.source_path);
+            await indexDocumentReindexWithDiff(client, item.content, meta, oldPoints);
+          } else {
+            await deleteByProjectAndTitle(client, project, item.source_path);
+            await indexDocument(client, item.source_path, item.content, meta);
+          }
           existingKeys.add(item.key);
           existingHashes.set(item.key, item.hash);
           if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
@@ -372,11 +537,16 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
         })
       )
     );
-    result.indexed += reindexCounts.reduce((a, b) => a + b, 0);
+    const reindexed = reindexCounts.reduce((a, b) => a + b, 0);
+    result.reindexedCount += reindexed;
+    result.indexed += reindexed;
     const counts = await Promise.all(
       toIndex.map((item) =>
         limit(async () => {
-          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project });
+          const domain = getDomainForPath(project, item.relativePath);
+          const fileName = path.basename(item.relativePath);
+          const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
+          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project, source_type: 'code', branch, domain, code_metadata });
           existingKeys.add(item.key);
           existingHashes.set(item.key, item.hash);
           if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
@@ -384,7 +554,9 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
         })
       )
     );
-    result.indexed += counts.reduce((a, b) => a + b, 0);
+    const newCount = counts.reduce((a, b) => a + b, 0);
+    result.newCount += newCount;
+    result.indexed += newCount;
     if (getSharedSyncDeleted()) {
       const prefix = project + '\0';
       const keysForProject = [...existingKeys].filter((k) => k.startsWith(prefix));
@@ -401,6 +573,11 @@ export async function indexSharedDirs(): Promise<{ indexed: number; errors: stri
       }
     }
   }
-  info('indexSharedDirs completed', { indexed: result.indexed, errors: result.errors.length });
+  info('indexSharedDirs completed', {
+    indexed: result.indexed,
+    newCount: result.newCount,
+    reindexedCount: result.reindexedCount,
+    errors: result.errors.length,
+  });
   return result;
 }

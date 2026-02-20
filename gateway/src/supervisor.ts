@@ -9,6 +9,9 @@
  */
 import 'dotenv/config';
 import { processInbox, getInboxPathOrNull, indexSharedDirs } from './inbox-indexer';
+import { recordInbox, recordShared, getStatsByDay } from './indexing-stats';
+import { info } from './logger';
+import { recordIndexingDailyMetric, recordIndexingEventMetric } from './metrics';
 
 const DEFAULT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
 const POLL_INTERVAL_MS = Number(process.env.SUPERVISOR_INTERVAL_MS) ||
@@ -22,9 +25,15 @@ function log(msg: string): void {
 }
 
 export async function runCycle(): Promise<void> {
+  let inboxIndexed = 0;
   const inboxPath = getInboxPathOrNull();
   if (inboxPath) {
     const result = await processInbox();
+    if (result.indexed > 0) {
+      recordInbox(result.indexed);
+      inboxIndexed = result.indexed;
+      recordIndexingEventMetric({ source: 'inbox', indexed: result.indexed, inbox: result.indexed });
+    }
     if (result.indexed > 0 || result.processed > 0) {
       log(`Inbox ${result.inboxPath}: procesados=${result.processed}, indexados=${result.indexed}`);
     }
@@ -36,9 +45,44 @@ export async function runCycle(): Promise<void> {
   }
 
   const sharedResult = await indexSharedDirs();
+  if (sharedResult.indexed > 0) {
+    recordShared(sharedResult.newCount, sharedResult.reindexedCount);
+    recordIndexingEventMetric({
+      source: 'shared',
+      indexed: sharedResult.indexed,
+      shared_new: sharedResult.newCount,
+      shared_reindexed: sharedResult.reindexedCount,
+    });
+  }
   if (sharedResult.indexed > 0 || sharedResult.errors.length > 0) {
-    log(`SHARED_DIRS: indexados=${sharedResult.indexed}, errores=${sharedResult.errors.length}`);
+    const parts = [`indexados=${sharedResult.indexed}`];
+    if (sharedResult.newCount > 0) parts.push(`nuevos=${sharedResult.newCount}`);
+    if (sharedResult.reindexedCount > 0) parts.push(`reindexados=${sharedResult.reindexedCount}`);
+    log(`SHARED_DIRS: ${parts.join(', ')}, errores=${sharedResult.errors.length}`);
     sharedResult.errors.forEach((e: string) => log(`  SHARED_DIRS: ${e}`));
+  }
+
+  if (inboxIndexed > 0 || sharedResult.indexed > 0) {
+    const today = getStatsByDay(1);
+    if (today.length > 0) {
+      const t = today[0];
+      info('indexing_daily', {
+        date: t.date,
+        total_today: t.total,
+        inbox: t.inbox,
+        shared_new: t.shared_new,
+        shared_reindexed: t.shared_reindexed,
+        url: t.url,
+      });
+      recordIndexingDailyMetric({
+        date: t.date,
+        total: t.total,
+        inbox: t.inbox,
+        shared_new: t.shared_new,
+        shared_reindexed: t.shared_reindexed,
+        url: t.url,
+      });
+    }
   }
 }
 

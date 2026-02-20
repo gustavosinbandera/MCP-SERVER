@@ -1,0 +1,13 @@
+{
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "mcp.domoticore.co",
+        "Type": "A",
+        "TTL": 300,
+        "ResourceRecords": [{ "Value": "52.91.217.181" }]
+      }
+    }
+  ]
+}

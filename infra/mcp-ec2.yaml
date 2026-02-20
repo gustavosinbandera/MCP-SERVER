@@ -1,0 +1,88 @@
+# MCP Knowledge Hub - EC2 instance (CloudFormation)
+# Creates: Security Group + EC2 instance named mcp-server-instance
+# Usage: aws cloudformation create-stack --stack-name mcp-hub-infra --template-body file://infra/mcp-ec2.yaml --parameters ParameterKey=KeyName,ParameterValue=YOUR_KEY_NAME
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "EC2 instance for MCP Knowledge Hub (mcp-server-instance)"
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 Key Pair to enable SSH access
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+    Description: EC2 instance type
+  AmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023 AMI (latest via SSM)
+  AllowedSSHCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR allowed for SSH (22). Restrict to your IP in production.
+
+Resources:
+  MCPInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for MCP Knowledge Hub EC2 instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSSHCIDR
+          Description: SSH
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+      Tags:
+        - Key: Name
+          Value: mcp-server-instance-sg
+
+  MCPInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref MCPInstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: mcp-server-instance
+    Metadata:
+      AWS::CloudFormation::Designer:
+        id: MCPInstance
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref MCPInstance
+    Export:
+      Name: !Sub "${AWS::StackName}-InstanceId"
+  PublicIP:
+    Description: Public IP of the instance (use for SSH and browser)
+    Value: !GetAtt MCPInstance.PublicIp
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicIP"
+  URL:
+    Description: Example URL once stack is running
+    Value: !Sub "http://${MCPInstance.PublicIp}"

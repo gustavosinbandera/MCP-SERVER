@@ -4,6 +4,11 @@ gateway/.env
 .env.local
 *.env.local
 
+# CloudFormation (evitar subir nombres de key pair y claves privadas)
+infra/parameters.json
+infra/route53-mcp-record-temp.json
+*.pem
+
 # Dependencies
 node_modules/
 __pycache__/
@@ -30,3 +35,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Local project source trees (keep folder placeholders only)
+classic/**
+blueivory/**
+!classic/.gitkeep
+!blueivory/.gitkeep

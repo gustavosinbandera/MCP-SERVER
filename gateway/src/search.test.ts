@@ -126,6 +126,31 @@ describe('search', () => {
       expect(result.results[0].payload?.title).toBe('Doc 1');
       expect(result.total).toBe(1);
     });
+
+    it('passes filter with project, branch, class_name, referenced_type, file_name when provided', async () => {
+      const client = {
+        getCollections: jest.fn().mockResolvedValue({ collections: [{ name: COLLECTION_NAME }] }),
+        search: jest.fn().mockResolvedValue([]),
+      };
+      mockGetQdrantClient.mockReturnValue(client as never);
+      await searchDocs('q', 5, {
+        project: 'my-proj',
+        branch: 'classic',
+        class_name: 'Invoice',
+        referenced_type: 'Customer',
+        file_name: 'Invoice.cs',
+      });
+      expect(client.search).toHaveBeenCalled();
+      const searchOpts = (client.search as jest.Mock).mock.calls[0][1];
+      expect(searchOpts.filter).toBeDefined();
+      expect(searchOpts.filter.must).toHaveLength(5);
+      const must = searchOpts.filter.must as Array<{ key: string; match: unknown }>;
+      expect(must.find((m) => m.key === 'project')?.match).toEqual({ value: 'my-proj' });
+      expect(must.find((m) => m.key === 'branch')?.match).toEqual({ value: 'classic' });
+      expect(must.find((m) => m.key === 'class_names')?.match).toEqual({ any: ['Invoice'] });
+      expect(must.find((m) => m.key === 'referenced_types')?.match).toEqual({ any: ['Customer'] });
+      expect(must.find((m) => m.key === 'file_name')?.match).toEqual({ value: 'Invoice.cs' });
+    });
   });
 
   describe('countDocs', () => {

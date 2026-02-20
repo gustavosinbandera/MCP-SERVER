@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "mcp-knowledge-hub": {
+    "usar-mcp": {
       "command": "node",
       "args": ["C:/PROYECTOS/MCP-SERVER/gateway/dist/mcp-server.js"],
       "env": {

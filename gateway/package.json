@@ -4,7 +4,7 @@
   "description": "MCP Knowledge Hub Gateway",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && node scripts/patch-mcp-requires.cjs",
+    "build": "node node_modules/typescript/bin/tsc && node scripts/patch-mcp-requires.cjs",
     "start": "node dist/index.js",
     "mcp": "node dist/mcp-server.js",
     "index-example": "node scripts/index-example-doc.cjs",
@@ -27,6 +27,7 @@
     "html-to-text": "^9.0.5",
     "openai": "^6.22.0",
     "p-limit": "^7.3.0",
+    "puppeteer": "^24.37.5",
     "zod": "^3.23.0"
   },
   "devDependencies": {

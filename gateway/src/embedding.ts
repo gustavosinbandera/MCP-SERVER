@@ -21,7 +21,11 @@ function getClient(): OpenAI | null {
   if (_client != null) return _client;
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) return null;
-  _client = new OpenAI({ apiKey: key });
+  const baseURL = process.env.OPENAI_BASE_URL?.trim();
+  _client = new OpenAI({
+    apiKey: key,
+    ...(baseURL ? { baseURL } : {}),
+  });
   return _client;
 }
 
@@ -148,6 +152,16 @@ export async function embedBatch(texts: string[]): Promise<(number[] | null)[]> 
  */
 export function hasEmbedding(): boolean {
   return !!process.env.OPENAI_API_KEY?.trim();
+}
+
+/**
+ * Returns embedding config for logging (no API key value).
+ */
+export function getEmbeddingConfig(): { apiKeySet: boolean; model: string } {
+  return {
+    apiKeySet: hasEmbedding(),
+    model: MODEL,
+  };
 }
 
 /**
