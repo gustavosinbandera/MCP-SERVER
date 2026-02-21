@@ -293,3 +293,36 @@ cat ~/MCP-SERVER/.env
 ```
 
 Editar `.env` en la instancia y luego reiniciar los servicios que lo usen (gateway, supervisor).
+
+**Herramientas ClickUp (MCP):** Para usar las herramientas ClickUp desde el MCP en la instancia, añade en `~/MCP-SERVER/.env` (o donde se cargue el env del gateway): `CLICKUP_API_TOKEN=pk_...` (Personal API Token de ClickUp: Settings → Apps → API Token). Luego reinicia el gateway: `docker compose restart gateway`.
+
+---
+
+## 7. Util scripts (update-repo, etc.)
+
+Scripts de utilidad instalados **fuera del proyecto** en `/opt/mcp-tools`, disponibles como comandos del sistema (sin `source` ni rutas).
+
+**Comandos disponibles tras instalar:**
+
+| Comando | Descripción |
+|---------|-------------|
+| `util_update_repo` | Pull del repo, build gateway/supervisor, reinicio de servicios |
+| `update-repo` / `actualizar-repo` | Igual (vía symlink) |
+| `update repo` / `actualizar repo` | Igual (vía alias; requiere sesión con profile cargado) |
+
+**Instalación (una vez en la instancia):**
+
+Tras un clone o pull del repo, ejecutar:
+
+```bash
+cd ~/MCP-SERVER
+sudo bash scripts/ec2/install-tools.sh
+```
+
+Luego cerrar y reabrir la sesión SSH (o `source /etc/profile.d/mcp-tools.sh`) para que el PATH y los aliases con espacio estén disponibles.
+
+**Qué hace el instalador:**
+
+- Crea `/opt/mcp-tools` y copia los scripts desde `~/MCP-SERVER/scripts/ec2/`.
+- Añade `/opt/mcp-tools` al PATH vía `/etc/profile.d/mcp-tools.sh`.
+- Crea los symlinks `update-repo` y `actualizar-repo` y los aliases `"update repo"` y `"actualizar repo"`.

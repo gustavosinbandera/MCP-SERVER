@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# util_update_repo: pull del repo, build gateway/supervisor, reinicio de servicios.
+# Uso: util_update_repo (o alias: update-repo, actualizar-repo, "update repo", "actualizar repo")
+# Requiere: ejecutar desde instancia EC2 con ~/MCP-SERVER y docker compose.
+
+set -e
+
+REPO_DIR="${MCP_REPO_DIR:-$HOME/MCP-SERVER}"
+BRANCH="${MCP_REPO_BRANCH:-master}"
+
+echo "[1/4] Cambiando a $REPO_DIR..."
+cd "$REPO_DIR" || { echo "Error: no existe $REPO_DIR"; exit 1; }
+
+echo "[2/4] Git pull origin $BRANCH..."
+git pull origin "$BRANCH"
+
+echo "[3/4] Docker compose build gateway supervisor..."
+docker compose build gateway supervisor
+
+echo "[4/4] Docker compose up -d gateway supervisor..."
+docker compose up -d gateway supervisor
+
+echo "Listo. Estado:"
+docker compose ps gateway supervisor

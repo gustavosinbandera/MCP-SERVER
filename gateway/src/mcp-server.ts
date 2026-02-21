@@ -18,6 +18,20 @@ import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLink
 import { writeFlowDocToInbox } from './flow-doc';
 import { runRepoGit } from './repo-git';
 import { searchGitHubRepos } from './github-search';
+import {
+  hasClickUpToken,
+  getTeams,
+  getSpaces,
+  getFolders,
+  getLists,
+  getTasks,
+  createTask,
+  createSubtask,
+  getTask,
+  updateTask,
+  type CreateTaskBody,
+  type UpdateTaskBody,
+} from './clickup-client';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
 const KNOWLEDGE_HUB_NAME = (process.env.KNOWLEDGE_HUB_NAME || process.env.PROJECT_NAME || '').trim();
@@ -525,6 +539,239 @@ mcpServer.tool(
     return {
       content: [{ type: 'text' as const, text }],
     };
+  },
+);
+
+// ----- ClickUp (project manager): local e instancia -----
+function clickUpError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+mcpServer.tool(
+  'clickup_list_workspaces',
+  'Lista los workspaces (teams) de ClickUp a los que tienes acceso. Úsala para encontrar el workspace MCP-SERVER o su team_id. Requiere CLICKUP_API_TOKEN en .env.',
+  {} as any,
+  async () => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido. Añade tu Personal API Token (pk_...) en .env o gateway/.env (local e instancia).' }] };
+    }
+    try {
+      const teams = await getTeams();
+      const lines = teams.length === 0
+        ? ['Sin workspaces.']
+        : teams.map((t) => `- id: ${t.id}  name: ${t.name ?? '(sin nombre)'}`);
+      return { content: [{ type: 'text' as const, text: `Workspaces (${teams.length}):\n${lines.join('\n')}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_list_spaces',
+  'Lista los spaces de un workspace ClickUp. Necesitas el team_id (de clickup_list_workspaces).',
+  { team_id: z.string() } as any,
+  async (args: { team_id: string }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const spaces = await getSpaces(String(args.team_id).trim());
+      const lines = spaces.length === 0
+        ? ['Sin spaces.']
+        : spaces.map((s) => `- id: ${s.id}  name: ${s.name ?? '(sin nombre)'}`);
+      return { content: [{ type: 'text' as const, text: `Spaces (${spaces.length}):\n${lines.join('\n')}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_list_folders',
+  'Lista los folders (y listas) de un space ClickUp. Necesitas el space_id.',
+  { space_id: z.string() } as any,
+  async (args: { space_id: string }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const folders = await getFolders(String(args.space_id).trim());
+      const lines = folders.length === 0
+        ? ['Sin folders.']
+        : folders.map((f) => `- id: ${f.id}  name: ${f.name ?? '(sin nombre)'}`);
+      return { content: [{ type: 'text' as const, text: `Folders (${folders.length}):\n${lines.join('\n')}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_list_lists',
+  'Lista las listas de un folder ClickUp (donde se crean tareas). Necesitas el folder_id.',
+  { folder_id: z.string() } as any,
+  async (args: { folder_id: string }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const lists = await getLists(String(args.folder_id).trim());
+      const lines = lists.length === 0
+        ? ['Sin listas.']
+        : lists.map((l) => `- id: ${l.id}  name: ${l.name ?? '(sin nombre)'}`);
+      return { content: [{ type: 'text' as const, text: `Listas (${lists.length}):\n${lines.join('\n')}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_list_tasks',
+  'Lista tareas de una lista ClickUp. Úsala para ver tickets o tareas del proyecto. Parámetros: list_id (requerido), status y archived opcionales.',
+  {
+    list_id: z.string(),
+    status: z.string().optional(),
+    archived: z.boolean().optional(),
+  } as any,
+  async (args: { list_id: string; status?: string; archived?: boolean }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const tasks = await getTasks(String(args.list_id).trim(), {
+        statuses: args.status?.trim(),
+        archived: args.archived,
+      });
+      const lines = tasks.length === 0
+        ? ['Sin tareas.']
+        : tasks.map((t) => {
+            const statusStr = t.status?.status ?? '';
+            return `- id: ${t.id}  name: ${(t.name ?? '').slice(0, 60)}${(t.name?.length ?? 0) > 60 ? '…' : ''}  status: ${statusStr}`;
+          });
+      return { content: [{ type: 'text' as const, text: `Tareas (${tasks.length}):\n${lines.join('\n')}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_create_task',
+  'Crea una tarea/ticket en una lista ClickUp. Úsala cuando el usuario pida crear un ticket o tarea. Requiere list_id y name; opcionales: description, status, priority.',
+  {
+    list_id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    status: z.string().optional(),
+    priority: z.number().optional(),
+  } as any,
+  async (args: { list_id: string; name: string; description?: string; status?: string; priority?: number }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const body: CreateTaskBody = { name: String(args.name).trim() };
+      if (args.description != null) body.description = String(args.description).trim();
+      if (args.status != null) body.status = String(args.status).trim();
+      if (args.priority != null) body.priority = Number(args.priority);
+      const task = await createTask(String(args.list_id).trim(), body);
+      return {
+        content: [{ type: 'text' as const, text: `Tarea creada: id=${task.id}  name=${task.name ?? '(sin nombre)'}` }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_create_subtask',
+  'Crea una subtarea bajo una tarea padre en ClickUp. Requiere list_id (misma lista que la tarea padre), parent_task_id y name; opcionales: description, status, priority.',
+  {
+    list_id: z.string(),
+    parent_task_id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    status: z.string().optional(),
+    priority: z.number().optional(),
+  } as any,
+  async (args: { list_id: string; parent_task_id: string; name: string; description?: string; status?: string; priority?: number }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const body: CreateTaskBody = { name: String(args.name).trim() };
+      if (args.description != null) body.description = String(args.description).trim();
+      if (args.status != null) body.status = String(args.status).trim();
+      if (args.priority != null) body.priority = Number(args.priority);
+      const task = await createSubtask(
+        String(args.list_id).trim(),
+        String(args.parent_task_id).trim(),
+        body,
+      );
+      return {
+        content: [{ type: 'text' as const, text: `Subtarea creada: id=${task.id}  name=${task.name ?? '(sin nombre)'}` }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_get_task',
+  'Obtiene el detalle de una tarea ClickUp por task_id.',
+  { task_id: z.string() } as any,
+  async (args: { task_id: string }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const task = await getTask(String(args.task_id).trim());
+      const statusStr = task.status?.status ?? '';
+      const text = [
+        `id: ${task.id}`,
+        `name: ${task.name ?? '(sin nombre)'}`,
+        `status: ${statusStr}`,
+        task.description ? `description: ${String(task.description).slice(0, 500)}${String(task.description).length > 500 ? '…' : ''}` : '',
+      ].filter(Boolean).join('\n');
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
+  },
+);
+
+mcpServer.tool(
+  'clickup_update_task',
+  'Actualiza una tarea ClickUp (estado, título, descripción, prioridad). Úsala para cerrar tickets, cambiar estado o editar. Requiere task_id; opcionales: name, description, status, priority.',
+  {
+    task_id: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    status: z.string().optional(),
+    priority: z.number().optional(),
+  } as any,
+  async (args: { task_id: string; name?: string; description?: string; status?: string; priority?: number }) => {
+    if (!hasClickUpToken()) {
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+    }
+    try {
+      const body: UpdateTaskBody = {};
+      if (args.name != null) body.name = String(args.name).trim();
+      if (args.description != null) body.description = String(args.description).trim();
+      if (args.status != null) body.status = String(args.status).trim();
+      if (args.priority != null) body.priority = Number(args.priority);
+      const task = await updateTask(String(args.task_id).trim(), body);
+      return {
+        content: [{ type: 'text' as const, text: `Tarea actualizada: id=${task.id}  name=${task.name ?? '(sin nombre)'}` }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+    }
   },
 );
 
