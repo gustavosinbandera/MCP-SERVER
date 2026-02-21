@@ -40,6 +40,29 @@ O con un solo script:
 
 No hace falta pasar argumentos: stack name, template y parámetros están fijos en los scripts. Así puedes replicar la infra en cualquier máquina con AWS CLI configurado y este repo.
 
+## Cognito (JWT para /mcp HTTP streamable)
+
+Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /mcp`.
+
+**Outputs del stack** (tras `2-get-outputs.ps1` o `aws cloudformation describe-stacks`):
+- **CognitoUserPoolId** → `COGNITO_USER_POOL_ID` en `.env` del gateway (en la EC2: `~/MCP-SERVER/.env` o `gateway/.env`).
+- **CognitoAppClientId** → `COGNITO_APP_CLIENT_ID`.
+- **CognitoRegion** → `COGNITO_REGION` (ej. `us-east-1`).
+
+Añade en el `.env` que use el gateway (antes de `docker compose up`):
+
+```bash
+COGNITO_REGION=<CognitoRegion del output>
+COGNITO_USER_POOL_ID=<CognitoUserPoolId del output>
+COGNITO_APP_CLIENT_ID=<CognitoAppClientId del output>
+```
+
+Luego reinicia el gateway: `docker compose restart gateway`.
+
+**Crear usuarios en el User Pool:** consola AWS → Cognito → User Pools → *mcp-knowledge-hub-users* → Users → Create user (email + contraseña temporal). Para obtener IdToken desde CLI: `aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id <AppClientId> --auth-parameters USERNAME=<email>,PASSWORD=<pass> --query 'AuthenticationResult.IdToken'`.
+
+Si ya tienes un User Pool, pon **CognitoCreateUserPool=false** en `parameters.json` y configura en `.env` las variables con los valores de tu pool.
+
 ## Seguridad (producción)
 
 - **AllowedSSHCIDR**: En producción no debe quedar `0.0.0.0/0`. Usa tu IP fija o CIDR de VPN en `infra/parameters.json` (parámetro `AllowedSSHCIDR`) para restringir SSH al puerto 22.

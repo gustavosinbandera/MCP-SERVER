@@ -7,7 +7,9 @@
 const CLICKUP_BASE = 'https://api.clickup.com/api/v2';
 
 function getToken(): string | undefined {
-  return process.env.CLICKUP_API_TOKEN?.trim() || undefined;
+  const raw = process.env.CLICKUP_API_TOKEN?.trim();
+  if (!raw) return undefined;
+  return raw.replace(/\r/g, '').trim();
 }
 
 function authHeaders(): Record<string, string> {
@@ -137,16 +139,20 @@ export async function getList(listId: string): Promise<ClickUpListWithStatuses> 
 
 export interface GetTasksParams {
   archived?: boolean;
-  statuses?: string;
+  /** One or more status names; API expects array (sent as statuses[]=...). */
+  statuses?: string | string[];
 }
 
 export async function getTasks(listId: string, params?: GetTasksParams): Promise<ClickUpTask[]> {
   const q = new URLSearchParams();
   if (params?.archived != null) q.set('archived', String(params.archived));
-  if (params?.statuses) q.set('status', params.statuses);
+  if (params?.statuses) {
+    const arr = Array.isArray(params.statuses) ? params.statuses : [params.statuses];
+    arr.forEach((s) => s && q.append('statuses[]', s));
+  }
   const query = q.toString();
-  const path = `/list/${encodeURIComponent(listId)}/task${query ? `?${query}` : ''}`;
-  const data = (await apiGet<{ tasks?: ClickUpTask[] }>(path));
+  const urlPath = `/list/${encodeURIComponent(listId)}/task${query ? `?${query}` : ''}`;
+  const data = (await apiGet<{ tasks?: ClickUpTask[] }>(urlPath));
   return data.tasks ?? [];
 }
 
@@ -178,8 +184,17 @@ export async function createSubtask(
   return createTask(listId, { ...body, parent: parentTaskId });
 }
 
-export async function getTask(taskId: string): Promise<ClickUpTask> {
-  return apiGet<ClickUpTask>(`/task/${encodeURIComponent(taskId)}`);
+export interface GetTaskParams {
+  /** Include subtasks in the response (default false). */
+  include_subtasks?: boolean;
+}
+
+export async function getTask(taskId: string, params?: GetTaskParams): Promise<ClickUpTask> {
+  const q = new URLSearchParams();
+  if (params?.include_subtasks) q.set('include_subtasks', 'true');
+  const query = q.toString();
+  const path = `/task/${encodeURIComponent(taskId)}${query ? `?${query}` : ''}`;
+  return apiGet<ClickUpTask>(path);
 }
 
 export interface UpdateTaskBody {

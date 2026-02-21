@@ -63,6 +63,58 @@ Host mcp-ec2
 
 ---
 
+## 1c. Ventana de inicio y búsqueda (webapp)
+
+La **ventana de inicio / búsqueda** del MCP Knowledge Hub se abre en el navegador con esta URL (importante: **http**, sin **s**):
+
+**http://mcp.domoticore.co**
+
+El servidor solo expone HTTP (puerto 80), no HTTPS. Si pones `https://` el navegador no podrá conectar y no verás la pantalla.
+
+- Escribe en la barra de direcciones: `http://mcp.domoticore.co` y pulsa Intro.
+- Deberías ver la página con el título "MCP Knowledge Hub" y el cuadro de búsqueda.
+- Si la página queda en blanco o no carga, comprueba que usas **http** y no https, y que en la instancia estén en marcha webapp y nginx: `docker compose ps webapp nginx`.
+
+## 1d. Comprobar el gateway desde tu máquina
+
+Health del gateway (ruta bajo `/api/`):
+
+```powershell
+Invoke-WebRequest -Uri "http://mcp.domoticore.co/api/health" -UseBasicParsing
+```
+
+En Git Bash o con curl: `curl http://mcp.domoticore.co/api/health`
+
+Si obtienes **502 Bad Gateway**, en la instancia revisa logs del gateway y reinicia nginx: `docker compose logs gateway --tail=50` y `docker compose restart nginx`.
+
+---
+
+## 1e. Cursor no conecta: "Maximum sessions per user (3) reached"
+
+Si en Cursor el MCP remoto falla con ese mensaje, en la **EC2** haz una de estas dos cosas:
+
+**Opción A – Subir el límite y reiniciar (recomendado)**
+
+En la instancia:
+
+```bash
+cd ~/MCP-SERVER
+# Añadir al .env del gateway (o al .env que use docker compose)
+echo "MAX_SESSIONS_PER_USER=10" >> .env
+docker compose restart gateway
+```
+
+**Opción B – Solo reiniciar (vacía sesiones en memoria)**
+
+```bash
+cd ~/MCP-SERVER
+docker compose restart gateway
+```
+
+Tras el reinicio, en Cursor recarga el MCP o reconecta el servidor "knowledge-hub-remote".
+
+---
+
 ## 2. Logs de servicios
 
 **Todos los servicios (últimas líneas):**

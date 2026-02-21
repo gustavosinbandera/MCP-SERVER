@@ -76,3 +76,58 @@ Para usar las herramientas ClickUp desde el MCP en la instancia EC2:
 4. Reiniciar el servicio del gateway/MCP si está corriendo (por ejemplo `docker compose restart gateway` o el proceso que sirva el MCP).
 
 Ver también [COMANDOS-INSTANCIA-EC2.md](COMANDOS-INSTANCIA-EC2.md) para conexión SSH y gestión de servicios.
+
+## Scripts genéricos de tareas (consola)
+
+Desde `gateway/` puedes crear tareas y subtareas sin escribir scripts nuevos. Requieren `CLICKUP_API_TOKEN` en `gateway/.env`. Opcionales: `LIST_ID`, `ASSIGNEE_USER_ID` (si no, se usa la primera lista del workspace y el usuario del token).
+
+### Crear tarea (y opcionalmente subtareas)
+
+```bash
+node scripts/create-clickup-task.cjs --title "Título de la tarea"
+node scripts/create-clickup-task.cjs --title "Título" --description "Descripción en texto plano"
+node scripts/create-clickup-task.cjs --title "Título" --markdown-file docs/tarea.md
+node scripts/create-clickup-task.cjs --title "Título" --subtasks "Sub1,Sub2,Sub3"
+node scripts/create-clickup-task.cjs --title "Título" --subtasks-file subtareas.txt
+node scripts/create-clickup-task.cjs --title "Título" --list-id 901325668563 --priority 2
+```
+
+| Opción | Descripción |
+|--------|-------------|
+| `--title "..."` | **(requerido)** Nombre de la tarea |
+| `--description "..."` | Descripción en texto plano |
+| `--description-file path` | Descripción desde archivo (texto plano) |
+| `--markdown "..."` / `--markdown-file path` | Descripción en Markdown (se renderiza en ClickUp) |
+| `--subtasks "A,B,C"` | Subtareas separadas por comas |
+| `--subtasks-file path` | Una subtarea por línea |
+| `--list-id id` | Lista ClickUp (si no, `LIST_ID` en .env o primera lista) |
+| `--assignee id` | User ID asignado |
+| `--priority 1\|2\|3\|4` | 1=urgent, 2=high, 3=normal, 4=low |
+| `--status "nombre"` | Estado inicial |
+
+### Añadir subtareas a una tarea existente
+
+```bash
+node scripts/create-clickup-subtask.cjs --parent-id 86afm198y --title "Nueva subtarea"
+node scripts/create-clickup-subtask.cjs --parent-id 86afm198y --titles "A,B,C"
+node scripts/create-clickup-subtask.cjs --parent-id 86afm198y --titles-file path.txt
+```
+
+| Opción | Descripción |
+|--------|-------------|
+| `--parent-id id` | **(requerido)** ID de la tarea padre |
+| `--list-id id` | Lista de la tarea padre (si no, `LIST_ID` en .env) |
+| `--title "..."` | Una subtarea |
+| `--titles "A,B,C"` | Varias subtareas separadas por comas |
+| `--titles-file path` | Una subtarea por línea |
+| `--assignee id` | User ID asignado |
+
+### Semilla de subtareas para tarea "HTTP Streamable"
+
+Para añadir las 24 subtareas (plan del módulo HTTP Streamable + Cursor MCP + problemas 504) a la tarea padre y dejarlas con descripción y completadas:
+
+```bash
+node scripts/seed-subtasks-http-streamable.cjs --parent-id <task_id>
+```
+
+Obtén `<task_id>` desde la URL de la tarea en ClickUp (ej. `https://app.clickup.com/t/86abc123x` → `86abc123x`) o listando tareas de la lista con la herramienta MCP `clickup_list_tasks`.

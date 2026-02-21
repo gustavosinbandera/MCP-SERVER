@@ -12,6 +12,15 @@ import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
 
+// Evitar crashes silenciosos: log y salir para que Docker reinicie el contenedor
+process.on('uncaughtException', (err) => {
+  console.error('[gateway] uncaughtException', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[gateway] unhandledRejection', reason, promise);
+});
+
 const app = express();
 const PORT = process.env.GATEWAY_PORT || 3001;
 
@@ -73,29 +82,49 @@ app.get('/mcp', requireJwt, (_req, res) => {
 });
 
 app.post('/mcp', requireJwt, async (req, res) => {
+  const t0 = Date.now();
   const userId = req.auth!.userId;
   const sessionId = (req.headers[MCP_SESSION_ID_HEADER] as string)?.trim() || undefined;
   const body = req.body;
-  if (body === undefined || body === null) {
-    res.status(400).json({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: body required' } });
-    return;
-  }
-  const result = await getOrCreateSession(userId, sessionId || null);
-  if ('error' in result) {
-    res.status(result.status).json({ error: result.error });
-    return;
-  }
-  const { sessionId: sid, runtime } = result;
-  runtime.lastUsedAt = Date.now();
-  if (sid !== sessionId) {
-    res.setHeader(MCP_SESSION_ID_HEADER, sid);
-  }
+  const method = body && typeof body === 'object' && 'method' in body ? (body as { method?: string }).method : '?';
+  console.warn(`[mcp] POST /mcp userId=${userId} method=${method} sessionId=${sessionId ?? '(new)'}`);
   try {
+    if (body === undefined || body === null) {
+      res.status(400).json({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: body required' } });
+      return;
+    }
+    const result = await getOrCreateSession(userId, sessionId || null);
+    const t1 = Date.now();
+    if ('error' in result) {
+      console.warn(`[mcp] ${result.status} userId=${userId} method=${method}`, result.error);
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    const { sessionId: sid, runtime } = result;
+    runtime.lastUsedAt = Date.now();
+    if (sid !== sessionId) {
+      res.setHeader(MCP_SESSION_ID_HEADER, sid);
+    }
     const response = await runtime.transport.handleRequest(body, { sessionId: sid });
-    res.json(response);
+    const t2 = Date.now();
+    const total = t2 - t0;
+    if (t1 - t0 > 500 || t2 - t1 > 500) {
+      console.warn(`[mcp] slow userId=${userId} getOrCreateSession=${t1 - t0}ms handleRequest=${t2 - t1}ms`);
+    } else {
+      console.warn(`[mcp] OK method=${method} ${total}ms`);
+    }
+    if (response === null || response === undefined) {
+      res.status(204).send();
+    } else {
+      res.json(response);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: msg } });
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(`[mcp] POST /mcp error after ${Date.now() - t0}ms:`, msg, stack || '');
+    if (!res.headersSent) {
+      res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: msg } });
+    }
   }
 });
 
@@ -113,6 +142,12 @@ app.delete('/mcp', requireJwt, async (req, res) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`MCP Gateway listening on port ${PORT}`);
+    // Warmup: una sesión de prueba para que la primera petición real no pague cold start (JIT, connect).
+    getOrCreateSession('_warmup', null)
+      .then((r) => {
+        if (!('error' in r)) return closeSession('_warmup', r.sessionId);
+      })
+      .catch((err) => console.warn('[gateway] warmup failed', err));
   });
 }
 

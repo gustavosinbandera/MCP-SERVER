@@ -45,6 +45,10 @@ export function createHttpStreamableTransport(): HttpStreamableTransport {
     },
 
     async handleRequest(body: unknown, extra?: { sessionId?: string }) {
+      const isNotification =
+        body != null &&
+        typeof body === 'object' &&
+        !Object.prototype.hasOwnProperty.call(body, 'id');
       return new Promise<unknown>((resolve, reject) => {
         currentResolve = resolve;
         currentReject = reject;
@@ -53,6 +57,13 @@ export function createHttpStreamableTransport(): HttpStreamableTransport {
           : undefined;
         try {
           transport.onmessage?.(body, { sessionId: extra?.sessionId, requestInfo });
+          // Notificaciones JSON-RPC no tienen respuesta; el servidor no llamará send().
+          // Resolver ya para no colgar la petición HTTP (p. ej. notifications/initialized).
+          if (isNotification) {
+            currentResolve = null;
+            currentReject = null;
+            resolve(null);
+          }
         } catch (err) {
           currentResolve = null;
           currentReject = null;

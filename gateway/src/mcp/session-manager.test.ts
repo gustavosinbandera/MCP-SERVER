@@ -35,15 +35,30 @@ describe('session-manager', () => {
     expect(second.sessionId).toBe(first.sessionId);
   });
 
+  it('getOrCreateSession with null sessionId reuses latest session (evita llenar límite con retries)', async () => {
+    const first = await getOrCreateSession('user-reuse', null);
+    expect('error' in first).toBe(false);
+    if ('error' in first) return;
+    const second = await getOrCreateSession('user-reuse', null);
+    expect('error' in second).toBe(false);
+    if ('error' in second) return;
+    expect(second.sessionId).toBe(first.sessionId);
+    const third = await getOrCreateSession('user-reuse', undefined);
+    expect('error' in third).toBe(false);
+    if ('error' in third) return;
+    expect(third.sessionId).toBe(first.sessionId);
+  });
+
   it('returns 429 when exceeding MAX_SESSIONS_PER_USER', async () => {
     const userId = 'user-limit-' + Date.now();
     const sessions: string[] = [];
+    // Crear N sesiones con ids distintos (con null reutilizaríamos la misma)
     for (let i = 0; i < MAX_SESSIONS_PER_USER; i++) {
-      const r = await getOrCreateSession(userId, null);
+      const r = await getOrCreateSession(userId, `sid-${i}`);
       expect('error' in r).toBe(false);
       if (!('error' in r)) sessions.push(r.sessionId);
     }
-    const over = await getOrCreateSession(userId, null);
+    const over = await getOrCreateSession(userId, 'sid-over');
     expect('error' in over).toBe(true);
     if ('error' in over) {
       expect(over.status).toBe(429);

@@ -1,14 +1,7 @@
 [
-  {
-    "ParameterKey": "KeyName",
-    "ParameterValue": "TU_NOMBRE_DE_KEY_PAIR"
-  },
-  {
-    "ParameterKey": "InstanceType",
-    "ParameterValue": "t3.medium"
-  },
-  {
-    "ParameterKey": "AllowedSSHCIDR",
-    "ParameterValue": "0.0.0.0/0"
-  }
+  {"ParameterKey":"KeyName","ParameterValue":"TU_NOMBRE_DE_KEY_PAIR"},
+  {"ParameterKey":"InstanceType","ParameterValue":"t3.medium"},
+  {"ParameterKey":"AllowedSSHCIDR","ParameterValue":"0.0.0.0/0"},
+  {"ParameterKey":"CognitoUserPoolName","ParameterValue":"mcp-knowledge-hub-users"},
+  {"ParameterKey":"CognitoCreateUserPool","ParameterValue":"true"}
 ]

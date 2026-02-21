@@ -274,19 +274,28 @@ mcpServer.tool(
 
 mcpServer.tool(
   'index_site',
-  'Indexa todo un sitio desde una URL semilla: recorre enlaces del mismo dominio (BFS) hasta indexar max_pages páginas. Para sitios SPA (ej. help.magaya.com) usa render_js: true. Úsala para indexar documentación completa (ej. wiki o dev center).',
-  { url: z.string(), max_pages: z.number().optional(), render_js: z.boolean().optional() } as any,
-  async (args: { url: string; max_pages?: number; render_js?: boolean }) => {
+  'Indexa todo un sitio desde una URL semilla: recorre enlaces del mismo dominio (BFS) hasta indexar max_pages páginas. Con skip_already_indexed: true solo indexa URLs nuevas y salta las que ya están en Qdrant (útil para reanudar sin reindexar). Para sitios SPA (ej. help.magaya.com) usa render_js: true.',
+  {
+    url: z.string(),
+    max_pages: z.number().optional(),
+    render_js: z.boolean().optional(),
+    skip_already_indexed: z.boolean().optional(),
+  } as any,
+  async (args: { url: string; max_pages?: number; render_js?: boolean; skip_already_indexed?: boolean }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
         content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
       };
     }
-    const maxPages = Math.min(Math.max(1, args.max_pages ?? 1000), 10000);
-    const result = await indexSite(url, maxPages, { renderJs: args.render_js });
+    const maxPages = Math.min(Math.max(1, args.max_pages ?? 1000), 20000);
+    const result = await indexSite(url, maxPages, {
+      renderJs: args.render_js,
+      skipAlreadyIndexed: args.skip_already_indexed,
+    });
     const lines = [
       `Indexadas: ${result.indexed} páginas.`,
+      result.skipped > 0 ? `Saltadas (ya en índice): ${result.skipped} páginas.` : '',
       result.urls.length > 0 ? `URLs (primeras 20): ${result.urls.slice(0, 20).join(', ')}${result.urls.length > 20 ? '...' : ''}` : '',
       result.errors.length > 0 ? `Errores (primeros 5): ${result.errors.slice(0, 5).join('; ')}` : '',
     ].filter(Boolean);

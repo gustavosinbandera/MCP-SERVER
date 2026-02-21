@@ -54,7 +54,7 @@ En el servidor (o `.env` del gateway) configura:
 ## Sesiones y límites
 
 - Cada usuario (JWT `sub`) tiene sus propias sesiones MCP.
-- **MAX_SESSIONS_PER_USER** (default 3): máximo de sesiones activas por usuario. Si se supera, la respuesta es **429** con mensaje claro.
+- **MAX_SESSIONS_PER_USER** (default 3): máximo de sesiones activas por usuario. Si se supera, la respuesta es **429** con mensaje claro. Las peticiones **sin** header `mcp-session-id` reutilizan la sesión más reciente del usuario (evita que reintentos o múltiples conexiones del cliente llenen el límite).
 - **SESSION_TTL_MS** (default 30 min): sesiones inactivas se cierran automáticamente; un timer cada 60 s limpia las expiradas.
 - El cliente puede enviar el header **mcp-session-id** para reutilizar una sesión (el servidor lo devuelve en la respuesta al crear una nueva).
 - **DELETE /mcp** con header `mcp-session-id` cierra esa sesión (respuesta 204 si existía, 404 si no).

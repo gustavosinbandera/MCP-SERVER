@@ -35,4 +35,4 @@ Errores: https://docs.ejemplo.com/roto: 404
 ## Diferencia con index_site
 
 - **index_url_with_links**: límite bajo (hasta 50), ideal para un conjunto acotado de enlaces desde una página.
-- **index_site**: recorre el sitio en BFS hasta un número mayor de páginas (hasta 10000), para documentación completa.
+- **index_site**: recorre el sitio en BFS hasta un número mayor de páginas (hasta 20000), para documentación completa.

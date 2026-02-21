@@ -65,9 +65,15 @@ export async function verifyJwtAndGetUserId(token: string): Promise<string> {
   return sub;
 }
 
+/** API key opcional: si MCP_API_KEY está definido, Bearer <MCP_API_KEY> se acepta como auth de larga duración (no caduca cada hora). */
+const MCP_API_KEY = (process.env.MCP_API_KEY || '').trim();
+/** userId a usar cuando se autentica con MCP_API_KEY (p. ej. sub del usuario de prueba para mismo límite de sesiones). */
+const MCP_API_KEY_USER_ID = (process.env.MCP_API_KEY_USER_ID || '').trim() || 'api-key-user';
+
 /**
- * Middleware: exige Authorization: Bearer <JWT> válido.
- * 401 si falta o es inválido. Adjunta req.auth = { userId: sub }.
+ * Middleware: exige Authorization: Bearer <JWT> o Bearer <MCP_API_KEY>.
+ * Si el token coincide con MCP_API_KEY, se acepta como userId MCP_API_KEY_USER_ID (no caduca).
+ * Si no, se valida como JWT de Cognito. 401 si falta o es inválido.
  */
 export function requireJwt(req: Request, res: Response, next: NextFunction): void {
   const raw = req.headers.authorization;
@@ -81,6 +87,13 @@ export function requireJwt(req: Request, res: Response, next: NextFunction): voi
     return;
   }
   const token = match[1].trim();
+
+  if (MCP_API_KEY && token === MCP_API_KEY) {
+    req.auth = { userId: MCP_API_KEY_USER_ID };
+    next();
+    return;
+  }
+
   verifyJwtAndGetUserId(token)
     .then((userId) => {
       req.auth = { userId };

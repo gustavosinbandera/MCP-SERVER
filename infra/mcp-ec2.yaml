@@ -26,8 +26,76 @@ Parameters:
     Type: String
     Default: 0.0.0.0/0
     Description: CIDR allowed for SSH (22). Restrict to your IP in production.
+  CognitoUserPoolName:
+    Type: String
+    Default: mcp-knowledge-hub-users
+    Description: Name of the Cognito User Pool for MCP JWT (optional; used for /mcp auth).
+  CognitoCreateUserPool:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Create Cognito User Pool and App Client for MCP HTTP JWT auth. Set false to use an existing User Pool.
+
+Conditions:
+  CreateCognito: !Equals [!Ref CognitoCreateUserPool, "true"]
 
 Resources:
+  # Cognito User Pool para JWT del endpoint /mcp (Cursor, clientes HTTP streamable)
+  MCPUserPool:
+    Type: AWS::Cognito::UserPool
+    Condition: CreateCognito
+    Properties:
+      UserPoolName: !Ref CognitoUserPoolName
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: false
+        - Name: name
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      UserPoolTags:
+        Project: MCP-Knowledge-Hub
+
+  MCPUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: CreateCognito
+    DependsOn: MCPUserPool
+    Properties:
+      ClientName: mcp-gateway-client
+      UserPoolId: !Ref MCPUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
   MCPInstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -86,3 +154,28 @@ Outputs:
   URL:
     Description: Example URL once stack is running
     Value: !Sub "http://${MCPInstance.PublicIp}"
+  # Cognito (solo si CognitoCreateUserPool=true). Añade estos valores al .env del gateway en la EC2.
+  CognitoUserPoolId:
+    Condition: CreateCognito
+    Description: Cognito User Pool ID (COGNITO_USER_POOL_ID en .env del gateway)
+    Value: !Ref MCPUserPool
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoUserPoolId"
+  CognitoAppClientId:
+    Condition: CreateCognito
+    Description: Cognito App Client ID (COGNITO_APP_CLIENT_ID en .env del gateway)
+    Value: !Ref MCPUserPoolClient
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoAppClientId"
+  CognitoRegion:
+    Condition: CreateCognito
+    Description: Región del User Pool (COGNITO_REGION en .env del gateway)
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoRegion"
+  CognitoIssuerUrl:
+    Condition: CreateCognito
+    Description: Issuer URL para JWT (opcional; el gateway construye JWKS desde región + User Pool ID)
+    Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${MCPUserPool}"
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoIssuerUrl"

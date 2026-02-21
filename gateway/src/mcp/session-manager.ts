@@ -79,6 +79,21 @@ export async function getOrCreateSession(
     return { sessionId, runtime };
   }
 
+  // Sin sessionId: reutilizar la sesión más reciente del usuario si existe (evita que
+  // Cursor, al reintentar o abrir varias conexiones sin enviar mcp-session-id, llene el límite).
+  if (!sessionId?.trim() && userMap.size > 0) {
+    let latest: { sessionId: string; runtime: SessionRuntime } | null = null;
+    for (const [sid, runtime] of userMap.entries()) {
+      if (!latest || runtime.lastUsedAt > latest.runtime.lastUsedAt) {
+        latest = { sessionId: sid, runtime };
+      }
+    }
+    if (latest) {
+      latest.runtime.lastUsedAt = now;
+      return { sessionId: latest.sessionId, runtime: latest.runtime };
+    }
+  }
+
   if (userMap.size >= MAX_SESSIONS_PER_USER) {
     return {
       error: `Maximum sessions per user (${MAX_SESSIONS_PER_USER}) reached. Close an existing session or wait for TTL.`,
@@ -89,7 +104,11 @@ export async function getOrCreateSession(
   const newSessionId = sessionId?.trim() || crypto.randomUUID();
   const transport = createHttpStreamableTransport();
   const server = buildMcpServer({ userId });
+  const tConnect0 = Date.now();
   await server.connect(transport as any);
+  if (Date.now() - tConnect0 > 1000) {
+    console.warn(`[session] server.connect took ${Date.now() - tConnect0}ms for user ${userId}`);
+  }
   const runtime: SessionRuntime = {
     server,
     transport,
@@ -108,7 +127,11 @@ export async function closeSession(userId: string, sessionId: string): Promise<b
   if (!userMap) return false;
   const runtime = userMap.get(sessionId);
   if (!runtime) return false;
-  await runtime.server.close();
+  try {
+    await runtime.server.close();
+  } catch (err) {
+    console.warn('[session] server.close error', err);
+  }
   userMap.delete(sessionId);
   if (userMap.size === 0) sessionsByUser.delete(userId);
   return true;

@@ -495,6 +495,21 @@ async function ensureCollection(client: QdrantClient): Promise<void> {
   }
 }
 
+/** Comprueba si la URL ya tiene al menos un punto en la colección (payload.url). */
+export async function isUrlIndexed(url: string): Promise<boolean> {
+  const client = getQdrantClient({ checkCompatibility: false });
+  const collections = await client.getCollections();
+  const exists = collections.collections.some((c) => c.name === COLLECTION_NAME);
+  if (!exists) return false;
+  const { points } = await client.scroll(COLLECTION_NAME, {
+    filter: { must: [{ key: 'url', match: { value: url } }] },
+    limit: 1,
+    with_payload: false,
+    with_vector: false,
+  });
+  return points.length > 0;
+}
+
 export type IndexUrlOptions = { renderJs?: boolean; project?: string };
 
 const DEFAULT_URL_PROJECT = (process.env.INDEX_URL_DEFAULT_PROJECT || 'urls').trim() || 'urls';
@@ -684,22 +699,43 @@ export async function indexUrlWithLinks(
 export type IndexSiteOptions = {
   onProgress?: (indexed: number, queueLength: number, url: string) => void;
   renderJs?: boolean;
+  /** Si true, no reindexa URLs que ya tengan puntos en Qdrant; solo descubre enlaces para seguir el BFS. */
+  skipAlreadyIndexed?: boolean;
 };
 
 export async function indexSite(
   seedUrl: string,
   maxPages = 1000,
   options?: IndexSiteOptions
-): Promise<{ indexed: number; errors: string[]; urls: string[] }> {
+): Promise<{ indexed: number; skipped: number; errors: string[]; urls: string[] }> {
   const visited = new Set<string>();
   const queue: string[] = [seedUrl];
-  const result = { indexed: 0, errors: [] as string[], urls: [] as string[] };
+  const result = { indexed: 0, skipped: 0, errors: [] as string[], urls: [] as string[] };
   const indexOpts = options?.renderJs != null ? { renderJs: options.renderJs } : undefined;
   while (queue.length > 0 && result.indexed < maxPages) {
     const url = queue.shift()!;
     const urlNorm = url.split('#')[0].trim();
     if (visited.has(urlNorm)) continue;
     visited.add(urlNorm);
+
+    if (options?.skipAlreadyIndexed && (await isUrlIndexed(urlNorm))) {
+      result.skipped++;
+      logProgress(`[SITE] (${result.indexed + result.skipped}/${maxPages}) Saltado (ya indexada): ${urlNorm}`);
+      options?.onProgress?.(result.indexed, queue.length, urlNorm);
+      let html: string;
+      try {
+        html = await getPageHtml(urlNorm, options?.renderJs);
+      } catch {
+        continue;
+      }
+      const links = extractSameOriginLinks(html, urlNorm);
+      for (const link of links) {
+        const norm = link.split('#')[0].trim();
+        if (!visited.has(norm) && !queue.includes(norm)) queue.push(norm);
+      }
+      continue;
+    }
+
     const n = result.indexed + 1;
     logProgress(`[SITE] (${n}/${maxPages}) Indexando: ${urlNorm}`);
     options?.onProgress?.(result.indexed, queue.length, urlNorm);
@@ -731,7 +767,9 @@ export async function indexSite(
       if (!visited.has(norm) && !queue.includes(norm)) queue.push(norm);
     }
   }
-  logProgress(`[SITE] Terminado: ${result.indexed} páginas indexadas, ${result.errors.length} error(es).`);
+  logProgress(
+    `[SITE] Terminado: ${result.indexed} páginas indexadas, ${result.skipped} saltadas (ya en índice), ${result.errors.length} error(es).`
+  );
   return result;
 }
 
@@ -757,5 +795,5 @@ export function getSiteMaxPages(): number {
   const n = process.env.INDEX_SITE_MAX_PAGES;
   if (n === undefined || n === '') return 1000;
   const parsed = parseInt(n, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 10000) : 1000;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 20000) : 1000;
 }
