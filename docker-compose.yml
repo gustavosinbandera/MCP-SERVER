@@ -91,6 +91,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_hub}
       INDEXED_KEYS_DB: /app/data/indexed_keys.db
       INDEX_USE_PERSISTENT_KEYS: ${INDEX_USE_PERSISTENT_KEYS:-true}
+      USER_KB_ROOT_DIR: /app/USER_KB
       INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb:8086}
       INFLUXDB_ORG: ${INFLUXDB_ORG:-mcp}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-mcp_metrics}
@@ -101,6 +102,7 @@ services:
       - ./classic:/app/classic
       - ./blueivory:/app/blueivory
       - ./INDEX_INBOX:/app/INDEX_INBOX
+      - ./USER_KB:/app/USER_KB
     expose:
       - "3001"
     depends_on:
@@ -123,6 +125,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       INDEXED_KEYS_DB: /app/data/indexed_keys.db
       INDEX_USE_PERSISTENT_KEYS: ${INDEX_USE_PERSISTENT_KEYS:-true}
+      USER_KB_ROOT_DIR: /app/USER_KB
       INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb:8086}
       INFLUXDB_ORG: ${INFLUXDB_ORG:-mcp}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-mcp_metrics}
@@ -132,6 +135,7 @@ services:
       - ./classic:/app/classic
       - ./blueivory:/app/blueivory
       - ./INDEX_INBOX:/app/INDEX_INBOX
+      - ./USER_KB:/app/USER_KB
     command: node dist/supervisor.js
     depends_on:
       qdrant:

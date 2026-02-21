@@ -25,6 +25,7 @@
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
     "html-to-text": "^9.0.5",
+    "jose": "^5.10.0",
     "openai": "^6.22.0",
     "p-limit": "^7.3.0",
     "puppeteer": "^24.37.5",

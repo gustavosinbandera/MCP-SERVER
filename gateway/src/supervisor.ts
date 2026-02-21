@@ -8,7 +8,7 @@
  *   node dist/supervisor.js --once     → un ciclo y termina (bajo demanda)
  */
 import 'dotenv/config';
-import { processInbox, getInboxPathOrNull, indexSharedDirs } from './inbox-indexer';
+import { processInbox, getInboxPathOrNull, indexSharedDirs, indexUserKbRoots } from './inbox-indexer';
 import { recordInbox, recordShared, getStatsByDay } from './indexing-stats';
 import { info } from './logger';
 import { recordIndexingDailyMetric, recordIndexingEventMetric } from './metrics';
@@ -62,7 +62,13 @@ export async function runCycle(): Promise<void> {
     sharedResult.errors.forEach((e: string) => log(`  SHARED_DIRS: ${e}`));
   }
 
-  if (inboxIndexed > 0 || sharedResult.indexed > 0) {
+  const userKbResult = await indexUserKbRoots();
+  if (userKbResult.indexed > 0 || userKbResult.errors.length > 0) {
+    log(`USER_KB: indexados=${userKbResult.indexed}, errores=${userKbResult.errors.length}`);
+    userKbResult.errors.forEach((e: string) => log(`  USER_KB: ${e}`));
+  }
+
+  if (inboxIndexed > 0 || sharedResult.indexed > 0 || userKbResult.indexed > 0) {
     const today = getStatsByDay(1);
     if (today.length > 0) {
       const t = today[0];

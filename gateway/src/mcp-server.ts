@@ -16,6 +16,7 @@ import { searchDocs, countDocs, type SearchOptions } from './search';
 import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './shared-dirs';
 import { indexUrl, indexUrlWithLinks, indexSite, listUrlLinks, formatListUrlLinksMarkdown, viewUrlContent, loginMediaWiki } from './url-indexer';
 import { writeFlowDocToInbox } from './flow-doc';
+import { writeUserExperienceDoc } from './user-kb';
 import { runRepoGit } from './repo-git';
 import { searchGitHubRepos } from './github-search';
 import {
@@ -79,12 +80,20 @@ function formatFilterInfo(opts: SearchOptions): string {
   return parts.join(', ');
 }
 
-const mcpServer = new McpServer({
-  name: 'mcp-knowledge-hub',
-  version: '0.1.0',
-});
+export type McpContext = { userId: string };
 
-mcpServer.tool(
+/**
+ * Factory: crea un McpServer con el set completo de tools.
+ * ctx.userId se usa para rutas/payloads por usuario (ej. User KB en Fase 4).
+ * Modo stdio: buildMcpServer({ userId: 'local' }).
+ */
+export function buildMcpServer(ctx: McpContext): McpServer {
+  const mcpServer = new McpServer({
+    name: 'mcp-knowledge-hub',
+    version: '0.1.0',
+  });
+
+  mcpServer.tool(
   'search_docs',
   'Busca en la documentación indexada del Knowledge Hub (Qdrant). Filtros opcionales (alineados con el payload indexado): project, branch (classic|blueivory), source_type (code|doc|url), domain, class_name (clase que contiene el doc), referenced_type (tipo referenciado), file_name. Usa esta herramienta cuando necesites información de la documentación del proyecto, ADRs, bugs, flujos o docs corporativos.',
   {
@@ -317,6 +326,34 @@ mcpServer.tool(
       bug_id: args.bug_id,
       project: args.project,
     });
+    return {
+      content: [{ type: 'text' as const, text: result.message }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'documentar_sesion',
+  'Guarda un documento Markdown de experiencia/sesión en la KB personal del usuario (persistente, no se borra). Se indexa en Qdrant con owner_user_id y doc_kind "experience". Úsala para documentar sesiones, hallazgos, bugs o features. Parámetros: title, content (markdown); opcionales: bugOrFeatureId, tags (array de strings).',
+  {
+    title: z.string(),
+    content: z.string(),
+    bugOrFeatureId: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  } as any,
+  async (args: { title: string; content: string; bugOrFeatureId?: string; tags?: string[] }) => {
+    const result = writeUserExperienceDoc({
+      userId: ctx.userId,
+      title: args.title ?? '',
+      content: args.content ?? '',
+      bugOrFeatureId: args.bugOrFeatureId?.trim(),
+      tags: args.tags?.filter((t) => typeof t === 'string' && t.trim()).map((t) => t.trim()),
+    });
+    if (result.error) {
+      return {
+        content: [{ type: 'text' as const, text: `Error al guardar: ${result.error}` }],
+      };
+    }
     return {
       content: [{ type: 'text' as const, text: result.message }],
     };
@@ -775,9 +812,13 @@ mcpServer.tool(
   },
 );
 
+  return mcpServer;
+}
+
 async function main() {
+  const server = buildMcpServer({ userId: 'local' });
   const transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
+  await server.connect(transport);
   // Log a stderr para no interferir con el protocolo MCP en stdout
   console.error('MCP Knowledge Hub server running on stdio');
 }

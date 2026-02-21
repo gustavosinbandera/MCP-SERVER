@@ -28,4 +28,17 @@ describe('MCP Gateway', () => {
       expect(res.body).toHaveProperty('total');
     }
   });
+
+  describe('/mcp (HTTP Streamable)', () => {
+    it('POST /mcp returns 401 without Authorization', async () => {
+      const res = await request(app).post('/mcp').send({ jsonrpc: '2.0', method: 'initialize', params: {} });
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('GET /mcp without auth returns 401', async () => {
+      const res = await request(app).get('/mcp');
+      expect(res.status).toBe(401);
+    });
+  });
 });

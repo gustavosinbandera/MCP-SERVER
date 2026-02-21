@@ -27,11 +27,29 @@ export function getProjectRoot(): string {
 /**
  * Inbox directory for items to be indexed (supervisor consumes and deletes).
  * Resolved from INDEX_INBOX_DIR or default: project root / INDEX_INBOX.
+ * Alias: ADMIN_INBOX_DIR sin romper compatibilidad.
  */
 export function getInboxPath(): string {
-  const raw = process.env.INDEX_INBOX_DIR;
+  const raw = process.env.INDEX_INBOX_DIR || process.env.ADMIN_INBOX_DIR;
   if (raw && raw.trim()) return path.resolve(raw.trim());
   return path.join(getProjectRoot(), 'INDEX_INBOX');
+}
+
+/**
+ * Root directory for User KB: persistent Markdown per user (indexed, not deleted).
+ * Resolved from USER_KB_ROOT_DIR or default: /app/USER_KB (Docker) or project root / USER_KB (local).
+ */
+export function getUserKbRootDir(): string {
+  const raw = process.env.USER_KB_ROOT_DIR;
+  if (raw && raw.trim()) return path.resolve(raw.trim());
+  return path.join(getProjectRoot(), 'USER_KB');
+}
+
+/** Directory for a given user's KB: USER_KB_ROOT_DIR/<userId>. */
+export function getUserKbUserDir(userId: string): string {
+  const root = getUserKbRootDir();
+  const safe = (userId || 'local').replace(/[<>:"/\\|?*]/g, '_').trim() || 'local';
+  return path.join(root, safe);
 }
 
 /**
@@ -104,6 +122,13 @@ export function getIndexedKeysDbPath(): string {
   const raw = process.env.INDEXED_KEYS_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'indexed_keys.db');
+}
+
+/** Ruta del archivo SQLite para User KB indexed (owner_user_id, source_path) + content_hash. */
+export function getUserKbIndexedDbPath(): string {
+  const raw = process.env.USER_KB_INDEXED_DB?.trim();
+  if (raw) return path.resolve(raw);
+  return path.resolve(__dirname, '..', 'data', 'user_kb_indexed.db');
 }
 
 /** Ruta del archivo SQLite para estadísticas de indexación por día (INDEX_STATS_DB). */

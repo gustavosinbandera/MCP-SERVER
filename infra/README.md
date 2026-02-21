@@ -40,6 +40,11 @@ O con un solo script:
 
 No hace falta pasar argumentos: stack name, template y parámetros están fijos en los scripts. Así puedes replicar la infra en cualquier máquina con AWS CLI configurado y este repo.
 
+## Seguridad (producción)
+
+- **AllowedSSHCIDR**: En producción no debe quedar `0.0.0.0/0`. Usa tu IP fija o CIDR de VPN en `infra/parameters.json` (parámetro `AllowedSSHCIDR`) para restringir SSH al puerto 22.
+- Los puertos 80 y 443 quedan abiertos; el endpoint `/mcp` está protegido por JWT (Cognito). Rate-limit en borde (WAF/CloudFront) se puede añadir en una fase posterior.
+
 ## Dominio mcp.domoticore.co
 
 El script **5-route53-mcp.ps1** obtiene la PublicIP del stack y actualiza el registro A de **mcp.domoticore.co** en Route 53. Ejecútalo tras crear o reiniciar la EC2 (la IP puede cambiar si no usas IP elástica).

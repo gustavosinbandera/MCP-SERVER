@@ -29,6 +29,7 @@ import {
   getSharedReindexChanged,
   getSharedSyncDeleted,
   getRequireEmbeddings,
+  getUserKbRootDir,
   getBranchForProject,
   getDomainForPath,
   COLLECTION_NAME,
@@ -36,6 +37,7 @@ import {
   MAX_FILE_SIZE_BYTES,
   INDEX_CONCURRENCY,
 } from './config';
+import { loadUserKbKeysAndHashes, setUserKbHash, keyOf as userKbKeyOf } from './user-kb-indexed-db';
 import { loadOneTimeIndexedProjects, addOneTimeIndexedProject } from './one-time-indexed-db';
 import { info, error as logError } from './logger';
 import { extractCodeMetadata, isCodeFileForMetadata, type CodeMetadata } from './code-metadata';
@@ -78,6 +80,24 @@ function getIgnoreDirs(): Set<string> {
 function isBlockedFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return BLOCKED_EXT.has(ext);
+}
+
+/** Parsea frontmatter mínimo (title, created_at, tags) de un md User KB. */
+function parseUserKbFrontmatter(content: string): { title?: string; created_at?: string; tags?: string[] } {
+  const out: { title?: string; created_at?: string; tags?: string[] } = {};
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!match) return out;
+  const block = match[1];
+  const titleM = block.match(/title:\s*["']?([^"'\n]+)["']?/);
+  if (titleM) out.title = titleM[1].trim();
+  const createdM = block.match(/created_at:\s*["']?([^"'\n]+)["']?/);
+  if (createdM) out.created_at = createdM[1].trim();
+  const tagsM = block.match(/tags:\s*\[([^\]]*)\]/);
+  if (tagsM) {
+    const raw = tagsM[1].replace(/["']/g, '').split(',').map((t) => t.trim()).filter(Boolean);
+    if (raw.length) out.tags = raw;
+  }
+  return out;
 }
 
 function isTextFile(filePath: string): boolean {
@@ -133,7 +153,7 @@ async function ensureCollection(client: QdrantClient): Promise<void> {
   }
 }
 
-function assertEmbeddingsReady(context: 'inbox' | 'shared'): void {
+function assertEmbeddingsReady(context: 'inbox' | 'shared' | 'user_kb'): void {
   if (getRequireEmbeddings() && !hasEmbedding()) {
     throw new Error(`[${context}] INDEX_REQUIRE_EMBEDDINGS=true and OPENAI_API_KEY is missing. Indexing blocked.`);
   }
@@ -152,6 +172,16 @@ type IndexDocumentMeta = {
   branch?: string;
   domain?: string;
   code_metadata?: CodeMetadata | null;
+  /** User KB: owner user id (payload owner_user_id). */
+  owner_user_id?: string;
+  /** User KB: doc_kind (e.g. "experience"). */
+  doc_kind?: string;
+  /** User KB: title from frontmatter. */
+  title_override?: string;
+  /** User KB: tags from frontmatter. */
+  tags?: string[];
+  /** User KB: created_at from frontmatter. */
+  created_at?: string;
 };
 
 async function indexDocument(
@@ -193,6 +223,11 @@ async function indexDocument(
         payload.property_names = meta.code_metadata.property_names;
         payload.referenced_types = meta.code_metadata.referenced_types;
       }
+      if (meta?.owner_user_id != null) payload.owner_user_id = meta.owner_user_id;
+      if (meta?.doc_kind != null) payload.doc_kind = meta.doc_kind;
+      if (meta?.title_override != null) payload.title = meta.title_override;
+      if (meta?.tags != null) payload.tags = meta.tags;
+      if (meta?.created_at != null) payload.created_at = meta.created_at;
       if (contentHash != null) payload.content_hash = contentHash;
       points.push({ id: randomUUID(), vector, payload });
     }
@@ -205,7 +240,7 @@ async function indexDocument(
   }
 
   const id = randomUUID();
-  const payload: Record<string, unknown> = { title, content };
+  const payload: Record<string, unknown> = { title: meta?.title_override ?? title, content };
   if (meta) {
     payload.source_path = meta.source_path;
     payload.project = meta.project;
@@ -218,6 +253,10 @@ async function indexDocument(
       payload.property_names = meta.code_metadata.property_names;
       payload.referenced_types = meta.code_metadata.referenced_types;
     }
+    if (meta.owner_user_id != null) payload.owner_user_id = meta.owner_user_id;
+    if (meta.doc_kind != null) payload.doc_kind = meta.doc_kind;
+    if (meta.tags != null) payload.tags = meta.tags;
+    if (meta.created_at != null) payload.created_at = meta.created_at;
   }
   await client.upsert(COLLECTION_NAME, {
     wait: true,
@@ -613,5 +652,77 @@ export async function indexSharedDirs(): Promise<{ indexed: number; newCount: nu
     reindexedCount: result.reindexedCount,
     errors: result.errors.length,
   });
+  return result;
+}
+
+/**
+ * Indexa User KB: USER_KB_ROOT_DIR/<userId>/.../*.md en Qdrant.
+ * Payload: owner_user_id, doc_kind: "experience", source_path, title, tags, created_at.
+ * Incremental por content_hash en SQLite (user_kb_indexed.db). NO borra archivos.
+ */
+export async function indexUserKbRoots(): Promise<{ indexed: number; errors: string[] }> {
+  const root = getUserKbRootDir();
+  const result = { indexed: 0, errors: [] as string[] };
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    return result;
+  }
+  assertEmbeddingsReady('user_kb');
+  const { keys: existingKeys, hashes: existingHashes } = loadUserKbKeysAndHashes();
+  const client = getQdrantClient();
+  await ensureCollection(client);
+  const limit = pLimit(INDEX_CONCURRENCY);
+  let userIds: string[];
+  try {
+    userIds = fs.readdirSync(root).filter((n) => n !== '.' && n !== '..' && !n.startsWith('.'));
+  } catch (e) {
+    result.errors.push(e instanceof Error ? e.message : String(e));
+    return result;
+  }
+  for (const userId of userIds) {
+    const userDir = path.join(root, userId);
+    if (!fs.statSync(userDir).isDirectory()) continue;
+    const files: { relativePath: string; content: string }[] = [];
+    try {
+      for (const item of walkTextFiles(userDir, userDir)) {
+        if (path.extname(item.relativePath).toLowerCase() === '.md') files.push(item);
+      }
+    } catch (e) {
+      result.errors.push(`${userId}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    const norm = (rp: string) => `${userId}/${rp}`.replace(/\\/g, '/').replace(/\/+/g, '/');
+    const toIndex: { f: { relativePath: string; content: string }; source_path: string; key: string; hash: string; meta: ReturnType<typeof parseUserKbFrontmatter> }[] = [];
+    for (const f of files) {
+      const source_path = norm(f.relativePath);
+      const key = userKbKeyOf(userId, source_path);
+      const hash = createHash('sha256').update(f.content).digest('hex');
+      if (existingKeys.has(key) && existingHashes.get(key) === hash) continue;
+      toIndex.push({ f, source_path, key, hash, meta: parseUserKbFrontmatter(f.content) });
+    }
+    const counts = await Promise.all(
+      toIndex.map((item) =>
+        limit(async () => {
+          await indexDocument(client, item.source_path, item.f.content, {
+            source_path: item.source_path,
+            project: 'user_kb',
+            source_type: 'doc',
+            owner_user_id: userId,
+            doc_kind: 'experience',
+            title_override: item.meta.title,
+            tags: item.meta.tags,
+            created_at: item.meta.created_at,
+          });
+          setUserKbHash(userId, item.source_path, item.hash);
+          existingKeys.add(item.key);
+          existingHashes.set(item.key, item.hash);
+          return 1;
+        })
+      )
+    );
+    result.indexed += counts.reduce((a, b) => a + b, 0);
+  }
+  if (result.indexed > 0) {
+    info('indexUserKbRoots completed', { indexed: result.indexed, errors: result.errors.length });
+  }
   return result;
 }
