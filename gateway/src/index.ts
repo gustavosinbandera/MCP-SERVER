@@ -106,15 +106,16 @@ app.get('/logs/stream', requireJwt, (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
+  const flush = (r: typeof res) => { const f = (r as unknown as { flush?: () => void }).flush; if (typeof f === 'function') f(); };
   const send = (entry: Record<string, unknown>) => {
     if (!logEntryMatchesFilter(entry, filter)) return;
     res.write(`data: ${JSON.stringify(entry)}\n\n`);
-    res.flush?.();
+    flush(res);
   };
   const { entries } = readLogEntries({ tail });
   const filtered = filter ? entries.filter((e) => logEntryMatchesFilter(e, filter)) : entries;
   filtered.forEach((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
-  res.flush?.();
+  flush(res);
   const unsub = subscribeToLogEntries(send);
   req.on('close', () => unsub());
 });
