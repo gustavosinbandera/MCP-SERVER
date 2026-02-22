@@ -99,7 +99,10 @@ export interface ListWorkItemsOptions {
   year?: number;
   dateField?: string;
   top?: number;
+  /** Si true, filtra por [System.AssignedTo] = @Me (usuario del PAT). */
   assignedToMe?: boolean;
+  /** Si se indica, filtra por ese usuario (nombre para mostrar o identificador). Anula assignedToMe. */
+  assignedTo?: string;
 }
 
 interface WiqlResponse {
@@ -120,6 +123,7 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
     dateField = 'System.ChangedDate',
     top = 50,
     assignedToMe = true,
+    assignedTo,
   } = options;
 
   const typeFilter = type ? ` And [System.WorkItemType] = '${escapeWiql(type)}' ` : '';
@@ -134,7 +138,12 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
       ? ` And [System.State] IN (${states.map((s) => `'${escapeWiql(s)}'`).join(', ')}) `
       : '';
 
-  const assignedClause = assignedToMe ? ' And [System.AssignedTo] = @Me ' : '';
+  let assignedClause = '';
+  if (assignedTo != null && assignedTo.trim() !== '') {
+    assignedClause = ` And [System.AssignedTo] = '${escapeWiql(assignedTo.trim())}' `;
+  } else if (assignedToMe) {
+    assignedClause = ' And [System.AssignedTo] = @Me ';
+  }
 
   const query =
     'Select [System.Id], [System.Title], [System.State] From WorkItems ' +
@@ -157,9 +166,10 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
   const ids = (wiql.workItems || []).slice(0, top).map((w) => w.id);
   if (ids.length === 0) return [];
 
+  const fieldsParam = 'System.Id,System.Title,System.State,System.WorkItemType,System.ChangedDate,System.AssignedTo';
   const batchUrl =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems') +
-    `?ids=${ids.join(',')}&api-version=${encodeURIComponent(API_VER)}`;
+    `?ids=${ids.join(',')}&fields=${encodeURIComponent(fieldsParam)}&api-version=${encodeURIComponent(API_VER)}`;
 
   const batch = await httpJson<{ value?: WorkItemBatchValue[] }>(batchUrl);
   return batch.value || [];

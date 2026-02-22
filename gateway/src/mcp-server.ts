@@ -843,15 +843,55 @@ mcpServer.tool(
   }
 
   mcpServer.tool(
+    'azure',
+    'Alias para Azure DevOps. Primer argumento: accion (ej. "listar tareas"). Segundo argumento opcional: usuario (ej. "gustavo grisales" o "ggrisales") para ver tareas asignadas a esa persona. Sin usuario: tareas asignadas a ti. Invocar: azure con accion="listar tareas" y opcional usuario="Gustavo Grisales".',
+    {
+      accion: z.string(),
+      usuario: z.string().optional(),
+    } as any,
+    async (args: { accion: string; usuario?: string }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      const accion = (args.accion || '').trim().toLowerCase();
+      const usuario = args.usuario?.trim();
+      if (accion === 'listar tareas' || accion === 'listar tareas asignadas' || accion === 'tareas') {
+        try {
+          const items = await listWorkItems({
+            top: 50,
+            assignedTo: usuario || undefined,
+            assignedToMe: !usuario,
+          });
+          const who = usuario ? `asignados a "${usuario}"` : 'asignados a ti';
+          const lines = items.length === 0
+            ? [`No hay work items ${who}.`]
+            : items.map((item) => {
+                const f = item.fields || {};
+                const changed = f['System.ChangedDate'] ? `  ${String(f['System.ChangedDate']).slice(0, 10)}` : '';
+                return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(sin título)'}${changed}`;
+              });
+          return { content: [{ type: 'text' as const, text: `Work Items ${who} (${items.length}):\n${lines.join('\n')}` }] };
+        } catch (err) {
+          return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        }
+      }
+      return {
+        content: [{ type: 'text' as const, text: `Acción "${args.accion}" no reconocida. Usa accion "listar tareas" y opcionalmente usuario "gustavo grisales".` }],
+      };
+    },
+  );
+
+  mcpServer.tool(
     'azure_list_work_items',
-    'Lista work items (tickets/bugs) de Azure DevOps asignados a ti. Filtros opcionales: type (Bug/Task), states (New,Committed,In Progress), year, top. Requiere AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, AZURE_DEVOPS_PAT en .env.',
+    'Lista work items (tickets/bugs/tareas) de Azure DevOps. Sin assigned_to: asignados a ti (@Me). Con assigned_to: asignados a ese usuario (ej. "Gustavo Grisales" o "ggrisales"). Filtros opcionales: type (Bug/Task), states (New,Committed,In Progress), year, top. Trae los asignados hasta la fecha. Requiere AZURE_DEVOPS_* en .env.',
     {
       type: z.string().optional(),
       states: z.string().optional(),
       year: z.number().optional(),
       top: z.number().optional(),
+      assigned_to: z.string().optional(),
     } as any,
-    async (args) => {
+    async (args: { type?: string; states?: string; year?: number; top?: number; assigned_to?: string }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT y AZURE_DEVOPS_PAT deben estar definidos en .env.' }] };
       }
@@ -859,14 +899,24 @@ mcpServer.tool(
         const type = args.type?.trim();
         const states = args.states ? args.states.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
         const top = args.top ?? 50;
-        const items = await listWorkItems({ type: type || undefined, states, year: args.year, top });
+        const assignedTo = args.assigned_to?.trim();
+        const items = await listWorkItems({
+          type: type || undefined,
+          states,
+          year: args.year,
+          top,
+          assignedTo: assignedTo || undefined,
+          assignedToMe: !assignedTo,
+        });
+        const who = assignedTo ? `asignados a "${assignedTo}"` : 'asignados a ti';
         const lines = items.length === 0
-          ? ['No hay work items con esos filtros.']
+          ? [`No hay work items ${who} con esos filtros.`]
           : items.map((item) => {
               const f = item.fields || {};
-              return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(sin título)'}`;
+              const changed = f['System.ChangedDate'] ? `  ${String(f['System.ChangedDate']).slice(0, 10)}` : '';
+              return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(sin título)'}${changed}`;
             });
-        return { content: [{ type: 'text' as const, text: `Work Items (${items.length}):\n${lines.join('\n')}` }] };
+        return { content: [{ type: 'text' as const, text: `Work Items ${who} (${items.length}):\n${lines.join('\n')}` }] };
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
       }
@@ -877,7 +927,7 @@ mcpServer.tool(
     'azure_get_work_item',
     'Obtiene el detalle de un work item de Azure DevOps por ID. Requiere config Azure DevOps en .env.',
     { work_item_id: z.number() } as any,
-    async (args) => {
+    async (args: { work_item_id: number }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
       }
@@ -902,7 +952,7 @@ mcpServer.tool(
     'azure_get_bug_changesets',
     'Lista los changesets (TFVC) vinculados a un bug/work item. Devuelve autor, fecha, comentario y archivos modificados por cada changeset. Requiere config Azure DevOps en .env.',
     { bug_id: z.number() } as any,
-    async (args) => {
+    async (args: { bug_id: number }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
       }
@@ -939,7 +989,7 @@ mcpServer.tool(
     'azure_get_changeset',
     'Obtiene un changeset TFVC de Azure DevOps: autor, fecha, comentario y lista de archivos modificados. Requiere config Azure DevOps en .env.',
     { changeset_id: z.number() } as any,
-    async (args) => {
+    async (args: { changeset_id: number }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
       }
@@ -973,7 +1023,7 @@ mcpServer.tool(
       changeset_id: z.number(),
       file_index: z.number().optional(),
     } as any,
-    async (args) => {
+    async (args: { changeset_id: number; file_index?: number }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
       }
@@ -1032,7 +1082,8 @@ mcpServer.tool(
         { name: 'clickup_create_subtask', description: 'Crea una subtarea bajo una tarea. list_id, parent_task_id, name; opcionales: description, status, priority.' },
         { name: 'clickup_get_task', description: 'Obtiene el detalle de una tarea. task_id.' },
         { name: 'clickup_update_task', description: 'Actualiza una tarea (estado, título, descripción, prioridad). task_id; opcionales: name, description, status, priority.' },
-        { name: 'azure_list_work_items', description: 'Lista work items (tickets/bugs) de Azure DevOps asignados a ti. Opcionales: type, states, year, top.' },
+        { name: 'azure', description: 'Alias Azure DevOps: accion "listar tareas", opcional usuario "gustavo grisales". Sin usuario = tareas tuyas.' },
+        { name: 'azure_list_work_items', description: 'Lista work items de Azure DevOps. Opcional assigned_to (ej. "Gustavo Grisales" o "ggrisales") para tareas de ese usuario; si no, asignados a ti. Opcionales: type, states, year, top.' },
         { name: 'azure_get_work_item', description: 'Obtiene el detalle de un work item. work_item_id.' },
         { name: 'azure_get_bug_changesets', description: 'Lista changesets TFVC vinculados a un bug. bug_id.' },
         { name: 'azure_get_changeset', description: 'Obtiene un changeset TFVC: autor, fecha, archivos. changeset_id.' },
