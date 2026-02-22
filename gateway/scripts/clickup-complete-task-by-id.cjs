@@ -1,8 +1,7 @@
 /**
- * Marca una tarea ClickUp como completada (estado "complete" / "done" / "completado" según la lista).
- * Uso: desde gateway/ → node scripts/clickup-complete-task.cjs --task-id 86afmer8g
- * Opcional: --list-id 901325668563 (si no, usa LIST_ID de .env o obtiene de la tarea).
- * Requiere CLICKUP_API_TOKEN en .env
+ * Marca una tarea ClickUp como completada por su ID.
+ * Uso: desde gateway/ → node scripts/clickup-complete-task-by-id.cjs --task-id 86afmer8g [--list-id 901325668563]
+ * Requiere CLICKUP_API_TOKEN y LIST_ID (o --list-id).
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
@@ -11,16 +10,11 @@ const taskId = process.argv.find((a, i) => process.argv[i - 1] === '--task-id');
 const listIdArg = process.argv.find((a, i) => process.argv[i - 1] === '--list-id');
 
 if (!taskId) {
-  console.error('Uso: node scripts/clickup-complete-task.cjs --task-id <task_id> [--list-id <list_id>]');
+  console.error('Uso: node scripts/clickup-complete-task-by-id.cjs --task-id <task_id> [--list-id <list_id>]');
   process.exit(1);
 }
 
-const {
-  getTask,
-  getList,
-  updateTask,
-  hasClickUpToken,
-} = require('../dist/clickup-client.js');
+const { getTask, getList, updateTask, hasClickUpToken } = require('../dist/clickup-client.js');
 
 function findCompleteStatus(list) {
   const statuses = list.statuses || [];
@@ -49,13 +43,12 @@ async function main() {
     const task = await getTask(taskId);
     listId = task.list?.id;
     if (!listId) {
-      console.error('No se pudo obtener list_id de la tarea. Usa --list-id o LIST_ID en .env');
+      console.error('No se pudo obtener list_id. Usa --list-id o LIST_ID en .env');
       process.exit(1);
     }
   }
   const list = await getList(listId);
   const completeStatus = findCompleteStatus(list);
-  console.log('Estado a aplicar:', completeStatus);
   await updateTask(taskId, { status: completeStatus });
   console.log('Tarea', taskId, 'marcada como', completeStatus);
 }

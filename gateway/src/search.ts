@@ -6,7 +6,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import { embed, hasEmbedding } from './embedding';
 import { getQdrantClient } from './qdrant-client';
 import { COLLECTION_NAME, getIndexedKeysDbPath } from './config';
-import { error as logError } from './logger';
+import { error as logError, info as logInfo } from './logger';
 import {
   isPersistentIndexEnabled,
   getKeysAndHashes as getPersistentKeysAndHashes,
@@ -202,16 +202,21 @@ export async function searchDocs(
   limit = 10,
   options?: SearchOptions
 ): Promise<{ results: Array<{ id: string; payload: Record<string, unknown>; score?: number }>; total: number }> {
+  const startMs = Date.now();
+  logInfo('searchDocs start', { query: query?.slice(0, 80), limit });
   const client = getQdrantClient();
   try {
     const collections = await client.getCollections();
+    logInfo('searchDocs step=collections', { elapsedMs: Date.now() - startMs });
     const exists = collections.collections.some((c) => c.name === COLLECTION_NAME);
     if (!exists) {
+      logInfo('searchDocs done (no collection)', { elapsedMs: Date.now() - startMs });
       return { results: [], total: 0 };
     }
 
     if (hasEmbedding() && query?.trim()) {
       const queryVector = await embed(query.trim());
+      logInfo('searchDocs step=embed', { elapsedMs: Date.now() - startMs });
       if (queryVector) {
         const searchOpts: Parameters<QdrantClient['search']>[1] = {
           vector: queryVector,
@@ -222,11 +227,13 @@ export async function searchDocs(
         const filter = buildSearchFilter(options);
         if (filter) searchOpts.filter = filter;
         const searchResult = await client.search(COLLECTION_NAME, searchOpts);
+        logInfo('searchDocs step=search', { elapsedMs: Date.now() - startMs, count: searchResult.length });
         const results = searchResult.map((p) => ({
           id: (p.id as string) ?? '',
           payload: (p.payload || {}) as Record<string, unknown>,
           score: p.score,
         }));
+        logInfo('searchDocs done', { elapsedMs: Date.now() - startMs, total: results.length });
         return { results, total: results.length };
       }
     }
@@ -239,6 +246,7 @@ export async function searchDocs(
     const filter = buildSearchFilter(options);
     if (filter) scrollOpts.filter = filter;
     const { points } = await client.scroll(COLLECTION_NAME, scrollOpts);
+    logInfo('searchDocs step=scroll', { elapsedMs: Date.now() - startMs, count: points.length });
     let results = points.map((p) => ({
       id: p.id as string,
       payload: (p.payload || {}) as Record<string, unknown>,
@@ -251,6 +259,7 @@ export async function searchDocs(
         return title.includes(q) || content.includes(q);
       });
     }
+    logInfo('searchDocs done', { elapsedMs: Date.now() - startMs, total: results.length });
     return { results, total: results.length };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -33,6 +33,7 @@ import {
   type CreateTaskBody,
   type UpdateTaskBody,
 } from './clickup-client';
+import { info as logInfo } from './logger';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
 const KNOWLEDGE_HUB_NAME = (process.env.KNOWLEDGE_HUB_NAME || process.env.PROJECT_NAME || '').trim();
@@ -118,11 +119,14 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     referenced_type?: string;
     file_name?: string;
   }) => {
+    const toolStart = Date.now();
+    logInfo('tool search_docs start', { query: (args.query ?? '').slice(0, 80) });
     const query = args.query ?? '';
     const limit = args.limit ?? 10;
     const maxResults = Math.min(Math.max(1, limit), 100);
     const opts = buildSearchOptionsFromArgs(args);
     const { results, total } = await searchDocs(query, maxResults, opts);
+    logInfo('tool search_docs end', { elapsedMs: Date.now() - toolStart, total });
     const header = KNOWLEDGE_HUB_NAME ? `[${KNOWLEDGE_HUB_NAME}] ` : '';
     const filterInfo = opts ? ` Filtros: ${formatFilterInfo(opts)}` : '';
     const text =
