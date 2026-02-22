@@ -120,7 +120,8 @@ app.get('/logs/stream', requireJwt, (req, res) => {
   req.on('close', () => unsub());
 });
 
-app.get('/logs/view', requireJwt, (_req, res) => {
+// Página HTML sin auth: el token se pide en el cliente al usar Cargar/Stream (GET /logs y /logs/stream sí exigen JWT).
+app.get('/logs/view', (_req, res) => {
   const base = process.env.MCP_LOGS_VIEW_BASE ?? '/api';
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
@@ -340,6 +341,7 @@ app.delete('/mcp', requireJwt, async (req, res) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`MCP Gateway listening on port ${PORT}`);
+    logInfo('Gateway started', { port: PORT, path: getLogFilePath() });
     // Warmup: una sesión de prueba para que la primera petición real no pague cold start (JIT, connect).
     getOrCreateSession('_warmup', null)
       .then((r) => {
