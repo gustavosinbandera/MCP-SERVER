@@ -121,8 +121,9 @@ app.get('/logs/stream', requireJwt, (req, res) => {
 });
 
 // Página HTML sin auth: el token se pide en el cliente al usar Cargar/Stream (GET /logs y /logs/stream sí exigen JWT).
+// base '' = local (sin proxy). En producción con nginx bajo /api, definir MCP_LOGS_VIEW_BASE=/api (p. ej. en docker-compose).
 app.get('/logs/view', (_req, res) => {
-  const base = process.env.MCP_LOGS_VIEW_BASE ?? '/api';
+  const base = process.env.MCP_LOGS_VIEW_BASE ?? '';
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html>
@@ -166,6 +167,16 @@ app.get('/logs/view', (_req, res) => {
   <script>
     const base = ${JSON.stringify(base)};
     let streamAbort = null;
+    (function() {
+      var params = new URLSearchParams(location.search);
+      var t = params.get('token');
+      if (t) {
+        localStorage.setItem('mcp_id_token', t);
+        params.delete('token');
+        var clean = location.pathname + (params.toString() ? '?' + params.toString() : '');
+        history.replaceState(null, '', clean);
+      }
+    })();
     function getToken() {
       let t = localStorage.getItem('mcp_id_token') || '';
       if (!t) t = prompt('Pega tu IdToken (Bearer) para ver logs') || '';
@@ -177,6 +188,14 @@ app.get('/logs/view', (_req, res) => {
         '<tr><td class="ts">' + (e.ts || '') + '</td><td>' + (e.level || '') + '</td><td>' + (e.userId || '') + '</td><td class="msg">' + (e.message || '') + '</td><td><pre>' + (JSON.stringify(e).slice(0, 200)) + '</pre></td></tr>'
       ).join('');
     }
+    async function fetchLogs(url, opts) {
+      let r = await fetch(url, opts);
+      if (r.status === 404 && url.indexOf('/api/') !== -1) {
+        const fallback = (typeof location !== 'undefined' && location.origin ? location.origin : '') + url.replace(/^\\/api/, '/');
+        r = await fetch(fallback, opts);
+      }
+      return r;
+    }
     document.getElementById('btnFetch').onclick = async () => {
       const token = getToken();
       const filter = document.getElementById('filter').value;
@@ -184,7 +203,7 @@ app.get('/logs/view', (_req, res) => {
       const q = new URLSearchParams({ tail: '200' });
       if (filter) q.set('filter', filter);
       if (userId) q.set('userId', userId);
-      const r = await fetch(base + '/logs?' + q, { headers: { Authorization: 'Bearer ' + token } });
+      const r = await fetchLogs(base + '/logs?' + q, { headers: { Authorization: 'Bearer ' + token } });
       if (!r.ok) { document.getElementById('meta').textContent = 'Error ' + r.status; return; }
       const d = await r.json();
       document.getElementById('meta').textContent = d.path + ' — ' + d.count + ' entradas (carga única)';
@@ -198,24 +217,28 @@ app.get('/logs/view', (_req, res) => {
       document.getElementById('btnStream').disabled = true;
       document.getElementById('btnStop').disabled = false;
       document.getElementById('meta').textContent = 'Conectando stream SSE…';
-      const q = new URLSearchParams({ tail: '50' });
-      if (filter) q.set('filter', filter);
-      const r = await fetch(base + '/logs/stream?' + q, { headers: { Authorization: 'Bearer ' + token }, signal: streamAbort.signal });
-      if (!r.ok) { document.getElementById('meta').textContent = 'Error ' + r.status; document.getElementById('btnStream').disabled = false; document.getElementById('btnStop').disabled = true; return; }
-      document.getElementById('meta').textContent = 'Stream en vivo (filtro: ' + (filter || 'todos') + ')';
-      const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\\n\\n");
-        buf = lines.pop() || '';
-        for (const block of lines) {
-          const m = block.match(/^data: (.+)/m);
-          if (m) try { const e = JSON.parse(m[1]); document.getElementById('t').insertAdjacentHTML('afterbegin', '<tr><td class="ts">' + (e.ts || '') + '</td><td>' + (e.level || '') + '</td><td>' + (e.userId || '') + '</td><td class="msg">' + (e.message || '') + '</td><td><pre>' + (JSON.stringify(e).slice(0, 200)) + '</pre></td></tr>'); } catch (_) {}
+      try {
+        const q = new URLSearchParams({ tail: '50' });
+        if (filter) q.set('filter', filter);
+        const r = await fetchLogs(base + '/logs/stream?' + q, { headers: { Authorization: 'Bearer ' + token }, signal: streamAbort.signal });
+        if (!r.ok) { document.getElementById('meta').textContent = 'Error ' + r.status; document.getElementById('btnStream').disabled = false; document.getElementById('btnStop').disabled = true; return; }
+        document.getElementById('meta').textContent = 'Stream en vivo (filtro: ' + (filter || 'todos') + ')';
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split(String.fromCharCode(10) + String.fromCharCode(10));
+          buf = parts.pop() || '';
+          for (const block of parts) {
+            const m = block.match(/^data: (.+)/m);
+            if (m) try { const e = JSON.parse(m[1]); document.getElementById('t').insertAdjacentHTML('afterbegin', '<tr><td class="ts">' + (e.ts || '') + '</td><td>' + (e.level || '') + '</td><td>' + (e.userId || '') + '</td><td class="msg">' + (e.message || '') + '</td><td><pre>' + (JSON.stringify(e).slice(0, 200)) + '</pre></td></tr>'); } catch (_) {}
+          }
         }
+      } catch (err) {
+        document.getElementById('meta').textContent = 'Error: ' + (err && err.message ? err.message : String(err));
       }
       document.getElementById('btnStream').disabled = false;
       document.getElementById('btnStop').disabled = true;
