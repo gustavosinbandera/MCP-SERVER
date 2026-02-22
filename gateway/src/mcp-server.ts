@@ -821,6 +821,46 @@ mcpServer.tool(
   },
 );
 
+  mcpServer.tool(
+    'list_tools',
+    'Lista todas las herramientas MCP disponibles con su nombre y descripción. Úsala cuando el usuario pregunte qué herramientas hay, qué puede hacer el MCP o qué hace cada tool.',
+    {} as any,
+    async () => {
+      const tools: { name: string; description: string }[] = [
+        { name: 'search_docs', description: 'Busca en la documentación indexada del Knowledge Hub (Qdrant). Filtros opcionales: project, branch, source_type, domain, class_name, referenced_type, file_name.' },
+        { name: 'count_docs', description: 'Devuelve cuántos documentos hay indexados en la colección de Qdrant (mcp_docs).' },
+        { name: 'analize_code', description: 'Análisis de código con contexto de la BD: busca en Qdrant documentación relevante y devuelve fragmentos para que la IA analice con contexto.' },
+        { name: 'index_url', description: 'Indexa el contenido de una URL en Qdrant. Opcional: project, render_js (SPA).' },
+        { name: 'index_url_with_links', description: 'Indexa una URL y hasta max_links páginas enlazadas del mismo dominio.' },
+        { name: 'index_site', description: 'Indexa todo un sitio desde una URL semilla (BFS). max_pages, render_js, skip_already_indexed.' },
+        { name: 'write_flow_doc', description: 'Crea un documento markdown (nodo del mapa de flujos) en INDEX_INBOX_DIR. Parámetros: title, description; opcionales: files, functions, flow_summary, bug_id, project.' },
+        { name: 'documentar_sesion', description: 'Guarda un documento Markdown de experiencia/sesión en la KB personal del usuario. Parámetros: title, content; opcionales: bugOrFeatureId, tags.' },
+        { name: 'list_shared_dir', description: 'Lista directorios y archivos en el directorio compartido (SHARED_DIRS). relative_path opcional.' },
+        { name: 'read_shared_file', description: 'Lee el contenido de un archivo en el directorio compartido. relative_path requerido.' },
+        { name: 'list_url_links', description: 'Lista subenlaces y archivos de una URL (conteos y listas en Markdown).' },
+        { name: 'view_url', description: 'Muestra el contenido de una URL en formato Markdown. Opcional: render_js (SPA).' },
+        { name: 'mediawiki_login', description: 'Inicia sesión en un sitio MediaWiki. Para páginas protegidas con view_url, index_url, list_url_links.' },
+        { name: 'search_github_repos', description: 'Búsqueda en GitHub por tema. Parámetros: topic; opcionales: limit, sort (updated|stars|forks).' },
+        { name: 'repo_git', description: 'Manipula el repo Git del workspace: status, add, commit (message), push, pull. Opcional: directory, paths.' },
+        { name: 'clickup_list_workspaces', description: 'Lista los workspaces (teams) de ClickUp. Requiere CLICKUP_API_TOKEN.' },
+        { name: 'clickup_list_spaces', description: 'Lista los spaces de un workspace. team_id.' },
+        { name: 'clickup_list_folders', description: 'Lista los folders de un space. space_id.' },
+        { name: 'clickup_list_lists', description: 'Lista las listas de un folder. folder_id.' },
+        { name: 'clickup_list_tasks', description: 'Lista tareas de una lista. list_id; opcionales: status, archived.' },
+        { name: 'clickup_create_task', description: 'Crea una tarea en una lista. list_id, name; opcionales: description, status, priority.' },
+        { name: 'clickup_create_subtask', description: 'Crea una subtarea bajo una tarea. list_id, parent_task_id, name; opcionales: description, status, priority.' },
+        { name: 'clickup_get_task', description: 'Obtiene el detalle de una tarea. task_id.' },
+        { name: 'clickup_update_task', description: 'Actualiza una tarea (estado, título, descripción, prioridad). task_id; opcionales: name, description, status, priority.' },
+        { name: 'list_tools', description: 'Lista todas las herramientas MCP disponibles con su nombre y descripción.' },
+      ];
+      const lines = tools.map((t, i) => `${i + 1}. **${t.name}**\n   ${t.description}`);
+      const text = `## Herramientas MCP disponibles (${tools.length})\n\n${lines.join('\n\n')}`;
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
+    },
+  );
+
   return mcpServer;
 }
 

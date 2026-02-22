@@ -25,6 +25,12 @@ build/
 .next/
 out/
 
+# IDE / Cursor (mcp.json puede contener Bearer token; no subir)
+.cursor/mcp.json
+
+# Docs internos de bugs (no subir al repo)
+gateway/docs/bug-mcp-request-stuck-search.md
+
 # IDE
 .idea/
 .vscode/
