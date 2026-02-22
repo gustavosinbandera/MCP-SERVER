@@ -62,5 +62,5 @@ Se implementó un sistema de logs para diagnosticar requests MCP que se quedan p
 
 Commit que introduce esta funcionalidad:
 
-**Commit:** (se rellena tras el push)  
-**Enlace:** (URL de GitHub al commit)
+**Commit:** 641fcf9  
+**Enlace:** https://github.com/gustavosinbandera/MCP-SERVER/commit/641fcf9
