@@ -33,6 +33,17 @@ import {
   type CreateTaskBody,
   type UpdateTaskBody,
 } from './clickup-client';
+import {
+  hasAzureDevOpsConfig,
+  listWorkItems,
+  getWorkItem,
+  getWorkItemWithRelations,
+  extractChangesetIds,
+  getChangeset,
+  getChangesetChanges,
+  getChangesetFileDiff,
+  pickAuthor,
+} from './azure-devops-client';
 import { info as logInfo } from './logger';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
@@ -825,6 +836,172 @@ mcpServer.tool(
   },
 );
 
+  // ----- Azure DevOps (Work Items + TFVC changesets) -----
+  function azureError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return String(err);
+  }
+
+  mcpServer.tool(
+    'azure_list_work_items',
+    'Lista work items (tickets/bugs) de Azure DevOps asignados a ti. Filtros opcionales: type (Bug/Task), states (New,Committed,In Progress), year, top. Requiere AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, AZURE_DEVOPS_PAT en .env.',
+    {
+      type: z.string().optional(),
+      states: z.string().optional(),
+      year: z.number().optional(),
+      top: z.number().optional(),
+    } as any,
+    async (args) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT y AZURE_DEVOPS_PAT deben estar definidos en .env.' }] };
+      }
+      try {
+        const type = args.type?.trim();
+        const states = args.states ? args.states.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        const top = args.top ?? 50;
+        const items = await listWorkItems({ type: type || undefined, states, year: args.year, top });
+        const lines = items.length === 0
+          ? ['No hay work items con esos filtros.']
+          : items.map((item) => {
+              const f = item.fields || {};
+              return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(sin título)'}`;
+            });
+        return { content: [{ type: 'text' as const, text: `Work Items (${items.length}):\n${lines.join('\n')}` }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_get_work_item',
+    'Obtiene el detalle de un work item de Azure DevOps por ID. Requiere config Azure DevOps en .env.',
+    { work_item_id: z.number() } as any,
+    async (args) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const wi = await getWorkItem(args.work_item_id);
+        const f = wi.fields || {};
+        const lines = [
+          `#${wi.id} ${f['System.Title'] ?? '(sin título)'}`,
+          `Type: ${f['System.WorkItemType'] ?? '?'}  State: ${f['System.State'] ?? '?'}`,
+          `AssignedTo: ${(f['System.AssignedTo'] as { displayName?: string })?.displayName ?? f['System.AssignedTo'] ?? '?'}`,
+          `Created: ${f['System.CreatedDate'] ?? '?'}  Changed: ${f['System.ChangedDate'] ?? '?'}`,
+          `Area: ${f['System.AreaPath'] ?? '?'}  Iteration: ${f['System.IterationPath'] ?? '?'}`,
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_get_bug_changesets',
+    'Lista los changesets (TFVC) vinculados a un bug/work item. Devuelve autor, fecha, comentario y archivos modificados por cada changeset. Requiere config Azure DevOps en .env.',
+    { bug_id: z.number() } as any,
+    async (args) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const wi = await getWorkItemWithRelations(args.bug_id);
+        const title = (wi.fields || {})['System.Title'] ?? '(sin título)';
+        const csIds = extractChangesetIds(wi);
+        if (csIds.length === 0) {
+          return { content: [{ type: 'text' as const, text: `Bug #${args.bug_id} - ${title}\nNo hay changesets vinculados (relations).` }] };
+        }
+        const blocks: string[] = [`Bug #${args.bug_id} - ${title}`, `Changesets: ${csIds.join(', ')}`, '---'];
+        for (const csId of csIds) {
+          const cs = await getChangeset(csId);
+          const author = pickAuthor(cs);
+          const comment = (cs.comment || '').trim();
+          const date = cs.createdDate || cs.checkinDate || '';
+          blocks.push(`\nChangeset ${csId}: ${author}  ${date}\nComment: ${comment}`);
+          const ch = await getChangesetChanges(csId);
+          const items = ch.value || [];
+          blocks.push(`Files (${items.length}):`);
+          for (const it of items) {
+            const path = it.item?.path || it.item?.serverItem || '';
+            blocks.push(`  [${it.changeType ?? '?'}] ${path}`);
+          }
+        }
+        return { content: [{ type: 'text' as const, text: blocks.join('\n') }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_get_changeset',
+    'Obtiene un changeset TFVC de Azure DevOps: autor, fecha, comentario y lista de archivos modificados. Requiere config Azure DevOps en .env.',
+    { changeset_id: z.number() } as any,
+    async (args) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const cs = await getChangeset(args.changeset_id);
+        const author = pickAuthor(cs);
+        const lines = [
+          `Changeset ${args.changeset_id}`,
+          `Author: ${author}  Date: ${cs.createdDate || cs.checkinDate || ''}`,
+          `Comment: ${(cs.comment || '').trim()}`,
+          '---',
+        ];
+        const ch = await getChangesetChanges(args.changeset_id);
+        const items = ch.value || [];
+        lines.push(`Files (${items.length}):`);
+        for (const it of items) {
+          const path = it.item?.path || it.item?.serverItem || '';
+          lines.push(`  [${it.changeType ?? '?'}] ${path}`);
+        }
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_get_changeset_diff',
+    'Muestra el diff (código cambiado) de un archivo en un changeset. Opcional: file_index (índice del archivo en la lista del changeset, 0 = primero). Requiere config Azure DevOps en .env.',
+    {
+      changeset_id: z.number(),
+      file_index: z.number().optional(),
+    } as any,
+    async (args) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const ch = await getChangesetChanges(args.changeset_id);
+        const items = ch.value || [];
+        if (items.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'El changeset no tiene archivos modificados.' }] };
+        }
+        const idx = Math.max(0, Math.min(args.file_index ?? 0, items.length - 1));
+        const tfvcPath = items[idx].item?.path || items[idx].item?.serverItem;
+        if (!tfvcPath) {
+          return { content: [{ type: 'text' as const, text: 'No se pudo obtener la ruta del archivo.' }] };
+        }
+        const { diff, prevCs, currentCs, isNewFile } = await getChangesetFileDiff(tfvcPath, args.changeset_id);
+        const header = [
+          `File: ${tfvcPath}`,
+          isNewFile ? ' (archivo nuevo en este changeset)' : ` (diff ${prevCs} → ${currentCs})`,
+          '---',
+        ].join('\n');
+        const diffLines = diff.map((op) => (op.t === '...' ? '...' : op.t + op.s));
+        return { content: [{ type: 'text' as const, text: header + '\n' + diffLines.join('\n') }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
   mcpServer.tool(
     'list_tools',
     'Lista todas las herramientas MCP disponibles con su nombre y descripción. Úsala cuando el usuario pregunte qué herramientas hay, qué puede hacer el MCP o qué hace cada tool.',
@@ -855,6 +1032,11 @@ mcpServer.tool(
         { name: 'clickup_create_subtask', description: 'Crea una subtarea bajo una tarea. list_id, parent_task_id, name; opcionales: description, status, priority.' },
         { name: 'clickup_get_task', description: 'Obtiene el detalle de una tarea. task_id.' },
         { name: 'clickup_update_task', description: 'Actualiza una tarea (estado, título, descripción, prioridad). task_id; opcionales: name, description, status, priority.' },
+        { name: 'azure_list_work_items', description: 'Lista work items (tickets/bugs) de Azure DevOps asignados a ti. Opcionales: type, states, year, top.' },
+        { name: 'azure_get_work_item', description: 'Obtiene el detalle de un work item. work_item_id.' },
+        { name: 'azure_get_bug_changesets', description: 'Lista changesets TFVC vinculados a un bug. bug_id.' },
+        { name: 'azure_get_changeset', description: 'Obtiene un changeset TFVC: autor, fecha, archivos. changeset_id.' },
+        { name: 'azure_get_changeset_diff', description: 'Muestra el diff de un archivo en un changeset. changeset_id; opcional: file_index.' },
         { name: 'list_tools', description: 'Lista todas las herramientas MCP disponibles con su nombre y descripción.' },
       ];
       const lines = tools.map((t, i) => `${i + 1}. **${t.name}**\n   ${t.description}`);
