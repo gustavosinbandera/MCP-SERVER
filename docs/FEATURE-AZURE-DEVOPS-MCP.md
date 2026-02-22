@@ -40,7 +40,7 @@ Integración de Azure DevOps (Server) con el MCP Knowledge Hub: herramientas par
 ## Enlaces a commits
 
 - **Implementación Azure (tipos TS, script, alias):** [ea15eb7](https://github.com/gustavosinbandera/MCP-SERVER/commit/ea15eb7) — *Azure: tipos TS en tools, script azure-list-user-tasks (usuario/año/@Me), alias azure listar tareas*
-- **Documentación de la feature:** [commit de este documento]
+- **Documentación de la feature:** [2f18c5f](https://github.com/gustavosinbandera/MCP-SERVER/commit/2f18c5f) — *docs: FEATURE-AZURE-DEVOPS-MCP (conexión Azure DevOps en MCP)*
 
 ---
 
