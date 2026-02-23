@@ -96,6 +96,15 @@ function escapeWiql(str: string): string {
 export interface ListWorkItemsOptions {
   type?: string;
   states?: string[];
+  /** Excluye estados (p. ej. QA). Se aplica como NOT IN en WIQL. */
+  statesExclude?: string[];
+  /**
+   * Filtra por área (System.AreaPath). Útil para limitar al departamento/equipo.
+   * Ej.: "Magaya Core Project\\Blue Ivory Team"
+   */
+  areaPath?: string;
+  /** Si true (default), usa operador UNDER; si false usa '=' (match exacto). */
+  areaPathUnder?: boolean;
   year?: number;
   dateField?: string;
   top?: number;
@@ -119,6 +128,9 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
   const {
     type = '',
     states = [],
+    statesExclude = [],
+    areaPath = '',
+    areaPathUnder = true,
     year = 0,
     dateField = 'System.ChangedDate',
     top = 50,
@@ -138,6 +150,15 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
       ? ` And [System.State] IN (${states.map((s) => `'${escapeWiql(s)}'`).join(', ')}) `
       : '';
 
+  const statesExcludeFilter =
+    statesExclude.length > 0
+      ? ` And [System.State] NOT IN (${statesExclude.map((s) => `'${escapeWiql(s)}'`).join(', ')}) `
+      : '';
+
+  const areaFilter = areaPath && areaPath.trim()
+    ? ` And [System.AreaPath] ${areaPathUnder ? 'UNDER' : '='} '${escapeWiql(areaPath.trim())}' `
+    : '';
+
   let assignedClause = '';
   if (assignedTo != null && assignedTo.trim() !== '') {
     assignedClause = ` And [System.AssignedTo] = '${escapeWiql(assignedTo.trim())}' `;
@@ -151,6 +172,8 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
     assignedClause +
     typeFilter +
     statesFilter +
+    statesExcludeFilter +
+    areaFilter +
     yearFilter +
     ' Order By [System.ChangedDate] desc';
 
@@ -166,7 +189,7 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
   const ids = (wiql.workItems || []).slice(0, top).map((w) => w.id);
   if (ids.length === 0) return [];
 
-  const fieldsParam = 'System.Id,System.Title,System.State,System.WorkItemType,System.ChangedDate,System.AssignedTo';
+  const fieldsParam = 'System.Id,System.Title,System.State,System.WorkItemType,System.ChangedDate,System.AssignedTo,System.AreaPath';
   const batchUrl =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems') +
     `?ids=${ids.join(',')}&fields=${encodeURIComponent(fieldsParam)}&api-version=${encodeURIComponent(API_VER)}`;
@@ -223,6 +246,125 @@ export async function getChangeset(id: number): Promise<{
   const { baseUrl } = ensureConfig();
   const url = joinUrl(baseUrl, '_apis/tfvc/changesets', id) + `?api-version=${encodeURIComponent(API_VER)}`;
   return httpJson(url);
+}
+
+/** Rutas TFVC por proyecto (se pueden sobreescribir con env). */
+const DEFAULT_PATH_BLUEIVORY = '$/Magaya Core Project/Projects/MAIN-BRANCHES/BLUE-IVORY-MAIN';
+const DEFAULT_PATH_CORE = '$/Magaya Core Project/Projects/MAIN-BRANCHES/CORE';
+
+function getItemPathForProject(project: string): string | undefined {
+  const p = (project || '').trim().toLowerCase();
+  if (!p) return undefined;
+  if (p === 'blueivory' || p === 'bi' || p === 'blue ivory') {
+    return (process.env.AZURE_DEVOPS_TFVC_PATH_BLUEIVORY || '').trim() || DEFAULT_PATH_BLUEIVORY;
+  }
+  if (p === 'core' || p === 'classic') {
+    return (process.env.AZURE_DEVOPS_TFVC_PATH_CORE || '').trim() || DEFAULT_PATH_CORE;
+  }
+  return undefined;
+}
+
+/** Opciones para listar changesets (TFVC). */
+export interface ListChangesetsOptions {
+  /** Autor: alias o display name de quien hizo el changeset. */
+  author?: string;
+  /** Solo changesets creados después de esta fecha (ISO string). */
+  fromDate?: string;
+  /** Solo changesets creados antes de esta fecha (ISO string). */
+  toDate?: string;
+  /** Filtro por proyecto: "blueivory" o "core" (classic). Usa searchCriteria.itemPath. */
+  project?: string;
+  /** Ruta TFVC bajo la que filtrar (anula project si se indica). */
+  itemPath?: string;
+  /** Máximo de resultados (default 100). */
+  top?: number;
+  /** Cuántos resultados saltar (paginación). */
+  skip?: number;
+}
+
+export interface TfvcChangesetRef {
+  changesetId?: number;
+  comment?: string;
+  createdDate?: string;
+  checkedInBy?: { displayName?: string; uniqueName?: string };
+  author?: { displayName?: string; uniqueName?: string };
+  [k: string]: unknown;
+}
+
+/** Lista changesets TFVC con filtros opcionales (autor, rango de fechas, proyecto). */
+export async function listChangesets(options: ListChangesetsOptions = {}): Promise<TfvcChangesetRef[]> {
+  const { baseUrl } = ensureConfig();
+  const { author, fromDate, toDate, project, itemPath, top = 100, skip = 0 } = options;
+  const pathFilter = (itemPath && itemPath.trim()) || (project ? getItemPathForProject(project) : undefined);
+  const params = new URLSearchParams();
+  params.set('api-version', API_VER);
+  if (top > 0) params.set('$top', String(Math.min(top, 1000)));
+  if (skip > 0) params.set('$skip', String(skip));
+  if (author?.trim()) params.set('searchCriteria.author', author.trim());
+  if (fromDate?.trim()) params.set('searchCriteria.fromDate', fromDate.trim());
+  if (toDate?.trim()) params.set('searchCriteria.toDate', toDate.trim());
+  if (pathFilter) params.set('searchCriteria.itemPath', pathFilter);
+  const url = joinUrl(baseUrl, '_apis/tfvc/changesets') + '?' + params.toString();
+  const data = await httpJson<{ value?: TfvcChangesetRef[] }>(url);
+  return data.value || [];
+}
+
+/** Descubre autores únicos que tienen changesets (leyendo hasta maxChangesets). Opcional project: "blueivory" | "core". */
+export async function listChangesetAuthors(
+  maxChangesetsToScan: number = 2000,
+  project?: string
+): Promise<string[]> {
+  const seen = new Set<string>();
+  let skip = 0;
+  const pageSize = 200;
+  while (skip < maxChangesetsToScan) {
+    const page = await listChangesets({ top: pageSize, skip, project });
+    if (page.length === 0) break;
+    for (const cs of page) {
+      const who = pickAuthor(cs);
+      if (who) seen.add(who);
+    }
+    if (page.length < pageSize) break;
+    skip += pageSize;
+  }
+  return Array.from(seen).sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** Cuenta changesets con los mismos filtros que listChangesets. Pagina hasta terminar o hasta maxCount. */
+export async function getChangesetCount(options: {
+  author?: string;
+  fromDate?: string;
+  toDate?: string;
+  /** Filtro por proyecto: "blueivory" o "core" (classic). */
+  project?: string;
+  itemPath?: string;
+  /** Límite máximo a contar (evita tiempo excesivo en repos muy grandes). Default 100_000. */
+  maxCount?: number;
+} = {}): Promise<{ count: number; truncated: boolean }> {
+  const { author, fromDate, toDate, project, itemPath, maxCount = 100_000 } = options;
+  const pathFilter = (itemPath && itemPath.trim()) || (project ? getItemPathForProject(project) : undefined);
+  const pageSize = 1000;
+  let total = 0;
+  let skip = 0;
+  let truncated = false;
+  while (true) {
+    const page = await listChangesets({
+      author,
+      fromDate,
+      toDate,
+      itemPath: pathFilter,
+      top: pageSize,
+      skip,
+    });
+    total += page.length;
+    if (page.length < pageSize) break;
+    if (total >= maxCount) {
+      truncated = true;
+      break;
+    }
+    skip += pageSize;
+  }
+  return { count: total, truncated };
 }
 
 export async function getChangesetChanges(changesetId: number): Promise<

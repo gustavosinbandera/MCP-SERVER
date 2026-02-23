@@ -11,6 +11,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/scripts ./scripts
 RUN mkdir -p /app/data
 EXPOSE 3001
 ENV GATEWAY_PORT=3001

@@ -39,6 +39,9 @@ import {
   getWorkItem,
   getWorkItemWithRelations,
   extractChangesetIds,
+  listChangesets,
+  listChangesetAuthors,
+  getChangesetCount,
   getChangeset,
   getChangesetChanges,
   getChangesetFileDiff,
@@ -1053,6 +1056,109 @@ mcpServer.tool(
   );
 
   mcpServer.tool(
+    'azure_list_changesets',
+    'Lista changesets TFVC. Filtro por proyecto: project "blueivory" o "core" (classic). Opcionales: author, from_date, to_date (ISO), top (default 100). Para indexar en Qdrant puedes usar top=1400 o más; la tool pagina internamente (API Azure limita 1000 por petición).',
+    {
+      project: z.string().optional(),
+      author: z.string().optional(),
+      from_date: z.string().optional(),
+      to_date: z.string().optional(),
+      top: z.number().optional(),
+    } as any,
+    async (args: { project?: string; author?: string; from_date?: string; to_date?: string; top?: number }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const wanted = args.top ?? 100;
+        const pageSize = 1000; // Azure DevOps API max per request
+        const list: Awaited<ReturnType<typeof listChangesets>> = [];
+        let skip = 0;
+        while (list.length < wanted) {
+          const toFetch = Math.min(pageSize, wanted - list.length);
+          const page = await listChangesets({
+            project: args.project?.trim(),
+            author: args.author?.trim(),
+            fromDate: args.from_date?.trim(),
+            toDate: args.to_date?.trim(),
+            top: toFetch,
+            skip,
+          });
+          list.push(...page);
+          if (page.length < toFetch) break;
+          skip += page.length;
+        }
+        const lines = list.length === 0
+          ? ['No hay changesets con esos filtros.']
+          : list.map((cs) => {
+              const author = pickAuthor(cs);
+              const date = (cs.createdDate || '').slice(0, 10);
+              const comment = (cs.comment || '').trim().slice(0, 60);
+              return `#${cs.changesetId}  ${author}  ${date}  ${comment}${comment.length >= 60 ? '…' : ''}`;
+            });
+        const proj = args.project ? ` proyecto=${args.project}` : '';
+        const filter = args.author ? ` autor="${args.author}"` : '';
+        return { content: [{ type: 'text' as const, text: `Changesets${proj}${filter} (${list.length}):\n${lines.join('\n')}` }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_count_changesets',
+    'Cuántos changesets hay en TFVC. Filtro por proyecto: project "blueivory" o "core" (classic). Opcionales: author, from_date, to_date (ISO), max_count (default 100000).',
+    {
+      project: z.string().optional(),
+      author: z.string().optional(),
+      from_date: z.string().optional(),
+      to_date: z.string().optional(),
+      max_count: z.number().optional(),
+    } as any,
+    async (args: { project?: string; author?: string; from_date?: string; to_date?: string; max_count?: number }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const { count, truncated } = await getChangesetCount({
+          project: args.project?.trim(),
+          author: args.author?.trim(),
+          fromDate: args.from_date?.trim(),
+          toDate: args.to_date?.trim(),
+          maxCount: args.max_count,
+        });
+        const proj = args.project ? ` proyecto ${args.project}` : '';
+        const filter = args.author ? ` autor ${args.author}` : '';
+        const note = truncated ? ' [recorte por límite max_count]' : '';
+        return { content: [{ type: 'text' as const, text: `Changesets${proj}${filter}: ${count}${note}` }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_list_changeset_authors',
+    'Lista desarrolladores con al menos un changeset en TFVC. Filtro por proyecto: project "blueivory" o "core" (classic). Opcional: max_scan (default 2000).',
+    { project: z.string().optional(), max_scan: z.number().optional() } as any,
+    async (args: { project?: string; max_scan?: number }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const authors = await listChangesetAuthors(args.max_scan ?? 2000, args.project?.trim());
+        const proj = args.project ? ` (proyecto ${args.project})` : '';
+        const text = authors.length === 0
+          ? `No se encontraron autores${proj} (revisa max_scan o proyecto).`
+          : `Desarrolladores con changesets${proj} (${authors.length}):\n${authors.map((a) => `- ${a}`).join('\n')}`;
+        return { content: [{ type: 'text' as const, text }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
     'list_tools',
     'Lista todas las herramientas MCP disponibles con su nombre y descripción. Úsala cuando el usuario pregunte qué herramientas hay, qué puede hacer el MCP o qué hace cada tool.',
     {} as any,
@@ -1088,6 +1194,9 @@ mcpServer.tool(
         { name: 'azure_get_bug_changesets', description: 'Lista changesets TFVC vinculados a un bug. bug_id.' },
         { name: 'azure_get_changeset', description: 'Obtiene un changeset TFVC: autor, fecha, archivos. changeset_id.' },
         { name: 'azure_get_changeset_diff', description: 'Muestra el diff de un archivo en un changeset. changeset_id; opcional: file_index.' },
+        { name: 'azure_count_changesets', description: 'Cuántos changesets hay. Filtro project: blueivory | core (classic). Opcionales: author, from_date, to_date, max_count.' },
+        { name: 'azure_list_changesets', description: 'Lista changesets TFVC. Filtro project: blueivory | core. Opcionales: author, from_date, to_date, top (p. ej. 1400 para indexar en Qdrant; pagina internamente).' },
+        { name: 'azure_list_changeset_authors', description: 'Lista developers con changesets. Filtro project: blueivory | core. Opcional: max_scan.' },
         { name: 'list_tools', description: 'Lista todas las herramientas MCP disponibles con su nombre y descripción.' },
       ];
       const lines = tools.map((t, i) => `${i + 1}. **${t.name}**\n   ${t.description}`);
