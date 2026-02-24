@@ -17,19 +17,15 @@ export interface HttpStreamableTransport {
 
 const SESSION_ID_HEADER = 'mcp-session-id';
 
-/** Pending request: resolve/reject for a given JSON-RPC request id. */
-type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void };
-
 /**
  * Crea un transport que adapta HTTP request/response al contrato del Protocol.
  * - start(): resuelve de inmediato.
- * - send(msg): resuelve la promesa del handleRequest cuyo id coincide con msg.id (JSON-RPC).
- * - handleRequest(body): registra la promesa por body.id, invoca onmessage(body), espera send() y devuelve el mensaje.
- * Soporta múltiples peticiones concurrentes (varias tools/call en paralelo) asociando cada respuesta al request por id.
+ * - send(msg): resuelve la promesa pendiente de handleRequest con msg.
+ * - handleRequest(body): establece la promesa, invoca onmessage(body), espera send() y devuelve el mensaje.
  */
 export function createHttpStreamableTransport(): HttpStreamableTransport {
-  /** request id (string | number) -> pending resolve/reject. Permite respuestas concurrentes. */
-  const pendingById = new Map<string | number, Pending>();
+  let currentResolve: ((value: unknown) => void) | null = null;
+  let currentReject: ((reason: Error) => void) | null = null;
 
   const transport: HttpStreamableTransport = {
     async start() {
@@ -37,15 +33,10 @@ export function createHttpStreamableTransport(): HttpStreamableTransport {
     },
 
     async send(message: unknown) {
-      const responseId =
-        message != null && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, 'id')
-          ? (message as { id?: string | number }).id
-          : undefined;
-      if (responseId === undefined) return;
-      const pending = pendingById.get(responseId);
-      if (pending) {
-        pendingById.delete(responseId);
-        pending.resolve(message);
+      if (currentResolve) {
+        currentResolve(message);
+        currentResolve = null;
+        currentReject = null;
       }
     },
 
@@ -58,26 +49,24 @@ export function createHttpStreamableTransport(): HttpStreamableTransport {
         body != null &&
         typeof body === 'object' &&
         !Object.prototype.hasOwnProperty.call(body, 'id');
-      const requestId =
-        body != null && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'id')
-          ? (body as { id?: string | number }).id
-          : undefined;
-
       return new Promise<unknown>((resolve, reject) => {
-        if (!isNotification && requestId !== undefined) {
-          pendingById.set(requestId, { resolve, reject });
-        }
+        currentResolve = resolve;
+        currentReject = reject;
         const requestInfo = extra?.sessionId
           ? { headers: { [SESSION_ID_HEADER]: extra.sessionId } }
           : undefined;
         try {
           transport.onmessage?.(body, { sessionId: extra?.sessionId, requestInfo });
           // Notificaciones JSON-RPC no tienen respuesta; el servidor no llamará send().
+          // Resolver ya para no colgar la petición HTTP (p. ej. notifications/initialized).
           if (isNotification) {
+            currentResolve = null;
+            currentReject = null;
             resolve(null);
           }
         } catch (err) {
-          if (requestId !== undefined) pendingById.delete(requestId);
+          currentResolve = null;
+          currentReject = null;
           reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
