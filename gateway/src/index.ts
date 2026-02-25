@@ -12,6 +12,7 @@ import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
+import { enqueueAndWait, clearSessionQueue } from './mcp/session-queue';
 import { runWithLogContext, getLogFilePath, subscribeToLogEntries } from './logger';
 import { info as logInfo, warn as logWarn, error as logError } from './logger';
 
@@ -328,18 +329,19 @@ app.post('/mcp', requireJwt, async (req, res) => {
       { userId, sessionId: sid },
       async () => {
         logInfo('mcp POST start', { userId, sessionId: sid, method, requestId });
-        const out = await runtime.transport.handleRequest(body, { sessionId: sid });
+        const { result: out, handleRequestStartedAt } = await enqueueAndWait(userId, sid, runtime, body, t0);
         const t2 = Date.now();
         const total = t2 - t0;
+        const handleRequestMs = t2 - handleRequestStartedAt;
         const slowMs = Number(process.env.MCP_SLOW_MS) || 500;
-        if (t1 - t0 > slowMs || t2 - t1 > slowMs) {
+        if (t1 - t0 > slowMs || handleRequestMs > slowMs) {
           logWarn('mcp POST slow', {
             userId,
             sessionId: sid,
             method,
             requestId,
             getOrCreateSessionMs: t1 - t0,
-            handleRequestMs: t2 - t1,
+            handleRequestMs,
             totalMs: total,
           });
         } else {
@@ -370,6 +372,7 @@ app.delete('/mcp', requireJwt, async (req, res) => {
     res.status(400).json({ error: 'mcp-session-id header required to close session' });
     return;
   }
+  clearSessionQueue(userId, sessionId);
   const closed = await closeSession(userId, sessionId);
   res.status(closed ? 204 : 404).send();
 });

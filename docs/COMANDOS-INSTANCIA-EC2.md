@@ -41,7 +41,11 @@ Host mcp-ec2
   HostName 52.91.217.181
   User ec2-user
   IdentityFile C:\PROYECTOS\MCP-SERVER\infra\mcp-server-key.pem
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
 ```
+
+`ServerAliveInterval 60` envía un keepalive cada 60 segundos para que la sesión no se cierre por inactividad. `ServerAliveCountMax 3` permite 3 respuestas perdidas antes de dar la conexión por cerrada.
 
 **2. Conectar desde Cursor**
 
@@ -86,6 +90,40 @@ Invoke-WebRequest -Uri "http://mcp.domoticore.co/api/health" -UseBasicParsing
 En Git Bash o con curl: `curl http://mcp.domoticore.co/api/health`
 
 Si obtienes **502 Bad Gateway**, en la instancia revisa logs del gateway y reinicia nginx: `docker compose logs gateway --tail=50` y `docker compose restart nginx`.
+
+---
+
+## 1d2. Conectar MCP local a Qdrant en la instancia (túnel SSH)
+
+Para que tu **MCP local** (magaya, usar-mcp o el gateway en tu PC) use el **Qdrant que corre en Docker en la instancia**:
+
+1. **Abre un túnel SSH** (deja la terminal abierta mientras uses el MCP local). Para que la sesión no se cierre por inactividad, usa **keepalives** (`ServerAliveInterval`):
+
+   **PowerShell (en la raíz del repo):**
+   ```powershell
+   ssh -i "infra\mcp-server-key.pem" -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@52.91.217.181
+   ```
+
+   **Git Bash / WSL:**
+   ```bash
+   ssh -i infra/mcp-server-key.pem -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@52.91.217.181
+   ```
+
+   **Si tienes el host `mcp-ec2` en `~/.ssh/config`**, añade ahí `ServerAliveInterval 60` y `ServerAliveCountMax 3` (ver abajo); luego basta con:
+   ```powershell
+   ssh -L 6333:localhost:6333 mcp-ec2
+   ```
+
+   Con esto, en tu máquina **localhost:6333** se reenvía al puerto 6333 de la instancia (donde escucha Qdrant en Docker). Los keepalives evitan que la conexión se corte por inactividad.
+
+2. **Configura el MCP con Qdrant en localhost**  
+   En `.cursor/mcp.json` el servidor (magaya / usar-mcp) ya tiene `"QDRANT_URL": "http://localhost:6333"`. Con el túnel activo, ese `localhost:6333` es el Qdrant de la instancia.
+
+3. **Arranca el MCP local** (Cursor usará magaya o usar-mcp). Las tools que usan Qdrant (search_docs, etc.) hablarán con el Qdrant remoto a través del túnel.
+
+**Si corres el gateway en local** (no solo stdio): en `gateway/.env` pon `QDRANT_URL=http://localhost:6333` y ten el túnel abierto; el gateway usará el Qdrant de la instancia.
+
+**Nota:** En la instancia, Qdrant está en Docker con `ports: "6333:6333"`, así que en la EC2 escucha en localhost:6333. El túnel -L 6333:localhost:6333 hace que tu PC vea ese puerto como su propio localhost:6333.
 
 ---
 

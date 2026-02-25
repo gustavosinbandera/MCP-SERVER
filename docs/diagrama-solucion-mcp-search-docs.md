@@ -138,6 +138,16 @@ flowchart LR
 
 ---
 
+## Paso 4: Cola por sesión en el gateway (serialización)
+
+Para garantizar que las respuestas no se crucen aunque el SDK no envíe `id`, el gateway **serializa** los requests por sesión: solo un request a la vez por `(userId, sessionId)`.
+
+- Cada POST /mcp entra en una cola por sesión (`gateway/src/mcp/session-queue.ts`).
+- Se llama a `handleRequest` solo cuando es el turno de ese request; al terminar, se procesa el siguiente.
+- Efecto: las tools/call (varias `search_docs`) se ejecutan en orden; cada `send()` del SDK corresponde al request en curso, así el transport asigna bien la respuesta (FIFO con un solo pending a la vez).
+
+---
+
 ## Logs de diagnóstico (lo que añadimos)
 
 Para ver en producción si el emparejamiento funciona:
