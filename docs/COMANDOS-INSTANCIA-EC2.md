@@ -418,8 +418,12 @@ Luego cerrar y reabrir la sesión SSH (o `source /etc/profile.d/mcp-tools.sh`) p
 - Añade `/opt/mcp-tools` al PATH vía `/etc/profile.d/mcp-tools.sh`.
 - Crea los symlinks `update-repo` y `actualizar-repo` y los aliases `"update repo"` y `"actualizar repo"`.
 
-**Actualizar la instancia desde Cursor (tool `instance_update`):**  
-La tool devuelve el comando SSH para hacer pull + build + reinicio. Ejecuta ese comando en la terminal de Cursor (o pide a Cursor que lo ejecute). Opcional: en el .env del proyecto define `INSTANCE_SSH_TARGET` (ej. `mpc` o `ec2-user@ip`) para que el comando salga ya con el host.
+**Tools de instancia desde Cursor:**  
+- **`instance_update`:** devuelve el comando SSH listo para pull + build + reinicio (gateway/supervisor).  
+- **`instance_report`:** devuelve el comando SSH para ver estado (contenedores, health).  
+- **`instance_reboot`:** devuelve el comando SSH para reiniciar todos los servicios (`docker compose restart`).  
+
+Host y clave por defecto: `ec2-user@52.91.217.181`, `infra/mcp-server-key.pem`. Ejecuta el comando en la terminal de Cursor (o pide a Cursor que lo ejecute). **Si usas el MCP remoto:** ejecuta en la terminal de tu PC (desde la raíz del repo) o en una terminal ya conectada por SSH. Si las tools no aparecen, actualiza la instancia y reconecta Cursor al MCP.
 
 ---
 

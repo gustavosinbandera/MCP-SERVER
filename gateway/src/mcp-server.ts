@@ -629,23 +629,78 @@ mcpServer.tool(
 
 mcpServer.tool(
   'instance_update',
-  'Devuelve el comando SSH para actualizar la instancia (pull + build + reinicio). Ejecuta ese comando en la terminal de Cursor (o pide a Cursor que lo ejecute por ti). Opcional: INSTANCE_SSH_TARGET en .env (ej. mpc o ec2-user@ip) para que el comando venga ya con el host.',
-  {} as any,
-  async () => {
-    const host = process.env.INSTANCE_SSH_TARGET?.trim();
+  'Antes de devolver el comando SSH: hace add, commit y push del repo local. Luego devuelve el comando para actualizar la instancia (pull + build + reinicio). Opcional: message (mensaje de commit). INSTANCE_SSH_TARGET, INSTANCE_SSH_KEY_PATH en .env.',
+  { message: z.string().optional() } as any,
+  async (args: { message?: string }) => {
+    const commitMsg = (args.message ?? 'deploy: instance_update').trim() || 'deploy: instance_update';
+    const steps: string[] = [];
+
+    const addResult = runRepoGit({ action: 'add' });
+    steps.push(addResult.ok ? '[OK] git add' : `[ERROR] git add: ${addResult.error ?? addResult.output}`);
+
+    const commitResult = runRepoGit({ action: 'commit', message: commitMsg });
+    steps.push(commitResult.ok ? `[OK] git commit -m "${commitMsg}"` : `[ERROR] git commit: ${commitResult.error ?? commitResult.output}`);
+
+    const pushResult = runRepoGit({ action: 'push' });
+    steps.push(pushResult.ok ? '[OK] git push' : `[ERROR] git push: ${pushResult.error ?? pushResult.output}`);
+
+    const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@52.91.217.181';
+    const keyPath = process.env.INSTANCE_SSH_KEY_PATH?.trim() || 'infra/mcp-server-key.pem';
     const cmd = "cd ~/MCP-SERVER && (util_update_repo 2>/dev/null || (git pull origin master && docker compose build gateway supervisor && docker compose up -d gateway supervisor))";
-    const fullCommand = host
-      ? `ssh ${host} '${cmd}'`
-      : `ssh <tu-host-instancia> '${cmd}'`;
+    const sshPart = keyPath ? `ssh -i "${keyPath}" ${host}` : `ssh ${host}`;
+    const fullCommand = `${sshPart} "${cmd.replace(/"/g, '\\"')}"`;
 
     const text = [
-      '[instance_update] Ejecuta este comando en la terminal (o pide a Cursor que lo ejecute):',
+      '[instance_update] Repo local (add / commit / push):',
+      ...steps,
+      '',
+      'Ejecuta este comando en la terminal (desde la raíz del repo):',
       '',
       fullCommand,
       '',
-      host ? `(Host: ${host})` : 'Sustituye <tu-host-instancia> por tu host SSH (ej. mpc o ec2-user@52.91.217.181). Opcional: define INSTANCE_SSH_TARGET en .env para que salga ya el host.',
+      `Host: ${host} | Clave: ${keyPath}`,
+      '',
+      steps.some((s) => s.startsWith('[ERROR]'))
+        ? 'Hubo errores en add/commit/push (p. ej. MCP remoto o sin cambios). Haz commit y push manual si hace falta y luego ejecuta el comando.'
+        : 'Si usas el MCP remoto: ejecuta el comando en la terminal de tu PC.',
     ].join('\n');
 
+    return { content: [{ type: 'text' as const, text }] };
+  },
+);
+
+function instanceSshCommand(remoteCmd: string, title: string): string {
+  const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@52.91.217.181';
+  const keyPath = process.env.INSTANCE_SSH_KEY_PATH?.trim() || 'infra/mcp-server-key.pem';
+  const sshPart = keyPath ? `ssh -i "${keyPath}" ${host}` : `ssh ${host}`;
+  const fullCommand = `${sshPart} "${remoteCmd.replace(/"/g, '\\"')}"`;
+  return [
+    `[${title}] Ejecuta este comando en la terminal (desde la raíz del repo):`,
+    '',
+    fullCommand,
+    '',
+    `Host: ${host} | Clave: ${keyPath}`,
+  ].join('\n');
+}
+
+mcpServer.tool(
+  'instance_report',
+  'Devuelve el comando SSH listo para ver el estado de la instancia (docker compose ps, health). Ejecuta el comando en la terminal de Cursor.',
+  {} as any,
+  async () => {
+    const cmd = "cd ~/MCP-SERVER && echo '=== Contenedores ===' && docker compose ps && echo '' && echo '=== Health ===' && curl -s -o /dev/null -w 'API health: %{http_code}' http://localhost/api/health && echo ''";
+    const text = instanceSshCommand(cmd, 'instance_report');
+    return { content: [{ type: 'text' as const, text }] };
+  },
+);
+
+mcpServer.tool(
+  'instance_reboot',
+  'Devuelve el comando SSH listo para reiniciar todos los servicios de la instancia (docker compose restart). Ejecuta el comando en la terminal de Cursor.',
+  {} as any,
+  async () => {
+    const cmd = "cd ~/MCP-SERVER && docker compose restart";
+    const text = instanceSshCommand(cmd, 'instance_reboot');
     return { content: [{ type: 'text' as const, text }] };
   },
 );
@@ -1260,6 +1315,8 @@ mcpServer.tool(
         { name: 'repo_git', description: 'Manipula el repo Git del workspace: status, add, commit (message), push, pull. Opcional: directory, paths.' },
         { name: 'repo_pull', description: 'Hace git pull en el repo del workspace. Opcional: directory.' },
         { name: 'instance_update', description: 'Devuelve el comando SSH para actualizar la instancia. Ejecútalo en la terminal (o pide a Cursor que lo ejecute). Opcional INSTANCE_SSH_TARGET en .env.' },
+        { name: 'instance_report', description: 'Devuelve el comando SSH para ver el estado de la instancia (contenedores, health).' },
+        { name: 'instance_reboot', description: 'Devuelve el comando SSH para reiniciar todos los servicios de la instancia.' },
         { name: 'clickup_list_workspaces', description: 'Lista los workspaces (teams) de ClickUp. Requiere CLICKUP_API_TOKEN.' },
         { name: 'clickup_list_spaces', description: 'Lista los spaces de un workspace. team_id.' },
         { name: 'clickup_list_folders', description: 'Lista los folders de un space. space_id.' },
