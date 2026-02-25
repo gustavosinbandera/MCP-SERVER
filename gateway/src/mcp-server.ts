@@ -38,6 +38,7 @@ import {
   listWorkItems,
   getWorkItem,
   getWorkItemWithRelations,
+  getWorkItemUpdates,
   extractChangesetIds,
   listChangesets,
   listChangesetAuthors,
@@ -952,6 +953,41 @@ mcpServer.tool(
   );
 
   mcpServer.tool(
+    'azure_get_work_item_updates',
+    'Obtiene el historial de actualizaciones (logs) de un work item en Azure DevOps: quién cambió qué y cuándo. Requiere config Azure DevOps en .env.',
+    { work_item_id: z.number(), top: z.number().optional() } as any,
+    async (args: { work_item_id: number; top?: number }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+      }
+      try {
+        const { value: updates } = await getWorkItemUpdates(args.work_item_id, args.top ?? 50);
+        if (!updates || updates.length === 0) {
+          return { content: [{ type: 'text' as const, text: `Work item #${args.work_item_id}: sin historial de actualizaciones.` }] } as any;
+        }
+        const lines: string[] = [`# Historial de actualizaciones - Work Item #${args.work_item_id}`, ''];
+        for (const u of updates) {
+          const by = (u.revisedBy as { displayName?: string })?.displayName ?? '?';
+          const date = u.revisedDate ?? '?';
+          lines.push(`## Rev ${u.rev ?? '?'} — ${by} — ${String(date).slice(0, 19)}`);
+          if (u.fields && Object.keys(u.fields).length > 0) {
+            for (const [field, change] of Object.entries(u.fields)) {
+              const oldV = (change as { oldValue?: unknown }).oldValue;
+              const newV = (change as { newValue?: unknown }).newValue;
+              const short = (v: unknown) => (v == null ? '(vacío)' : String(v).length > 80 ? String(v).slice(0, 77) + '...' : String(v));
+              lines.push(`  - ${field}: ${short(oldV)} → ${short(newV)}`);
+            }
+          }
+          lines.push('');
+        }
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] } as any;
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
     'azure_get_bug_changesets',
     'Lista los changesets (TFVC) vinculados a un bug/work item. Devuelve autor, fecha, comentario y archivos modificados por cada changeset. Requiere config Azure DevOps en .env.',
     { bug_id: z.number() } as any,
@@ -1191,6 +1227,7 @@ mcpServer.tool(
         { name: 'azure', description: 'Alias Azure DevOps: accion "listar tareas", opcional usuario "gustavo grisales". Sin usuario = tareas tuyas.' },
         { name: 'azure_list_work_items', description: 'Lista work items de Azure DevOps. Opcional assigned_to (ej. "Gustavo Grisales" o "ggrisales") para tareas de ese usuario; si no, asignados a ti. Opcionales: type, states, year, top.' },
         { name: 'azure_get_work_item', description: 'Obtiene el detalle de un work item. work_item_id.' },
+        { name: 'azure_get_work_item_updates', description: 'Historial de actualizaciones (logs) de un work item: quién cambió qué. work_item_id; opcional: top.' },
         { name: 'azure_get_bug_changesets', description: 'Lista changesets TFVC vinculados a un bug. bug_id.' },
         { name: 'azure_get_changeset', description: 'Obtiene un changeset TFVC: autor, fecha, archivos. changeset_id.' },
         { name: 'azure_get_changeset_diff', description: 'Muestra el diff de un archivo en un changeset. changeset_id; opcional: file_index.' },

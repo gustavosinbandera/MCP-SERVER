@@ -16,10 +16,13 @@
  *   node scripts/export-work-items-to-shared-dirs.cjs --top 50 --type Bug
  *   node scripts/export-work-items-to-shared-dirs.cjs --ids 130704,126783
  *   node scripts/export-work-items-to-shared-dirs.cjs --assigned-to "Gustavo Grisales" --year 2026 --type Bug
+ *   node scripts/export-work-items-to-shared-dirs.cjs --all-changesets  (exporta todos los changesets)
+ *   node scripts/export-work-items-to-shared-dirs.cjs --max-files 10    (máx archivos por changeset)
+ *   node scripts/export-work-items-to-shared-dirs.cjs --only-bug-fix   (regex: bug|fix|crash|not respond|stuck|freeze|hang)
  */
 const path = require('path');
 const fs = require('fs');
-const pLimit = require('p-limit');
+const pLimit = require('p-limit').default || require('p-limit');
 
 // En Docker (compose) el .env está en la raíz del repo; en local existe gateway/.env.
 // Cargamos ambos; si no existen no falla.
@@ -40,6 +43,9 @@ const {
   listWorkItems,
 } = require('../dist/azure-devops-client.js');
 
+/** Regex: título debe contener bug, fix, crash, not responding, stuck, freeze o hang (case-insensitive). */
+const TITLE_BUG_FIX_REGEX = /\b(bug|fix|crash|not\s*respond|stuck|freeze|hang)\b/i;
+
 function parseList(str) {
   return String(str || '')
     .split(/[,;|]/)
@@ -52,6 +58,7 @@ function parseArgs() {
   const out = {
     ids: [],
     top: 50,
+    skip: 0,
     type: '',
     year: undefined,
     assignedTo: undefined,
@@ -60,11 +67,19 @@ function parseArgs() {
     areaPathUnder: true,
     statesExclude: undefined,
     concurrency: 2,
+    allChangesets: false,
+    maxFilesPerChangeset: 15,
+    allDevelopers: false,
+    onlyBugFix: false,
   };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--ids') out.ids = parseList(args[++i]);
+    else if (a === '--all-changesets') out.allChangesets = true;
+    else if (a === '--all-developers') out.allDevelopers = true;
+    else if (a === '--only-bug-fix') out.onlyBugFix = true;
     else if (a === '--top') out.top = parseInt(args[++i], 10);
+    else if (a === '--skip') out.skip = parseInt(args[++i], 10);
     else if (a === '--type') out.type = String(args[++i] || '');
     else if (a === '--year') out.year = parseInt(args[++i], 10);
     else if (a === '--assigned-to') out.assignedTo = String(args[++i] || '').trim() || undefined;
@@ -73,11 +88,12 @@ function parseArgs() {
     else if (a === '--area-exact') out.areaPathUnder = false;
     else if (a === '--states-exclude') out.statesExclude = parseList(args[++i]);
     else if (a === '--concurrency') out.concurrency = Math.max(1, Math.min(10, parseInt(args[++i], 10) || 2));
+    else if (a === '--max-files') out.maxFilesPerChangeset = Math.max(1, parseInt(args[++i], 10) || 15);
   }
   return out;
 }
 
-async function fetchWorkItemWithChangesets(workItemId) {
+async function fetchWorkItemWithChangesets(workItemId, options = {}) {
   const wi = await getWorkItemWithRelations(workItemId);
   const f = wi.fields || {};
   const title = f['System.Title'] ?? '(sin título)';
@@ -92,17 +108,39 @@ async function fetchWorkItemWithChangesets(workItemId) {
   const iterationPath = f['System.IterationPath'] ?? '';
   const description = f['System.Description'] ?? '';
 
+  if (options?.onlyBugFix && !TITLE_BUG_FIX_REGEX.test(String(title))) {
+    return { skipped: true, reason: 'no_bug_fix' };
+  }
+
   const csIds = extractChangesetIds(wi);
+  const latestChangesetOnly = options?.latestChangesetOnly !== false;
+  const maxFiles = options?.maxFilesPerChangeset ?? 15;
+
+  let pending = []; // { csId, items } for processing
+  if (latestChangesetOnly && csIds.length > 0) {
+    for (const csId of csIds) {
+      const ch = await getChangesetChanges(csId);
+      const items = (ch.value || []).filter((it) => it.item?.path || it.item?.serverItem);
+      if (items.length <= maxFiles && items.length > 0) {
+        pending = [{ csId, items }];
+        break;
+      }
+    }
+    if (pending.length === 0) return { skipped: true, reason: 'too_large' };
+  } else {
+    pending = csIds.map((csId) => ({ csId, items: null }));
+  }
+
   const changesets = [];
   const allFiles = new Set();
 
-  for (const csId of csIds) {
+  for (const entry of pending) {
+    const csId = entry.csId;
+    const items = entry.items || (await getChangesetChanges(csId).then((ch) => ch.value || []));
     const cs = await getChangeset(csId);
     const author = pickAuthor(cs);
     const comment = (cs.comment || '').trim();
     const date = cs.createdDate || cs.checkinDate || '';
-    const ch = await getChangesetChanges(csId);
-    const items = ch.value || [];
     const files = [];
     for (const it of items) {
       const p = it.item?.path || it.item?.serverItem || '';
@@ -137,10 +175,12 @@ async function fetchWorkItemWithChangesets(workItemId) {
     description: String(description).trim(),
     changesets,
     allFiles: Array.from(allFiles),
+    latestChangesetOnly,
   };
 }
 
 function buildMarkdown(data) {
+  const latestOnly = data.latestChangesetOnly === true;
   const lines = [
     '---',
     `work_item_id: ${data.id}`,
@@ -152,6 +192,7 @@ function buildMarkdown(data) {
     `area_path: ${data.areaPath}`,
     `changeset_ids: [${data.changesets.map((c) => c.csId).join(', ')}]`,
     `file_paths: [${data.allFiles.map((p) => `"${String(p).replace(/"/g, '\\"')}"`).join(', ')}]`,
+    ...(latestOnly ? ['latest_changeset_only: true'] : []),
     '---',
     '',
     `# ${data.type} #${data.id}: ${data.title}`,
@@ -168,7 +209,10 @@ function buildMarkdown(data) {
   ];
 
   for (const cs of data.changesets) {
-    lines.push(`### Changeset ${cs.csId} — ${cs.author} — ${cs.date}`);
+    const header = latestOnly && data.changesets.length === 1
+      ? `### Changeset más reciente: ${cs.csId} — ${cs.author} — ${cs.date}`
+      : `### Changeset ${cs.csId} — ${cs.author} — ${cs.date}`;
+    lines.push(header);
     lines.push('');
     lines.push(cs.comment || '(sin comentario)');
     lines.push('');
@@ -228,14 +272,22 @@ async function main() {
     const items = await listWorkItems({
       type: args.type || undefined,
       top: Number.isFinite(args.top) ? args.top : 50,
-      assignedToMe: !args.assignedTo,
+      skip: Number.isFinite(args.skip) ? args.skip : 0,
+      assignedToMe: args.allDevelopers ? false : !args.assignedTo,
       assignedTo: args.assignedTo,
       year: args.year,
       areaPath,
       areaPathUnder: args.areaPathUnder,
       statesExclude,
     });
-    ids = items.map((it) => it.id).filter((n) => Number.isFinite(n));
+    if (args.onlyBugFix) {
+      ids = items
+        .filter((it) => TITLE_BUG_FIX_REGEX.test(String((it.fields || {})['System.Title'] || '')))
+        .map((it) => it.id)
+        .filter((n) => Number.isFinite(n));
+    } else {
+      ids = items.map((it) => it.id).filter((n) => Number.isFinite(n));
+    }
   }
 
   if (!ids.length) {
@@ -251,13 +303,35 @@ async function main() {
   console.log('  - Excluyendo estados:', statesExclude.join(', ') || '(ninguno)');
   console.log('  - Overwrite:', args.overwrite ? 'true' : 'false');
   console.log('  - Concurrency:', args.concurrency);
+  console.log('  - Latest changeset only:', !args.allChangesets ? 'true' : 'false');
+  console.log('  - Max files per changeset:', args.maxFilesPerChangeset, '(se salta si todos exceden)');
+  console.log('  - All developers:', args.allDevelopers ? 'true' : 'false');
+  console.log('  - Only Bug/Fix (regex: bug|fix|crash|not respond|stuck|freeze|hang):', args.onlyBugFix ? 'true' : 'false');
   console.log('  - Destino root:', projectRoot);
 
   const results = await Promise.all(
     ids.map((id) =>
       limit(async () => {
         try {
-          const data = await fetchWorkItemWithChangesets(id);
+          // Fast skip: si ya existe en cualquiera de los dos proyectos y no overwrite,
+          // evita llamar a Azure (ahorra tiempo/memoria).
+          const outClassic = path.join(projectRoot, 'classic', 'work-items', `work-item-${id}.md`);
+          const outBlueivory = path.join(projectRoot, 'blueivory', 'work-items', `work-item-${id}.md`);
+          if (!args.overwrite && (fs.existsSync(outClassic) || fs.existsSync(outBlueivory))) {
+            const project = fs.existsSync(outClassic) ? 'classic' : 'blueivory';
+            const outPath = project === 'classic' ? outClassic : outBlueivory;
+            return { id, project, outPath, status: 'skipped_exists', changesets: 0, files: 0 };
+          }
+
+          const data = await fetchWorkItemWithChangesets(id, {
+            latestChangesetOnly: !args.allChangesets,
+            maxFilesPerChangeset: args.maxFilesPerChangeset,
+            onlyBugFix: args.onlyBugFix,
+          });
+          if (data?.skipped) {
+            const status = data.reason === 'no_bug_fix' ? 'skipped_no_bug_fix' : 'skipped_too_large';
+            return { id, project: '?', outPath: '', status, changesets: 0, files: 0 };
+          }
           const project = resolveProjectFromTitleOrPaths(data.title, data.allFiles);
           const outDir = path.join(projectRoot, project, 'work-items');
           ensureDir(outDir);
@@ -286,10 +360,12 @@ async function main() {
 
   console.log('Resumen:', counts);
   results
-    .filter((r) => r.status === 'written' || r.status === 'skipped_exists' || r.status === 'error')
+    .filter((r) => r.status === 'written' || r.status === 'skipped_exists' || r.status === 'skipped_too_large' || r.status === 'skipped_no_bug_fix' || r.status === 'error')
     .slice(0, 20)
     .forEach((r) => {
       if (r.status === 'error') console.log(`  - #${r.id} ERROR: ${r.error}`);
+      else if (r.status === 'skipped_too_large') console.log(`  - #${r.id} skipped_too_large (ningún changeset con ≤${args.maxFilesPerChangeset} archivos)`);
+      else if (r.status === 'skipped_no_bug_fix') console.log(`  - #${r.id} skipped_no_bug_fix (título no coincide con regex)`);
       else console.log(`  - #${r.id} ${r.status} -> ${r.project} (${r.changesets} changesets, ${r.files} archivos): ${r.outPath}`);
     });
   if (results.length > 20) console.log('  (mostrando solo 20 items)');

@@ -116,6 +116,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    restart: always
 
   # Indexación periódica (inbox + SHARED_DIRS cada 2 min). Usa la misma imagen y .env que gateway.
   supervisor:
@@ -181,8 +182,11 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - gateway
-      - webapp
+      gateway:
+        condition: service_healthy
+      webapp:
+        condition: service_started
+    restart: always
 
 volumes:
   postgres_data:

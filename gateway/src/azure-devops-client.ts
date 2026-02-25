@@ -105,6 +105,8 @@ export interface ListWorkItemsOptions {
   areaPath?: string;
   /** Si true (default), usa operador UNDER; si false usa '=' (match exacto). */
   areaPathUnder?: boolean;
+  /** Cuántos items saltar del resultado WIQL (paginación simple). */
+  skip?: number;
   year?: number;
   dateField?: string;
   top?: number;
@@ -131,6 +133,7 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
     statesExclude = [],
     areaPath = '',
     areaPathUnder = true,
+    skip = 0,
     year = 0,
     dateField = 'System.ChangedDate',
     top = 50,
@@ -186,7 +189,9 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
     body: JSON.stringify({ query }),
   });
 
-  const ids = (wiql.workItems || []).slice(0, top).map((w) => w.id);
+  const start = Math.max(0, Math.floor(Number(skip) || 0));
+  const end = start + Math.max(0, Math.floor(Number(top) || 0));
+  const ids = (wiql.workItems || []).slice(start, end).map((w) => w.id);
   if (ids.length === 0) return [];
 
   const fieldsParam = 'System.Id,System.Title,System.State,System.WorkItemType,System.ChangedDate,System.AssignedTo,System.AreaPath';
@@ -216,6 +221,23 @@ export async function getWorkItemWithRelations(id: number): Promise<{
   const url =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems', id) +
     `?$expand=relations&api-version=${encodeURIComponent(API_VER)}`;
+  return httpJson(url);
+}
+
+/** Work item update (revision): quién, cuándo, qué campos cambiaron. */
+export interface WorkItemUpdate {
+  id?: number;
+  rev?: number;
+  revisedBy?: { id?: string; displayName?: string; uniqueName?: string };
+  revisedDate?: string;
+  fields?: Record<string, { oldValue?: unknown; newValue?: unknown }>;
+}
+
+export async function getWorkItemUpdates(id: number, top = 50): Promise<{ value?: WorkItemUpdate[] }> {
+  const { baseUrl, project } = ensureConfig();
+  const url =
+    joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems', id, 'updates') +
+    `?$top=${Math.max(1, Math.min(100, top))}&api-version=${encodeURIComponent(API_VER)}`;
   return httpJson(url);
 }
 

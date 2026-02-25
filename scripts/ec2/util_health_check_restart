@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Health check del gateway vía nginx. Si devuelve 502 o falla, reinicia nginx (y opcionalmente gateway).
+# Uso: util_health_check_restart [--gateway]  (--gateway también reinicia el gateway)
+# Para cron cada 5 min: */5 * * * * /opt/mcp-tools/util_health_check_restart >> /var/log/mcp-health.log 2>&1
+
+set -e
+
+RESTART_GATEWAY=false
+[[ "$1" == "--gateway" ]] && RESTART_GATEWAY=true
+
+COMPOSE_DIR="${MCP_COMPOSE_DIR:-$HOME/MCP-SERVER}"
+cd "$COMPOSE_DIR" || exit 1
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 http://127.0.0.1/api/health 2>/dev/null || echo "000")
+
+if [[ "$HTTP_CODE" == "200" ]]; then
+  exit 0
+fi
+
+echo "$(date -Iseconds) Health check failed (HTTP $HTTP_CODE), restarting nginx..."
+$RESTART_GATEWAY && docker compose restart gateway
+docker compose restart nginx
+echo "$(date -Iseconds) Restart done."
+exit 0

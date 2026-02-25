@@ -361,6 +361,7 @@ Scripts de utilidad instalados **fuera del proyecto** en `/opt/mcp-tools`, dispo
 | `util_update_repo` | Pull del repo, build gateway/supervisor, reinicio de servicios |
 | `update-repo` / `actualizar-repo` | Igual (vía symlink) |
 | `update repo` / `actualizar repo` | Igual (vía alias; requiere sesión con profile cargado) |
+| `util_health_check_restart` | Comprueba `/api/health`; si devuelve 502, reinicia nginx (uso: producción) |
 
 **Instalación (una vez en la instancia):**
 
@@ -378,3 +379,28 @@ Luego cerrar y reabrir la sesión SSH (o `source /etc/profile.d/mcp-tools.sh`) p
 - Crea `/opt/mcp-tools` y copia los scripts desde `~/MCP-SERVER/scripts/ec2/`.
 - Añade `/opt/mcp-tools` al PATH vía `/etc/profile.d/mcp-tools.sh`.
 - Crea los symlinks `update-repo` y `actualizar-repo` y los aliases `"update repo"` y `"actualizar repo"`.
+
+---
+
+## 8. Producción: mitigar 502 cuando nginx pierde conexión con el gateway
+
+Si Cursor deja de conectar (502 Bad Gateway) tras reinicios del gateway o cortes de red entre contenedores:
+
+**A) Cambios ya en el repo (nginx + docker-compose):**
+
+- Nginx re-resuelve `gateway` con el DNS de Docker (`resolver 127.0.0.11`) para evitar IP obsoletas tras reinicios.
+- `restart: always` en gateway y nginx.
+- Nginx espera a que el gateway esté healthy antes de arrancar (`depends_on` con `condition: service_healthy`).
+
+**B) Health check automático (cron cada 5 min):**
+
+```bash
+# En la instancia, tras instalar util scripts:
+(crontab -l 2>/dev/null | grep -v util_health_check_restart; echo "*/5 * * * * /opt/mcp-tools/util_health_check_restart >> /var/log/mcp-health.log 2>&1") | crontab -
+```
+
+Si `/api/health` devuelve 502 o falla, el script reinicia nginx. Opción `--gateway` para reiniciar también el gateway:
+
+```bash
+/opt/mcp-tools/util_health_check_restart --gateway
+```

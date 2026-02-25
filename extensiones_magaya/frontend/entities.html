@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entidades Hyperion</title>
+    <style>
+        /* Tema Magaya: mismo look que Transacciones */
+        :root {
+            --bg: #f0f4f8;
+            --card: #fff;
+            --border: #d1d9e0;
+            --text: #1a1a1a;
+            --text-muted: #4a5568;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --accent-light: #e8f4fc;
+            --accent-selected: #2563eb;
+            --header-gradient: linear-gradient(180deg, #cce0f2 0%, #b8d4ec 100%);
+            --error: #b94a48;
+            --nav-bg: #fff;
+            --nav-border: #d1d9e0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+        .app-nav {
+            background: var(--nav-bg);
+            border-bottom: 1px solid var(--nav-border);
+            padding: 0.6rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            flex-wrap: wrap;
+        }
+        .app-nav a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 0.85rem;
+            border-radius: 4px;
+        }
+        .app-nav a:hover { background: var(--accent-light); color: var(--accent); }
+        .app-nav a.active { background: var(--accent-light); color: var(--accent); }
+        .app-nav .brand { font-weight: 600; margin-right: 0.5rem; color: var(--text); }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 0 1.5rem 2rem;
+        }
+        .content-header {
+            background: var(--header-gradient);
+            margin: 0 -1.5rem 0;
+            padding: 0.75rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin: 0 0 1rem;
+            color: var(--text);
+        }
+        .card {
+            background: var(--card);
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.08);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .form-row {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            background: var(--card);
+        }
+        label {
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+        select {
+            padding: 0.45rem 2rem 0.45rem 0.65rem;
+            font-size: 0.95rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--card);
+            color: var(--text);
+            cursor: pointer;
+            min-width: 180px;
+        }
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .info {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .status {
+            padding: 1rem 1.25rem;
+            font-size: 0.9rem;
+        }
+        .status.loading { color: var(--text-muted); }
+        .status.error { color: var(--error); }
+        .table-wrap {
+            overflow-x: auto;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.6rem 0.85rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+            background: var(--bg);
+            position: sticky;
+            top: 0;
+        }
+        tbody tr:nth-child(even) td { background: var(--accent-light); }
+        tbody tr:hover td { background: #cce0f2; }
+        .empty { padding: 2rem; text-align: center; color: var(--text-muted); }
+        .pagination-row {
+            padding: 0.85rem 1.25rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+            background: var(--card);
+        }
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .pagination-controls button {
+            padding: 0.35rem 0.65rem;
+            font-size: 0.875rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--card);
+            color: var(--text);
+            cursor: pointer;
+        }
+        .pagination-controls button:hover:not(:disabled) {
+            background: var(--accent-light);
+            border-color: var(--accent);
+        }
+        .pagination-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .pagination-controls .page-btn.current {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .per-page { min-width: 100px; }
+    </style>
+</head>
+<body>
+    <nav class="app-nav">
+        <span class="brand">Hyperion</span>
+        <a href="/server/entities-form" class="active">Entidades</a>
+        <a href="/server/acctransactions-form">Transacciones</a>
+    </nav>
+    <div class="content-header">Lista de entidades</div>
+    <div class="container">
+        <div class="card">
+            <div class="form-row">
+                <label for="list">Mostrar lista:</label>
+                <select id="list">
+                    <option value="customers">Customers</option>
+                    <option value="vendors">Vendors</option>
+                    <option value="all">All</option>
+                    <option value="allActive">All Active</option>
+                    <option value="carriers">Carriers</option>
+                    <option value="warehouseProviders">Warehouse Providers</option>
+                    <option value="forwardingAgents">Forwarding Agents</option>
+                    <option value="employees">Employees</option>
+                    <option value="salespeople">Salespeople</option>
+                    <option value="contacts">Contacts</option>
+                    <option value="vessels">Vessels</option>
+                </select>
+                <label for="perPage">Por página:</label>
+                <select id="perPage" class="per-page">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                </select>
+                <span class="info" id="count"></span>
+            </div>
+            <div class="status" id="status"></div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:4rem">#</th>
+                            <th>Nombre</th>
+                            <th>Número</th>
+                        </tr>
+                    </thead>
+                    <tbody id="body"></tbody>
+                </table>
+            </div>
+            <div class="pagination-row" id="paginationRow">
+                <span class="info" id="pageInfo"></span>
+                <div class="pagination-controls" id="paginationControls"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var listSelect = document.getElementById('list');
+            var perPageSelect = document.getElementById('perPage');
+            var countSpan = document.getElementById('count');
+            var pageInfoSpan = document.getElementById('pageInfo');
+            var paginationControls = document.getElementById('paginationControls');
+            var statusEl = document.getElementById('status');
+            var bodyEl = document.getElementById('body');
+
+            var data = {};
+            var currentPage = 1;
+
+            function setStatus(msg, type) {
+                statusEl.textContent = msg;
+                statusEl.className = 'status ' + (type || '');
+            }
+
+            function escapeHtml(s) {
+                var div = document.createElement('div');
+                div.textContent = s;
+                return div.innerHTML;
+            }
+
+            function render(listKey) {
+                var arr = data[listKey] || [];
+                var perPage = parseInt(perPageSelect.value, 10) || 50;
+                var totalPages = Math.max(1, Math.ceil(arr.length / perPage));
+                currentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+                countSpan.textContent = arr.length + ' registro(s)';
+
+                var start = (currentPage - 1) * perPage;
+                var pageData = arr.slice(start, start + perPage);
+
+                bodyEl.innerHTML = '';
+                if (pageData.length === 0) {
+                    bodyEl.innerHTML = '<tr><td colspan="3" class="empty">No hay datos</td></tr>';
+                } else {
+                    pageData.forEach(function (item, i) {
+                        var tr = document.createElement('tr');
+                        var globalIdx = start + i + 1;
+                        tr.innerHTML =
+                            '<td>' + globalIdx + '</td>' +
+                            '<td>' + (item.name != null ? escapeHtml(String(item.name)) : '—') + '</td>' +
+                            '<td>' + (item.number != null ? escapeHtml(String(item.number)) : '—') + '</td>';
+                        bodyEl.appendChild(tr);
+                    });
+                }
+
+                pageInfoSpan.textContent = arr.length > 0
+                    ? 'Página ' + currentPage + ' de ' + totalPages + ' (' + (start + 1) + '–' + Math.min(start + perPage, arr.length) + ' de ' + arr.length + ')'
+                    : '';
+
+                paginationControls.innerHTML = '';
+                if (totalPages > 1) {
+                    var prevBtn = document.createElement('button');
+                    prevBtn.textContent = '« Anterior';
+                    prevBtn.disabled = currentPage <= 1;
+                    prevBtn.onclick = function () { currentPage--; render(listSelect.value); };
+                    paginationControls.appendChild(prevBtn);
+
+                    var maxVisible = 5;
+                    var first = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                    var last = Math.min(totalPages, first + maxVisible - 1);
+                    first = Math.max(1, last - maxVisible + 1);
+
+                    for (var p = first; p <= last; p++) {
+                        (function (page) {
+                            var btn = document.createElement('button');
+                            btn.textContent = page;
+                            btn.className = page === currentPage ? 'page-btn current' : 'page-btn';
+                            btn.onclick = function () { currentPage = page; render(listSelect.value); };
+                            paginationControls.appendChild(btn);
+                        })(p);
+                    }
+
+                    var nextBtn = document.createElement('button');
+                    nextBtn.textContent = 'Siguiente »';
+                    nextBtn.disabled = currentPage >= totalPages;
+                    nextBtn.onclick = function () { currentPage++; render(listSelect.value); };
+                    paginationControls.appendChild(nextBtn);
+                }
+            }
+
+            listSelect.addEventListener('change', function () {
+                currentPage = 1;
+                render(listSelect.value);
+            });
+
+            perPageSelect.addEventListener('change', function () {
+                currentPage = 1;
+                render(listSelect.value);
+            });
+
+            setStatus('Cargando…', 'loading');
+
+            fetch('/server/entities?limit=500')
+                .then(function (r) {
+                    if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+                    return r.json();
+                })
+                .then(function (res) {
+                    if (res.error) throw new Error(res.error);
+                    data = {};
+                    var keys = ['all','allActive','customers','vendors','carriers','warehouseProviders','forwardingAgents','employees','salespeople','contacts','vessels'];
+                    keys.forEach(function (k) { data[k] = (res[k] && Array.isArray(res[k])) ? res[k] : []; });
+                    setStatus('');
+                    render(listSelect.value);
+                })
+                .catch(function (err) {
+                    setStatus('Error: ' + err.message, 'error');
+                    render(listSelect.value);
+                });
+        })();
+    </script>
+</body>
+</html>

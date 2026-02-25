@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transacciones contables Hyperion</title>
+    <style>
+        /* Tema Magaya: fondo claro, azul para selección y acentos, grid con filas alternas */
+        :root {
+            --bg: #f0f4f8;
+            --card: #fff;
+            --border: #d1d9e0;
+            --text: #1a1a1a;
+            --text-muted: #4a5568;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --accent-light: #e8f4fc;
+            --accent-selected: #2563eb;
+            --header-gradient: linear-gradient(180deg, #cce0f2 0%, #b8d4ec 100%);
+            --error: #b94a48;
+            --nav-bg: #fff;
+            --nav-border: #d1d9e0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+        .app-nav {
+            background: var(--nav-bg);
+            border-bottom: 1px solid var(--nav-border);
+            padding: 0.6rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            flex-wrap: wrap;
+        }
+        .app-nav a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 0.85rem;
+            border-radius: 4px;
+        }
+        .app-nav a:hover { background: var(--accent-light); color: var(--accent); }
+        .app-nav a.active { background: var(--accent-light); color: var(--accent); }
+        .app-nav .brand { font-weight: 600; margin-right: 0.5rem; color: var(--text); }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 0 1.5rem 2rem;
+        }
+        .content-header {
+            background: var(--header-gradient);
+            margin: 0 -1.5rem 0;
+            padding: 0.75rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin: 0 0 1rem;
+            color: var(--text);
+        }
+        .card {
+            background: var(--card);
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.08);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .form-row {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            background: var(--card);
+        }
+        label {
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+        select {
+            padding: 0.45rem 2rem 0.45rem 0.65rem;
+            font-size: 0.95rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--card);
+            color: var(--text);
+            cursor: pointer;
+            min-width: 180px;
+        }
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .info {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .status {
+            padding: 1rem 1.25rem;
+            font-size: 0.9rem;
+        }
+        .status.loading { color: var(--text-muted); }
+        .status.error { color: var(--error); }
+        .table-wrap {
+            overflow-x: auto;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.6rem 0.85rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+            background: var(--bg);
+            position: sticky;
+            top: 0;
+        }
+        tbody tr:nth-child(even) td { background: var(--accent-light); }
+        tbody tr:hover td { background: #cce0f2; }
+        tbody tr.selected td { background: var(--accent-selected); color: #fff; }
+        tbody tr.selected td a, tbody tr.selected .btn-edit { color: #fff; border-color: rgba(255,255,255,.6); }
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .empty { padding: 2rem; text-align: center; color: var(--text-muted); }
+        .pagination-row {
+            padding: 0.85rem 1.25rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+            background: var(--card);
+        }
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .pagination-controls button {
+            padding: 0.35rem 0.65rem;
+            font-size: 0.875rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--card);
+            color: var(--text);
+            cursor: pointer;
+        }
+        .pagination-controls button:hover:not(:disabled) {
+            background: var(--accent-light);
+            border-color: var(--accent);
+        }
+        .pagination-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .pagination-controls .page-btn.current {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .per-page { min-width: 100px; }
+        .btn-edit { padding: 0.3rem 0.55rem; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--accent); cursor: pointer; }
+        .btn-edit:hover { background: var(--accent-light); border-color: var(--accent); }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.open { display: flex; }
+        .modal-box { background: var(--card); border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); max-width: 480px; width: 90%; max-height: 90vh; overflow-y: auto; border: 1px solid var(--border); }
+        .modal-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 1.05rem; background: var(--accent-light); }
+        .modal-body { padding: 1.25rem; }
+        .modal-body label { display: block; margin-top: 0.75rem; margin-bottom: 0.25rem; }
+        .modal-body select { width: 100%; max-width: 100%; }
+        .modal-body .field-row { margin-top: 0.5rem; }
+        .modal-error { display: none; margin-top: 1rem; padding: 0.75rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; color: var(--error); font-size: 0.9rem; }
+        .modal-error.show { display: block; }
+        .modal-success { display: none; margin-top: 1rem; padding: 0.75rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534; font-size: 0.9rem; }
+        .modal-success.show { display: block; }
+        .modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; gap: 0.75rem; justify-content: flex-end; }
+        .modal-footer button { padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.95rem; cursor: pointer; }
+        .btn-cancel { border: 1px solid var(--border); background: var(--card); color: var(--text); }
+        .btn-save { border: none; background: var(--accent); color: #fff; }
+        .btn-save:hover { background: var(--accent-hover); }
+        .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <nav class="app-nav">
+        <span class="brand">Hyperion</span>
+        <a href="/server/entities-form">Entidades</a>
+        <a href="/server/acctransactions-form" class="active">Transacciones</a>
+    </nav>
+    <div class="content-header">Transacciones contables</div>
+    <div id="editModal" class="modal-overlay" aria-hidden="true">
+        <div class="modal-box" role="dialog" aria-labelledby="modalTitle">
+            <div class="modal-header" id="modalTitle">Editar entidad de la transacción</div>
+            <div class="modal-body">
+                <div class="field-row">
+                    <label>Transacción</label>
+                    <p id="modalTxInfo" style="margin:0; color: var(--text-muted); font-size: 0.9rem;"></p>
+                </div>
+                <div class="field-row">
+                    <label for="modalEntityType">Tipo de entidad</label>
+                    <select id="modalEntityType">
+                        <option value="">-- Seleccione tipo --</option>
+                        <option value="customers">Customers</option>
+                        <option value="vendors">Vendors</option>
+                        <option value="forwardingAgents">Forwarding Agents</option>
+                        <option value="carriers">Carriers</option>
+                        <option value="warehouseProviders">Warehouse Providers</option>
+                        <option value="salespeople">Salespeople</option>
+                        <option value="contacts">Contacts</option>
+                        <option value="vessels">Vessels</option>
+                    </select>
+                </div>
+                <div class="field-row">
+                    <label for="modalEntity">Entidad</label>
+                    <select id="modalEntity">
+                        <option value="">-- Seleccione tipo primero --</option>
+                    </select>
+                </div>
+                <div id="modalError" class="modal-error"></div>
+                <div id="modalSuccess" class="modal-success"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" id="modalCancel">Cancelar</button>
+                <button type="button" class="btn-save" id="modalSave">Guardar</button>
+            </div>
+        </div>
+    </div>
+    <div class="container">
+        <div class="card">
+            <div class="form-row">
+                <label for="list">Tipo de transacción:</label>
+                <select id="list">
+                    <option value="bills">Bills</option>
+                    <option value="invoices">Invoices</option>
+                    <option value="payments">Payments</option>
+                    <option value="checks">Checks</option>
+                    <option value="deposits">Deposits</option>
+                    <option value="journalEntries">Journal Entries</option>
+                </select>
+                <label for="perPage">Por página:</label>
+                <select id="perPage" class="per-page">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                </select>
+                <span class="info" id="count"></span>
+            </div>
+            <div class="status" id="status"></div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:4rem">#</th>
+                            <th>Tipo</th>
+                            <th>Número</th>
+                            <th>Entidad</th>
+                            <th>Tipo de entidad</th>
+                            <th class="num">Monto total</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                            <th style="width:6rem">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="body"></tbody>
+                </table>
+            </div>
+            <div class="pagination-row" id="paginationRow">
+                <span class="info" id="pageInfo"></span>
+                <div class="pagination-controls" id="paginationControls"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var listSelect = document.getElementById('list');
+            var perPageSelect = document.getElementById('perPage');
+            var countSpan = document.getElementById('count');
+            var pageInfoSpan = document.getElementById('pageInfo');
+            var paginationControls = document.getElementById('paginationControls');
+            var statusEl = document.getElementById('status');
+            var bodyEl = document.getElementById('body');
+
+            var data = {};
+            var currentPage = 1;
+
+            function setStatus(msg, type) {
+                statusEl.textContent = msg;
+                statusEl.className = 'status ' + (type || '');
+            }
+
+            function escapeHtml(s) {
+                var div = document.createElement('div');
+                div.textContent = s;
+                return div.innerHTML;
+            }
+
+            function formatAmount(n) {
+                if (n == null || typeof n !== 'number') return '—';
+                return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            var statusLabels = { '0': 'Open', '1': 'Paid', '2': 'Disputed', 'None': 'None', 'Approved': 'Approved', 'Disputed': 'Disputed' };
+            function formatStatus(s) {
+                if (s == null || s === '') return '—';
+                return statusLabels[String(s)] != null ? statusLabels[String(s)] : String(s);
+            }
+
+            function render(listKey) {
+                var arr = data[listKey] || [];
+                var perPage = parseInt(perPageSelect.value, 10) || 50;
+                var totalPages = Math.max(1, Math.ceil(arr.length / perPage));
+                currentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+                countSpan.textContent = arr.length + ' registro(s)';
+
+                var start = (currentPage - 1) * perPage;
+                var pageData = arr.slice(start, start + perPage);
+
+                bodyEl.innerHTML = '';
+                if (pageData.length === 0) {
+                    bodyEl.innerHTML = '<tr><td colspan="9" class="empty">No hay datos</td></tr>';
+                } else {
+                    var listKey = listSelect.value;
+                    pageData.forEach(function (item, i) {
+                        var tr = document.createElement('tr');
+                        var globalIdx = start + i + 1;
+                        tr.innerHTML =
+                            '<td>' + globalIdx + '</td>' +
+                            '<td>' + (item.type != null ? escapeHtml(String(item.type)) : '—') + '</td>' +
+                            '<td>' + (item.number != null ? escapeHtml(String(item.number)) : '—') + '</td>' +
+                            '<td>' + (item.entityName != null ? escapeHtml(String(item.entityName)) : '—') + '</td>' +
+                            '<td>' + (item.entityType != null ? escapeHtml(String(item.entityType)) : '—') + '</td>' +
+                            '<td class="num">' + formatAmount(item.totalAmount) + '</td>' +
+                            '<td>' + (item.status != null ? escapeHtml(formatStatus(item.status)) : '—') + '</td>' +
+                            '<td>' + (item.date != null ? escapeHtml(String(item.date)) : '—') + '</td>' +
+                            '<td><button type="button" class="btn-edit" data-list="' + escapeHtml(listKey) + '" data-number="' + (item.number != null ? escapeHtml(String(item.number)) : '') + '" data-entity="' + (item.entityName != null ? escapeHtml(String(item.entityName)) : '') + '">Editar</button></td>';
+                        bodyEl.appendChild(tr);
+                    });
+                }
+
+                pageInfoSpan.textContent = arr.length > 0
+                    ? 'Página ' + currentPage + ' de ' + totalPages + ' (' + (start + 1) + '–' + Math.min(start + perPage, arr.length) + ' de ' + arr.length + ')'
+                    : '';
+
+                paginationControls.innerHTML = '';
+                if (totalPages > 1) {
+                    var prevBtn = document.createElement('button');
+                    prevBtn.textContent = '« Anterior';
+                    prevBtn.disabled = currentPage <= 1;
+                    prevBtn.onclick = function () { currentPage--; render(listSelect.value); };
+                    paginationControls.appendChild(prevBtn);
+
+                    var maxVisible = 5;
+                    var first = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                    var last = Math.min(totalPages, first + maxVisible - 1);
+                    first = Math.max(1, last - maxVisible + 1);
+
+                    for (var p = first; p <= last; p++) {
+                        (function (page) {
+                            var btn = document.createElement('button');
+                            btn.textContent = page;
+                            btn.className = page === currentPage ? 'page-btn current' : 'page-btn';
+                            btn.onclick = function () { currentPage = page; render(listSelect.value); };
+                            paginationControls.appendChild(btn);
+                        })(p);
+                    }
+
+                    var nextBtn = document.createElement('button');
+                    nextBtn.textContent = 'Siguiente »';
+                    nextBtn.disabled = currentPage >= totalPages;
+                    nextBtn.onclick = function () { currentPage++; render(listSelect.value); };
+                    paginationControls.appendChild(nextBtn);
+                }
+            }
+
+            listSelect.addEventListener('change', function () {
+                currentPage = 1;
+                render(listSelect.value);
+            });
+
+            perPageSelect.addEventListener('change', function () {
+                currentPage = 1;
+                render(listSelect.value);
+            });
+
+            setStatus('Cargando…', 'loading');
+
+            fetch('/server/acctransactions?limit=500')
+                .then(function (r) {
+                    if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+                    return r.json();
+                })
+                .then(function (res) {
+                    if (res.error) throw new Error(res.error);
+                    data = {
+                        bills: (res.bills && Array.isArray(res.bills)) ? res.bills : [],
+                        invoices: (res.invoices && Array.isArray(res.invoices)) ? res.invoices : [],
+                        payments: (res.payments && Array.isArray(res.payments)) ? res.payments : [],
+                        checks: (res.checks && Array.isArray(res.checks)) ? res.checks : [],
+                        deposits: (res.deposits && Array.isArray(res.deposits)) ? res.deposits : [],
+                        journalEntries: (res.journalEntries && Array.isArray(res.journalEntries)) ? res.journalEntries : []
+                    };
+                    setStatus('');
+                    render(listSelect.value);
+                })
+                .catch(function (err) {
+                    setStatus('Error: ' + err.message, 'error');
+                    render(listSelect.value);
+                });
+
+            var entitiesCache = null;
+            var modalTransactionType = '';
+            var modalTransactionNumber = '';
+            var modalTxLabel = { bills: 'Bill', invoices: 'Invoice', payments: 'Payment', checks: 'Check', deposits: 'Deposit', journalEntries: 'Journal Entry' };
+
+            function loadEntities() {
+                if (entitiesCache) return Promise.resolve(entitiesCache);
+                return fetch('/server/entities?limit=500')
+                    .then(function (r) {
+                        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+                        return r.json();
+                    })
+                    .then(function (res) {
+                        if (res.error) throw new Error(res.error);
+                        entitiesCache = {
+                            customers: (res.customers && Array.isArray(res.customers)) ? res.customers : [],
+                            vendors: (res.vendors && Array.isArray(res.vendors)) ? res.vendors : [],
+                            forwardingAgents: (res.forwardingAgents && Array.isArray(res.forwardingAgents)) ? res.forwardingAgents : [],
+                            carriers: (res.carriers && Array.isArray(res.carriers)) ? res.carriers : [],
+                            warehouseProviders: (res.warehouseProviders && Array.isArray(res.warehouseProviders)) ? res.warehouseProviders : [],
+                            salespeople: (res.salespeople && Array.isArray(res.salespeople)) ? res.salespeople : [],
+                            contacts: (res.contacts && Array.isArray(res.contacts)) ? res.contacts : [],
+                            vessels: (res.vessels && Array.isArray(res.vessels)) ? res.vessels : []
+                        };
+                        return entitiesCache;
+                    });
+            }
+
+            function fillEntityDropdown(entityType) {
+                var sel = document.getElementById('modalEntity');
+                sel.innerHTML = '<option value="">-- Seleccione entidad --</option>';
+                if (!entityType || !entitiesCache) return;
+                var list = entitiesCache[entityType];
+                if (!list || !list.length) return;
+                list.forEach(function (e) {
+                    var num = (e.number != null) ? String(e.number) : '';
+                    var name = (e.name != null) ? String(e.name) : '';
+                    var opt = document.createElement('option');
+                    opt.value = num || name || '';
+                    opt.setAttribute('data-name', name);
+                    opt.textContent = name ? (num ? name + ' (' + num + ')' : name) : (num || '—');
+                    sel.appendChild(opt);
+                });
+            }
+
+            function openModal(listKey, transactionNumber, currentEntityName) {
+                modalTransactionType = listKey;
+                modalTransactionNumber = transactionNumber;
+                document.getElementById('modalTxInfo').textContent = (modalTxLabel[listKey] || listKey) + ' ' + transactionNumber + (currentEntityName ? ' — Entidad actual: ' + currentEntityName : '');
+                document.getElementById('modalEntityType').value = '';
+                document.getElementById('modalEntity').innerHTML = '<option value="">-- Seleccione tipo primero --</option>';
+                document.getElementById('modalError').classList.remove('show');
+                document.getElementById('modalError').textContent = '';
+                document.getElementById('modalSuccess').classList.remove('show');
+                document.getElementById('editModal').classList.add('open');
+                loadEntities().then(function () {
+                    fillEntityDropdown(document.getElementById('modalEntityType').value);
+                }).catch(function (err) {
+                    document.getElementById('modalError').textContent = 'No se pudieron cargar las entidades: ' + err.message;
+                    document.getElementById('modalError').classList.add('show');
+                });
+            }
+
+            function closeModal() {
+                document.getElementById('editModal').classList.remove('open');
+            }
+
+            document.getElementById('modalEntityType').addEventListener('change', function () {
+                fillEntityDropdown(this.value);
+            });
+
+            document.getElementById('modalCancel').addEventListener('click', closeModal);
+
+            document.getElementById('modalSave').addEventListener('click', function () {
+                var entityType = document.getElementById('modalEntityType').value;
+                var entitySel = document.getElementById('modalEntity');
+                var entityNumber = entitySel.value || '';
+                var opt = entitySel.options[entitySel.selectedIndex];
+                var entityName = (opt && opt.getAttribute('data-name')) ? opt.getAttribute('data-name') : '';
+                var errEl = document.getElementById('modalError');
+                var okEl = document.getElementById('modalSuccess');
+                errEl.classList.remove('show');
+                okEl.classList.remove('show');
+                if (!entityType || (!entityNumber && !entityName)) {
+                    errEl.textContent = 'Seleccione un tipo de entidad y una entidad.';
+                    errEl.classList.add('show');
+                    return;
+                }
+                document.getElementById('modalSave').disabled = true;
+                fetch('/server/acctransactions-assign-entity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transactionType: modalTransactionType,
+                        transactionNumber: modalTransactionNumber,
+                        entityType: entityType,
+                        entityNumber: entityNumber,
+                        entityName: entityName
+                    })
+                })
+                    .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+                    .then(function (res) {
+                        document.getElementById('modalSave').disabled = false;
+                        if (res.status >= 400 && res.body && res.body.error) {
+                            errEl.textContent = res.body.error;
+                            errEl.classList.add('show');
+                            return;
+                        }
+                        if (res.body && res.body.error) {
+                            errEl.textContent = res.body.error;
+                            errEl.classList.add('show');
+                            return;
+                        }
+                        okEl.textContent = 'Entidad asignada correctamente.';
+                        okEl.classList.add('show');
+                        setTimeout(function () {
+                            closeModal();
+                            setStatus('Cargando…', 'loading');
+                            fetch('/server/acctransactions?limit=500')
+                                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                                .then(function (res) {
+                                    if (res.error) throw new Error(res.error);
+                                    data.bills = (res.bills && Array.isArray(res.bills)) ? res.bills : [];
+                                    data.invoices = (res.invoices && Array.isArray(res.invoices)) ? res.invoices : [];
+                                    data.payments = (res.payments && Array.isArray(res.payments)) ? res.payments : [];
+                                    data.checks = (res.checks && Array.isArray(res.checks)) ? res.checks : [];
+                                    data.deposits = (res.deposits && Array.isArray(res.deposits)) ? res.deposits : [];
+                                    data.journalEntries = (res.journalEntries && Array.isArray(res.journalEntries)) ? res.journalEntries : [];
+                                    setStatus('');
+                                    render(listSelect.value);
+                                })
+                                .catch(function () { setStatus(''); render(listSelect.value); });
+                        }, 800);
+                    })
+                    .catch(function (err) {
+                        document.getElementById('modalSave').disabled = false;
+                        errEl.textContent = 'Error de conexión: ' + (err.message || 'No se pudo completar la solicitud.');
+                        errEl.classList.add('show');
+                    });
+            });
+
+            bodyEl.addEventListener('click', function (e) {
+                var btn = e.target && e.target.classList && e.target.classList.contains('btn-edit') ? e.target : null;
+                if (!btn) return;
+                var listKey = btn.getAttribute('data-list');
+                var number = btn.getAttribute('data-number');
+                var entityName = btn.getAttribute('data-entity');
+                if (listKey && number) openModal(listKey, number, entityName);
+            });
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "extension-example",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "test:bills": "node test-bills-request.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@magaya/extension-fs-helper": "^0.1.0",
+    "express": "^5.2.1"
+  }
+}

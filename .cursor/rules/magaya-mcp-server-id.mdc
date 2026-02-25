@@ -1,0 +1,15 @@
+---
+description: Al invocar tools del MCP magaya (repo_git, search_docs, etc.), usar el server id que Cursor asigna
+globs: 
+alwaysApply: true
+---
+
+# MCP magaya – identificador del servidor
+
+El servidor MCP configurado como **magaya** en `.cursor/mcp.json` se expone en Cursor con un identificador interno que incluye prefijo del proyecto.
+
+**Al llamar herramientas de magaya con `call_mcp_tool`:**
+- Usar **`server: "project-0-MCP-SERVER-magaya"`** (no `"magaya"`).
+- Ejemplos: `repo_git` (status, add, commit, push, pull), `search_docs`, y el resto de tools del mismo servidor.
+
+Así, cuando el usuario pida "usar magaya", "repo_git de magaya" o "herramienta git de magaya", invocar la tool con ese `server` para que funcione.

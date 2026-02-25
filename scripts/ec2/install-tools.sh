@@ -25,6 +25,10 @@ echo "Copiando util_update_repo..."
 sudo cp "$REPO_ROOT/scripts/ec2/util_update_repo" "$TOOLS_DIR/util_update_repo"
 sudo chmod +x "$TOOLS_DIR/util_update_repo"
 
+echo "Copiando util_health_check_restart..."
+sudo cp "$REPO_ROOT/scripts/ec2/util_health_check_restart" "$TOOLS_DIR/util_health_check_restart"
+sudo chmod +x "$TOOLS_DIR/util_health_check_restart"
+
 echo "Creando symlinks update-repo y actualizar-repo..."
 sudo ln -sf util_update_repo "$TOOLS_DIR/update-repo"
 sudo ln -sf util_update_repo "$TOOLS_DIR/actualizar-repo"
@@ -40,3 +44,5 @@ PROFILE
 echo "Listo. Para usar los comandos:"
 echo "  - Cierra y reabre la sesión SSH, o ejecuta: source $PROFILE_D"
 echo "  - Comandos: util_update_repo, update-repo, actualizar-repo, \"update repo\", \"actualizar repo\""
+echo "  - Health check (reinv. nginx si 502): util_health_check_restart"
+echo "  - Cron cada 5 min: */5 * * * * /opt/mcp-tools/util_health_check_restart >> /var/log/mcp-health.log 2>&1"
