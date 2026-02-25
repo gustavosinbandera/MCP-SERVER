@@ -607,6 +607,49 @@ mcpServer.tool(
   },
 );
 
+mcpServer.tool(
+  'repo_pull',
+  'Hace git pull en el repositorio del workspace (trae cambios del remoto). Opcional: directory para otro repo.',
+  {
+    directory: z.string().optional(),
+  } as any,
+  async (args: { directory?: string }) => {
+    const result = runRepoGit({
+      action: 'pull',
+      directory: args.directory?.trim() || undefined,
+    });
+    const text = result.ok
+      ? `[repo_pull]\n\n${result.output}`
+      : `[repo_pull – error]\n\n${result.error ?? result.output}`;
+    return {
+      content: [{ type: 'text' as const, text }],
+    };
+  },
+);
+
+mcpServer.tool(
+  'instance_update',
+  'Devuelve el comando SSH para actualizar la instancia (pull + build + reinicio). Ejecuta ese comando en la terminal de Cursor (o pide a Cursor que lo ejecute por ti). Opcional: INSTANCE_SSH_TARGET en .env (ej. mpc o ec2-user@ip) para que el comando venga ya con el host.',
+  {} as any,
+  async () => {
+    const host = process.env.INSTANCE_SSH_TARGET?.trim();
+    const cmd = "cd ~/MCP-SERVER && (util_update_repo 2>/dev/null || (git pull origin master && docker compose build gateway supervisor && docker compose up -d gateway supervisor))";
+    const fullCommand = host
+      ? `ssh ${host} '${cmd}'`
+      : `ssh <tu-host-instancia> '${cmd}'`;
+
+    const text = [
+      '[instance_update] Ejecuta este comando en la terminal (o pide a Cursor que lo ejecute):',
+      '',
+      fullCommand,
+      '',
+      host ? `(Host: ${host})` : 'Sustituye <tu-host-instancia> por tu host SSH (ej. mpc o ec2-user@52.91.217.181). Opcional: define INSTANCE_SSH_TARGET en .env para que salga ya el host.',
+    ].join('\n');
+
+    return { content: [{ type: 'text' as const, text }] };
+  },
+);
+
 // ----- ClickUp (project manager): local e instancia -----
 function clickUpError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -1215,6 +1258,8 @@ mcpServer.tool(
         { name: 'mediawiki_login', description: 'Inicia sesión en un sitio MediaWiki. Para páginas protegidas con view_url, index_url, list_url_links.' },
         { name: 'search_github_repos', description: 'Búsqueda en GitHub por tema. Parámetros: topic; opcionales: limit, sort (updated|stars|forks).' },
         { name: 'repo_git', description: 'Manipula el repo Git del workspace: status, add, commit (message), push, pull. Opcional: directory, paths.' },
+        { name: 'repo_pull', description: 'Hace git pull en el repo del workspace. Opcional: directory.' },
+        { name: 'instance_update', description: 'Devuelve el comando SSH para actualizar la instancia. Ejecútalo en la terminal (o pide a Cursor que lo ejecute). Opcional INSTANCE_SSH_TARGET en .env.' },
         { name: 'clickup_list_workspaces', description: 'Lista los workspaces (teams) de ClickUp. Requiere CLICKUP_API_TOKEN.' },
         { name: 'clickup_list_spaces', description: 'Lista los spaces de un workspace. team_id.' },
         { name: 'clickup_list_folders', description: 'Lista los folders de un space. space_id.' },

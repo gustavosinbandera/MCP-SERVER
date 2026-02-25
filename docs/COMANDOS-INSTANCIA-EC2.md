@@ -418,6 +418,9 @@ Luego cerrar y reabrir la sesión SSH (o `source /etc/profile.d/mcp-tools.sh`) p
 - Añade `/opt/mcp-tools` al PATH vía `/etc/profile.d/mcp-tools.sh`.
 - Crea los symlinks `update-repo` y `actualizar-repo` y los aliases `"update repo"` y `"actualizar repo"`.
 
+**Actualizar la instancia desde Cursor (tool `instance_update`):**  
+La tool devuelve el comando SSH para hacer pull + build + reinicio. Ejecuta ese comando en la terminal de Cursor (o pide a Cursor que lo ejecute). Opcional: en el .env del proyecto define `INSTANCE_SSH_TARGET` (ej. `mpc` o `ec2-user@ip`) para que el comando salga ya con el host.
+
 ---
 
 ## 8. Producción: mitigar 502 cuando nginx pierde conexión con el gateway
