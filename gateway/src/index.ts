@@ -320,17 +320,30 @@ app.post('/mcp', requireJwt, async (req, res) => {
     if (sid !== sessionId) {
       res.setHeader(MCP_SESSION_ID_HEADER, sid);
     }
+    const requestId =
+      body != null && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'id')
+        ? (body as { id?: string | number }).id
+        : undefined;
     const response = await runWithLogContext(
       { userId, sessionId: sid },
       async () => {
-        logInfo('mcp POST start', { userId, sessionId: sid, method });
+        logInfo('mcp POST start', { userId, sessionId: sid, method, requestId });
         const out = await runtime.transport.handleRequest(body, { sessionId: sid });
         const t2 = Date.now();
         const total = t2 - t0;
-        if (t1 - t0 > 500 || t2 - t1 > 500) {
-          logWarn('mcp POST slow', { userId, sessionId: sid, getOrCreateSessionMs: t1 - t0, handleRequestMs: t2 - t1 });
+        const slowMs = Number(process.env.MCP_SLOW_MS) || 500;
+        if (t1 - t0 > slowMs || t2 - t1 > slowMs) {
+          logWarn('mcp POST slow', {
+            userId,
+            sessionId: sid,
+            method,
+            requestId,
+            getOrCreateSessionMs: t1 - t0,
+            handleRequestMs: t2 - t1,
+            totalMs: total,
+          });
         } else {
-          logInfo('mcp POST ok', { userId, sessionId: sid, method, totalMs: total });
+          logInfo('mcp POST ok', { userId, sessionId: sid, method, requestId, totalMs: total });
         }
         return out;
       }

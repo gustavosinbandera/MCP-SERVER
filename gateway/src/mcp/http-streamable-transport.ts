@@ -4,6 +4,8 @@
  * Compatible con la interfaz que usa Protocol.connect(transport).
  */
 
+import { info as logInfo } from '../logger';
+
 export interface HttpStreamableTransport {
   start(): Promise<void>;
   send(message: unknown, options?: { relatedRequestId?: string; sessionId?: string }): Promise<void>;
@@ -17,26 +19,53 @@ export interface HttpStreamableTransport {
 
 const SESSION_ID_HEADER = 'mcp-session-id';
 
+type Pending = { requestId?: string | number; resolve: (value: unknown) => void; reject: (reason: Error) => void };
+
 /**
  * Crea un transport que adapta HTTP request/response al contrato del Protocol.
  * - start(): resuelve de inmediato.
- * - send(msg): resuelve la promesa pendiente de handleRequest con msg.
- * - handleRequest(body): establece la promesa, invoca onmessage(body), espera send() y devuelve el mensaje.
+ * - send(msg, options): resuelve la promesa correspondiente: por message.id o options.relatedRequestId si existe; si no, la más antigua (FIFO) para no colgar.
+ * - handleRequest(body): añade una promesa a la cola, invoca onmessage(body), espera send() y devuelve el mensaje.
+ * Soporta varias tools/call en paralelo: si la respuesta trae id, se empareja; si no, se responde en orden (FIFO).
  */
 export function createHttpStreamableTransport(): HttpStreamableTransport {
-  let currentResolve: ((value: unknown) => void) | null = null;
-  let currentReject: ((reason: Error) => void) | null = null;
+  const pendingQueue: Pending[] = [];
 
   const transport: HttpStreamableTransport = {
     async start() {
       // No-op para HTTP; el "inicio" es la primera petición.
     },
 
-    async send(message: unknown) {
-      if (currentResolve) {
-        currentResolve(message);
-        currentResolve = null;
-        currentReject = null;
+    async send(message: unknown, options?: { relatedRequestId?: string; sessionId?: string }) {
+      // Match by JSON-RPC response id (message.id or options.relatedRequestId) first; fallback FIFO so no request hangs.
+      // Exactly one pending is resolved and removed from the queue; never double-resolve.
+      const hasMessageId =
+        message != null && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, 'id');
+      const responseId = hasMessageId
+        ? (message as { id?: string | number }).id
+        : options?.relatedRequestId;
+      let pending: Pending | undefined;
+      let matchedBy: 'id' | 'fifo' | undefined;
+      if (responseId !== undefined && responseId !== null) {
+        const idx = pendingQueue.findIndex((p) => p.requestId !== undefined && String(p.requestId) === String(responseId));
+        if (idx >= 0) {
+          pending = pendingQueue[idx];
+          pendingQueue.splice(idx, 1);
+          matchedBy = 'id';
+        }
+      }
+      if (!pending && pendingQueue.length > 0) {
+        pending = pendingQueue.shift();
+        matchedBy = 'fifo';
+      }
+      if (pending) {
+        logInfo('mcp transport send resolve', {
+          matchedBy,
+          responseId: responseId ?? undefined,
+          hasMessageId,
+          pendingCount: pendingQueue.length,
+        });
+        pending.resolve(message);
       }
     },
 
@@ -49,24 +78,28 @@ export function createHttpStreamableTransport(): HttpStreamableTransport {
         body != null &&
         typeof body === 'object' &&
         !Object.prototype.hasOwnProperty.call(body, 'id');
+      const requestId =
+        body != null && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'id')
+          ? (body as { id?: string | number }).id
+          : undefined;
+
       return new Promise<unknown>((resolve, reject) => {
-        currentResolve = resolve;
-        currentReject = reject;
+        if (!isNotification) {
+          pendingQueue.push({ requestId, resolve, reject });
+        }
         const requestInfo = extra?.sessionId
           ? { headers: { [SESSION_ID_HEADER]: extra.sessionId } }
           : undefined;
         try {
           transport.onmessage?.(body, { sessionId: extra?.sessionId, requestInfo });
-          // Notificaciones JSON-RPC no tienen respuesta; el servidor no llamará send().
-          // Resolver ya para no colgar la petición HTTP (p. ej. notifications/initialized).
           if (isNotification) {
-            currentResolve = null;
-            currentReject = null;
             resolve(null);
           }
         } catch (err) {
-          currentResolve = null;
-          currentReject = null;
+          if (!isNotification) {
+            const idx = pendingQueue.findIndex((p) => p.resolve === resolve);
+            if (idx >= 0) pendingQueue.splice(idx, 1);
+          }
           reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
