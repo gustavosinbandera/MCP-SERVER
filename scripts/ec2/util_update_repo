@@ -8,17 +8,23 @@ set -e
 REPO_DIR="${MCP_REPO_DIR:-$HOME/MCP-SERVER}"
 BRANCH="${MCP_REPO_BRANCH:-master}"
 
-echo "[1/4] Cambiando a $REPO_DIR..."
+echo "[1/5] Cambiando a $REPO_DIR..."
 cd "$REPO_DIR" || { echo "Error: no existe $REPO_DIR"; exit 1; }
 
-echo "[2/4] Git pull origin $BRANCH..."
+echo "[2/5] Git pull origin $BRANCH..."
 git pull origin "$BRANCH"
 
-echo "[3/4] Docker compose build gateway supervisor..."
+echo "[3/5] Docker compose build gateway supervisor..."
 docker compose build gateway supervisor
 
-echo "[4/4] Docker compose up -d gateway supervisor..."
+echo "[4/5] Docker compose up -d gateway supervisor..."
 docker compose up -d gateway supervisor
+
+echo "[5/5] Reinicio de todos los servicios (evitar 502 nginx)..."
+docker compose restart
+
+echo "Registrando fecha de update..."
+date -u +%Y-%m-%dT%H:%M:%SZ > "$REPO_DIR/.last-instance-update"
 
 echo "Listo. Estado:"
 docker compose ps gateway supervisor

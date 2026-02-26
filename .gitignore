@@ -12,6 +12,11 @@ infra/route53-mcp-record-temp.json
 # Sync EC2 (host/key no subir al repo)
 scripts/sync-config.json
 
+# Instancia: fecha última ejecución de instance_update (solo en EC2)
+.last-instance-update
+# Instancia: estado de instance_update_with_verify (éxito/revertido)
+.last-update-status
+
 # Dependencies
 node_modules/
 __pycache__/

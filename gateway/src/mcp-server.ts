@@ -646,7 +646,7 @@ mcpServer.tool(
 
     const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@52.91.217.181';
     const keyPath = process.env.INSTANCE_SSH_KEY_PATH?.trim() || 'infra/mcp-server-key.pem';
-    const cmd = "cd ~/MCP-SERVER && (util_update_repo 2>/dev/null || (git pull origin master && docker compose build gateway supervisor && docker compose up -d gateway supervisor))";
+    const cmd = "cd ~/MCP-SERVER && bash scripts/ec2/instance_update_with_verify.sh";
     const sshPart = keyPath ? `ssh -i "${keyPath}" ${host}` : `ssh ${host}`;
     const fullCommand = `${sshPart} "${cmd.replace(/"/g, '\\"')}"`;
 
@@ -685,10 +685,29 @@ function instanceSshCommand(remoteCmd: string, title: string): string {
 
 mcpServer.tool(
   'instance_report',
-  'Devuelve el comando SSH listo para ver el estado de la instancia (docker compose ps, health). Ejecuta el comando en la terminal de Cursor.',
+  'Devuelve el comando SSH para ver el estado de la instancia en formato Markdown: Current IP, última ejecución de instance_update, contenedores, health. Ejecuta el comando en la terminal de Cursor.',
   {} as any,
   async () => {
-    const cmd = "cd ~/MCP-SERVER && echo '=== Contenedores ===' && docker compose ps && echo '' && echo '=== Health ===' && curl -s -o /dev/null -w 'API health: %{http_code}' http://localhost/api/health && echo ''";
+    const cmd = [
+      "cd ~/MCP-SERVER",
+      "echo '## Instance report'",
+      "echo ''",
+      "echo '### Current IP'",
+      "(curl -s --max-time 3 ifconfig.me 2>/dev/null || echo 'unknown')",
+      "echo ''",
+      "echo '### Last update (instance_update)'",
+      "(cat .last-instance-update 2>/dev/null || echo 'never')",
+      "echo ''",
+      "echo '### Last update status'",
+      "(cat .last-update-status 2>/dev/null || echo 'no state')",
+      "echo ''",
+      "echo '### Contenedores'",
+      "docker compose ps",
+      "echo ''",
+      "echo '### Health'",
+      "curl -s -o /dev/null -w 'API health: %{http_code}' http://localhost/api/health",
+      "echo ''",
+    ].join(' && ');
     const text = instanceSshCommand(cmd, 'instance_report');
     return { content: [{ type: 'text' as const, text }] };
   },
