@@ -34,6 +34,8 @@ export default function Home() {
         <Link href="/files" style={{ color: '#0066cc' }}>Explorador de archivos</Link>
         {' · '}
         <Link href="/azure-tasks" style={{ color: '#0066cc' }}>Tareas Azure</Link>
+        {' · '}
+        <Link href="/mcp-tools" style={{ color: '#0066cc' }}>MCP Tools</Link>
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         <input

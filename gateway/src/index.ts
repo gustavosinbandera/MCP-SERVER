@@ -21,6 +21,7 @@ import { requireJwt } from './auth/jwt';
 import { hasAzureDevOpsConfig, listWorkItemsByDateRange, getWorkItemWithRelations, extractChangesetIds } from './azure-devops-client';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
 import { enqueueAndWait, clearSessionQueue } from './mcp/session-queue';
+import { getMcpToolByName, getMcpToolsCatalog } from './mcp/tools-catalog';
 import { runWithLogContext, getLogFilePath, subscribeToLogEntries } from './logger';
 import { info as logInfo, warn as logWarn, error as logError } from './logger';
 
@@ -698,6 +699,22 @@ app.post('/kb/upload', uploadKb.array('file', MAX_UPLOAD_FILES), (req, res) => {
 app.get('/mcp', requireJwt, (_req, res) => {
   res.set('Allow', 'POST, DELETE');
   res.status(405).json({ error: 'Use POST for JSON-RPC messages. Use DELETE with mcp-session-id to close a session.' });
+});
+
+// ----- MCP Tools catalog (public help for webapp) -----
+app.get('/mcp/tools', (_req, res) => {
+  const tools = getMcpToolsCatalog();
+  res.json({ count: tools.length, tools });
+});
+
+app.get('/mcp/tools/:name', (req, res) => {
+  const name = String(req.params.name || '').trim();
+  const tool = getMcpToolByName(name);
+  if (!tool) {
+    res.status(404).json({ error: `Tool not found: ${name}` });
+    return;
+  }
+  res.json(tool);
 });
 
 app.post('/mcp', requireJwt, async (req, res) => {
