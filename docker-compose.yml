@@ -88,7 +88,9 @@ services:
   gateway:
     build: ./gateway
     container_name: mcp-gateway
-    env_file: .env
+    env_file:
+      - .env
+      - gateway/.env
     environment:
       GATEWAY_PORT: ${GATEWAY_PORT:-3001}
       MCP_LOGS_VIEW_BASE: ${MCP_LOGS_VIEW_BASE:-/api}
@@ -126,7 +128,9 @@ services:
   supervisor:
     build: ./gateway
     container_name: mcp-supervisor
-    env_file: .env
+    env_file:
+      - .env
+      - gateway/.env
     environment:
       QDRANT_URL: http://qdrant:6333
       INDEXED_KEYS_DB: /app/data/indexed_keys.db

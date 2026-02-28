@@ -32,6 +32,8 @@ export default function Home() {
         <Link href="/upload" style={{ color: '#0066cc' }}>Subir al índice / KB</Link>
         {' · '}
         <Link href="/files" style={{ color: '#0066cc' }}>Explorador de archivos</Link>
+        {' · '}
+        <Link href="/azure-tasks" style={{ color: '#0066cc' }}>Tareas Azure</Link>
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         <input

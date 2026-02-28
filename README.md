@@ -246,7 +246,7 @@ La configuración MCP está en **`.cursor/mcp.json`** (servidor `mcp-knowledge-h
   Usadas por Docker Compose: Postgres, Redis, Qdrant, etc. Copiar desde `.env.example`.
 
 - **Gateway (`gateway/.env`)**  
-  Usadas por el servidor MCP y el supervisor. Ver **gateway/.env.example**.
+  Usadas por el servidor MCP (tools) y por Docker Compose para `gateway`/`supervisor` (además de `.env`). Ver **gateway/.env.example**.
 
 | Variable | Uso |
 |----------|-----|

@@ -33,11 +33,16 @@ export default function FilesPage() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<FileList | null>(null);
 
   const baseUrl = GATEWAY_URL ? GATEWAY_URL.replace(/\/$/, '') : '';
   const listUrl = baseUrl ? `${baseUrl}/files/list` : '/api/files/list';
+  const uploadUrl = baseUrl ? `${baseUrl}/files/upload` : '/api/files/upload';
+  const deleteUrl = baseUrl ? `${baseUrl}/files/delete` : '/api/files/delete';
+  const downloadUrl = baseUrl ? `${baseUrl}/files/download` : '/api/files/download';
 
-  useEffect(() => {
+  const refresh = () => {
     setLoading(true);
     setError(null);
     const q = path ? `?path=${encodeURIComponent(path)}` : '';
@@ -52,6 +57,10 @@ export default function FilesPage() {
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    refresh();
   }, [listUrl, path]);
 
   const segments = path ? path.split('/').filter(Boolean) : [];
@@ -117,6 +126,64 @@ export default function FilesPage() {
         ))}
       </nav>
 
+      {/* Actions */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          padding: '10px 12px',
+          background: '#f7f7f7',
+          border: '1px solid #e3e3e3',
+          borderRadius: 6,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ fontSize: 14, color: '#333' }}>
+          Subir a: <b>{path || 'Raíz'}</b>
+        </div>
+        <input
+          type="file"
+          multiple
+          onChange={(e) => setUploadFiles(e.target.files)}
+          style={{ fontSize: 14 }}
+        />
+        <button
+          type="button"
+          disabled={uploading || !uploadFiles || uploadFiles.length === 0}
+          onClick={async () => {
+            if (!uploadFiles || uploadFiles.length === 0) return;
+            setUploading(true);
+            setError(null);
+            try {
+              const fd = new FormData();
+              for (const f of Array.from(uploadFiles)) fd.append('file', f);
+              const q = path ? `?path=${encodeURIComponent(path)}` : '';
+              const res = await fetch(`${uploadUrl}${q}`, { method: 'POST', body: fd });
+              const isJson = (res.headers.get('content-type') || '').includes('application/json');
+              const body = isJson ? await res.json() : { error: await res.text() };
+              if (!res.ok || !body?.ok) throw new Error(body?.error || res.statusText);
+              setUploadFiles(null);
+              refresh();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setUploading(false);
+            }
+          }}
+          style={{
+            padding: '8px 10px',
+            borderRadius: 6,
+            border: '1px solid #ccc',
+            background: uploading ? '#eee' : '#fff',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {uploading ? 'Subiendo…' : 'Subir'}
+        </button>
+      </div>
+
       {/* Content */}
       {loading && <p>Cargando…</p>}
       {error && (
@@ -138,12 +205,13 @@ export default function FilesPage() {
                 <th style={{ padding: '10px 12px' }}>Nombre</th>
                 <th style={{ padding: '10px 12px', width: 100 }}>Tamaño</th>
                 <th style={{ padding: '10px 12px', width: 160 }}>Modificado</th>
+                <th style={{ padding: '10px 12px', width: 170 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ padding: 24, color: '#666' }}>
+                  <td colSpan={5} style={{ padding: 24, color: '#666' }}>
                     Esta carpeta está vacía.
                   </td>
                 </tr>
@@ -176,6 +244,79 @@ export default function FilesPage() {
                   </td>
                   <td style={{ padding: '8px 12px', color: '#666' }}>
                     {e.mtime ? formatDate(e.mtime) : '—'}
+                  </td>
+                  <td style={{ padding: '8px 12px' }}>
+                    {!e.isDir ? (
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          title={`Descargar ${e.name}`}
+                          onClick={async (ev) => {
+                            ev.stopPropagation();
+                            setError(null);
+                            try {
+                              const res = await fetch(`${downloadUrl}?path=${encodeURIComponent(e.path)}`, { method: 'GET' });
+                              if (!res.ok) {
+                                const isJson = (res.headers.get('content-type') || '').includes('application/json');
+                                const body = isJson ? await res.json() : { error: await res.text() };
+                                throw new Error(body?.error || res.statusText);
+                              }
+                              const blob = await res.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = e.name || 'download';
+                              document.body.appendChild(a);
+                              a.click();
+                              a.remove();
+                              window.URL.revokeObjectURL(url);
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : String(err));
+                            }
+                          }}
+                          style={{
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #bcd7ff',
+                            background: '#f3f8ff',
+                            color: '#0645ad',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Descargar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async (ev) => {
+                            ev.stopPropagation();
+                            const ok = confirm(`¿Eliminar "${e.name}"? Esta acción no se puede deshacer.`);
+                            if (!ok) return;
+                            setError(null);
+                            try {
+                              const res = await fetch(`${deleteUrl}?path=${encodeURIComponent(e.path)}`, { method: 'DELETE' });
+                              const isJson = (res.headers.get('content-type') || '').includes('application/json');
+                              const body = isJson ? await res.json() : { error: await res.text() };
+                              if (!res.ok || !body?.ok) throw new Error(body?.error || res.statusText);
+                              refresh();
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : String(err));
+                            }
+                          }}
+                          style={{
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #f3b1b1',
+                            background: '#fff5f5',
+                            color: '#a00',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    ) : (
+                      <span style={{ color: '#888' }}>—</span>
+                    )}
                   </td>
                 </tr>
               ))}

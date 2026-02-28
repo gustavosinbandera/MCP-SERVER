@@ -18,6 +18,7 @@ import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
+import { hasAzureDevOpsConfig, listWorkItemsByDateRange, getWorkItemWithRelations, extractChangesetIds } from './azure-devops-client';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
 import { enqueueAndWait, clearSessionQueue } from './mcp/session-queue';
 import { runWithLogContext, getLogFilePath, subscribeToLogEntries } from './logger';
@@ -305,6 +306,110 @@ app.get('/search', async (req, res) => {
   }
 });
 
+function formatIdentity(v: unknown): string {
+  if (!v) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object') {
+    const any = v as { displayName?: unknown; uniqueName?: unknown; name?: unknown };
+    const displayName = typeof any.displayName === 'string' ? any.displayName : '';
+    const uniqueName = typeof any.uniqueName === 'string' ? any.uniqueName : '';
+    const name = typeof any.name === 'string' ? any.name : '';
+    return displayName || name || uniqueName || '';
+  }
+  return String(v);
+}
+
+function parseDateOnly(dateOnly: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateOnly).trim());
+  if (!m) return null;
+  // Devolvemos exactamente YYYY-MM-DD porque Azure DevOps Server (WIQL) puede fallar
+  // si se suministra hora cuando el campo usa precisión de día.
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function getAzureWorkItemWebUrl(id: number): string | undefined {
+  const base = (process.env.AZURE_DEVOPS_BASE_URL || '').trim().replace(/\/+$/g, '');
+  const project = (process.env.AZURE_DEVOPS_PROJECT || '').trim();
+  if (!base || !project) return undefined;
+  return `${base}/${encodeURIComponent(project)}/_workitems/edit/${id}`;
+}
+
+// ----- Azure DevOps: Work items (REST for webapp) -----
+app.get('/azure/work-items', async (req, res) => {
+  try {
+    if (!hasAzureDevOpsConfig()) {
+      res.status(400).json({ error: 'Azure DevOps no está configurado (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      return;
+    }
+    const from = typeof req.query.from === 'string' ? req.query.from : '';
+    const to = typeof req.query.to === 'string' ? req.query.to : '';
+    const assignedTo = typeof req.query.assignedTo === 'string' ? req.query.assignedTo : '';
+    const dateField = req.query.dateField === 'changed' ? 'changed' : 'created';
+    const top = Math.min(Math.max(1, parseInt(String(req.query.top || '50'), 10) || 50), 200);
+    const skip = Math.max(0, parseInt(String(req.query.skip || '0'), 10) || 0);
+    const fromDate = parseDateOnly(from);
+    const toDate = parseDateOnly(to);
+    if (!fromDate || !toDate) {
+      res.status(400).json({ error: 'Parámetros inválidos. Usa from/to como YYYY-MM-DD.' });
+      return;
+    }
+    const items = await listWorkItemsByDateRange({
+      fromDate,
+      toDate,
+      assignedTo: assignedTo.trim() ? assignedTo.trim() : undefined,
+      assignedToMe: false,
+      dateField,
+      top,
+      skip,
+    });
+    const mapped = (items || []).map((wi) => {
+      const f = wi.fields || {};
+      return {
+        id: wi.id,
+        title: String(f['System.Title'] ?? ''),
+        state: String(f['System.State'] ?? ''),
+        type: String(f['System.WorkItemType'] ?? ''),
+        assignedTo: formatIdentity(f['System.AssignedTo']),
+        createdBy: formatIdentity(f['System.CreatedBy']),
+        createdDate: String(f['System.CreatedDate'] ?? ''),
+        changedDate: String(f['System.ChangedDate'] ?? ''),
+        areaPath: String(f['System.AreaPath'] ?? ''),
+        webUrl: getAzureWorkItemWebUrl(wi.id),
+      };
+    });
+    res.json({ from: fromDate, to: toDate, count: mapped.length, items: mapped });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.get('/azure/work-items/:id', async (req, res) => {
+  try {
+    if (!hasAzureDevOpsConfig()) {
+      res.status(400).json({ error: 'Azure DevOps no está configurado (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      return;
+    }
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ error: 'ID inválido' });
+      return;
+    }
+    const wi = await getWorkItemWithRelations(id);
+    const changesetIds = extractChangesetIds(wi);
+    res.json({
+      id,
+      webUrl: getAzureWorkItemWebUrl(id),
+      fields: wi.fields || {},
+      relations: wi.relations || [],
+      changesetIds,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
 // ----- File explorer (list directory contents; path is relative to FILES_EXPLORER_ROOT) -----
 function resolveExplorerPath(relativePath: string): { fullPath: string; relativePath: string } | null {
   const root = getFilesExplorerRoot();
@@ -356,6 +461,154 @@ app.get('/files/list', (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
+  }
+});
+
+// ----- File explorer download (single file) -----
+app.get('/files/download', (req, res) => {
+  try {
+    const rawPath = (req.query.path as string) || '';
+    const resolved = resolveExplorerPath(rawPath);
+    if (!resolved) {
+      res.status(400).json({ error: 'Path outside allowed root' });
+      return;
+    }
+    const { fullPath } = resolved;
+    if (!fs.existsSync(fullPath)) {
+      res.status(404).json({ error: 'Path not found' });
+      return;
+    }
+    const st = fs.statSync(fullPath);
+    if (!st.isFile()) {
+      res.status(400).json({ error: 'Not a file' });
+      return;
+    }
+
+    const baseName = path.basename(fullPath);
+    // Evitar descargas accidentales de secretos comunes (especialmente en instancia).
+    const lower = baseName.toLowerCase();
+    const isSensitive =
+      lower === '.env' ||
+      lower.startsWith('.env.') ||
+      lower.endsWith('.pem') ||
+      lower.endsWith('.key') ||
+      lower.endsWith('.pfx') ||
+      lower.endsWith('.p12') ||
+      lower.endsWith('.kdbx') ||
+      lower === 'id_rsa' ||
+      lower === 'id_ed25519' ||
+      lower.endsWith('.sqlite') ||
+      lower.endsWith('.db');
+    if (isSensitive) {
+      res.status(403).json({ error: 'File is blocked for download' });
+      return;
+    }
+
+    res.download(fullPath, baseName, { dotfiles: 'allow' }, (err) => {
+      if (!err) return;
+      if (res.headersSent) return;
+      const anyErr = err as unknown as { status?: number; statusCode?: number; message?: string };
+      const status = anyErr.statusCode || anyErr.status || 500;
+      res.status(status).json({ error: status === 404 ? 'Path not found' : (anyErr.message || 'Download failed') });
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ----- File explorer upload (multipart) -----
+const uploadExplorer = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE_BYTES, files: MAX_UPLOAD_FILES },
+});
+
+app.post('/files/upload', uploadExplorer.array('file', MAX_UPLOAD_FILES), (req, res) => {
+  try {
+    const rawDir = (req.query.path as string) || '';
+    const dirResolved = resolveExplorerPath(rawDir);
+    if (!dirResolved) {
+      res.status(400).json({ ok: false, error: 'Path outside allowed root' });
+      return;
+    }
+    const { fullPath: dirFullPath, relativePath: dirRelative } = dirResolved;
+    if (!fs.existsSync(dirFullPath)) {
+      res.status(404).json({ ok: false, error: 'Path not found' });
+      return;
+    }
+    const dirStat = fs.statSync(dirFullPath);
+    if (!dirStat.isDirectory()) {
+      res.status(400).json({ ok: false, error: 'Not a directory' });
+      return;
+    }
+
+    const files = (req.files as Express.Multer.File[]) || [];
+    const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
+    if (totalSize > MAX_UPLOAD_TOTAL_BYTES) {
+      res.status(400).json({ ok: false, error: `Total size exceeds ${MAX_UPLOAD_TOTAL_BYTES} bytes` });
+      return;
+    }
+
+    const written: string[] = [];
+    const skipped: { name: string; reason: string }[] = [];
+
+    for (const file of files) {
+      const original = file.originalname || 'file';
+      if (!isAllowedExtension(original)) {
+        skipped.push({ name: original, reason: 'Extension not allowed' });
+        continue;
+      }
+      if (!validateFileSize(file.size)) {
+        skipped.push({ name: original, reason: `File too large (max ${MAX_FILE_SIZE_BYTES} bytes)` });
+        continue;
+      }
+      const safeName = sanitizeUploadPath(path.basename(original)) || original.replace(/[<>:"|?*\x00-\x1f]/g, '_') || 'file';
+      const destPath = path.join(dirFullPath, safeName);
+      fs.writeFileSync(destPath, file.buffer);
+      written.push(path.join(dirRelative === '.' ? '' : dirRelative, safeName).replace(/\\/g, '/'));
+    }
+
+    res.json({ ok: true, path: dirRelative, writtenCount: written.length, written, skippedCount: skipped.length, skipped });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+// ----- File explorer delete (file or empty directory) -----
+app.delete('/files/delete', (req, res) => {
+  try {
+    const rawPath = (req.query.path as string) || '';
+    const resolved = resolveExplorerPath(rawPath);
+    if (!resolved) {
+      res.status(400).json({ ok: false, error: 'Path outside allowed root' });
+      return;
+    }
+    const { fullPath, relativePath } = resolved;
+    if (!fs.existsSync(fullPath)) {
+      res.status(404).json({ ok: false, error: 'Path not found' });
+      return;
+    }
+    const st = fs.statSync(fullPath);
+    if (st.isFile()) {
+      fs.unlinkSync(fullPath);
+      res.json({ ok: true, deleted: relativePath });
+      return;
+    }
+    if (st.isDirectory()) {
+      const items = fs.readdirSync(fullPath);
+      if (items.length > 0) {
+        res.status(400).json({ ok: false, error: 'Directory not empty' });
+        return;
+      }
+      fs.rmdirSync(fullPath);
+      res.json({ ok: true, deleted: relativePath });
+      return;
+    }
+    res.status(400).json({ ok: false, error: 'Unsupported file type' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 

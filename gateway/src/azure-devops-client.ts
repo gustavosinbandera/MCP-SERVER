@@ -388,6 +388,122 @@ export async function listWorkItems(options: ListWorkItemsOptions = {}): Promise
   return batch.value || [];
 }
 
+export interface ListWorkItemsByDateRangeOptions {
+  /** Date string (inclusive). Prefer YYYY-MM-DD for Azure DevOps Server WIQL. */
+  fromDate: string;
+  /** Date string (inclusive). Prefer YYYY-MM-DD for Azure DevOps Server WIQL. */
+  toDate: string;
+  /** Optional: filter by assigned user display name/email (WIQL CONTAINS). */
+  assignedTo?: string;
+  /** Optional: filter assigned to @Me. Ignored if assignedTo is provided. */
+  assignedToMe?: boolean;
+  /** Optional: WorkItemType filter (e.g. Bug, Task). */
+  type?: string;
+  /** Optional: include only these states. */
+  states?: string[];
+  /** Optional: exclude these states. */
+  statesExclude?: string[];
+  /** Optional: area path filter. */
+  areaPath?: string;
+  /** If true, areaPath uses UNDER; else '='. */
+  areaPathUnder?: boolean;
+  /** Which field to use for date range. Default: created. */
+  dateField?: 'created' | 'changed';
+  /** Max results to return (default 50, max 200). */
+  top?: number;
+  /** Skip N results (pagination). */
+  skip?: number;
+}
+
+/** Lista work items por rango de fechas (CreatedDate o ChangedDate) con filtros opcionales. */
+export async function listWorkItemsByDateRange(options: ListWorkItemsByDateRangeOptions): Promise<WorkItemBatchValue[]> {
+  const { baseUrl, project } = ensureConfig();
+  const {
+    fromDate,
+    toDate,
+    assignedTo,
+    assignedToMe,
+    type,
+    states,
+    statesExclude,
+    areaPath,
+    areaPathUnder = true,
+    dateField = 'created',
+    top = 50,
+    skip = 0,
+  } = options || ({} as ListWorkItemsByDateRangeOptions);
+
+  if (!fromDate?.trim() || !toDate?.trim()) throw new Error('fromDate y toDate son requeridos.');
+
+  const dateWiqlField = dateField === 'changed' ? 'System.ChangedDate' : 'System.CreatedDate';
+  const typeFilter = type ? ` And [System.WorkItemType] = '${escapeWiql(type)}' ` : '';
+  const statesFilter =
+    Array.isArray(states) && states.length > 0
+      ? ` And [System.State] IN (${states.map((s) => `'${escapeWiql(String(s))}'`).join(', ')}) `
+      : '';
+  const statesExcludeFilter =
+    Array.isArray(statesExclude) && statesExclude.length > 0
+      ? ` And [System.State] NOT IN (${statesExclude.map((s) => `'${escapeWiql(String(s))}'`).join(', ')}) `
+      : '';
+  const areaFilter = areaPath?.trim()
+    ? ` And [System.AreaPath] ${areaPathUnder ? 'UNDER' : '='} '${escapeWiql(areaPath.trim())}' `
+    : '';
+
+  let assignedClause = '';
+  if (assignedTo != null && assignedTo.trim() !== '') {
+    // CONTAINS permite filtrar por nombre parcial (displayName) o email.
+    assignedClause = ` And [System.AssignedTo] CONTAINS '${escapeWiql(assignedTo.trim())}' `;
+  } else if (assignedToMe) {
+    assignedClause = ' And [System.AssignedTo] = @Me ';
+  }
+
+  const query =
+    'Select [System.Id], [System.Title], [System.State] From WorkItems ' +
+    `Where [System.TeamProject] = '${escapeWiql(project)}' ` +
+    ` And [${dateWiqlField}] >= '${escapeWiql(fromDate.trim())}' ` +
+    ` And [${dateWiqlField}] <= '${escapeWiql(toDate.trim())}' ` +
+    assignedClause +
+    typeFilter +
+    statesFilter +
+    statesExcludeFilter +
+    areaFilter +
+    ` Order By [${dateWiqlField}] desc`;
+
+  const wiqlUrl =
+    joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/wiql') +
+    `?api-version=${encodeURIComponent(API_VER)}`;
+
+  const wiql = await httpJson<WiqlResponse>(wiqlUrl, {
+    method: 'POST',
+    body: JSON.stringify({ query }),
+  });
+
+  const start = Math.max(0, Math.floor(Number(skip) || 0));
+  const maxTop = Math.max(1, Math.min(200, Math.floor(Number(top) || 50)));
+  const end = start + maxTop;
+  const ids = (wiql.workItems || []).slice(start, end).map((w) => w.id);
+  if (ids.length === 0) return [];
+
+  const fieldsParam = [
+    'System.Id',
+    'System.Title',
+    'System.State',
+    'System.WorkItemType',
+    'System.CreatedDate',
+    'System.ChangedDate',
+    'System.AssignedTo',
+    'System.CreatedBy',
+    'System.AreaPath',
+  ].join(',');
+
+  const batchUrl =
+    joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems') +
+    `?ids=${ids.join(',')}&fields=${encodeURIComponent(fieldsParam)}&api-version=${encodeURIComponent(API_VER)}`;
+
+  const batch = await httpJson<{ value?: WorkItemBatchValue[] }>(batchUrl);
+  return batch.value || [];
+}
+
 export async function getWorkItem(id: number): Promise<{ id: number; fields?: Record<string, unknown>; [k: string]: unknown }> {
   const { baseUrl, project } = ensureConfig();
   const url =

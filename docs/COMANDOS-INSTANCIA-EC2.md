@@ -140,6 +140,28 @@ Tras cambiar `.env` o abrir el túnel, reinicia el proceso del MCP (reiniciar Cu
 
 ---
 
+## 1d4. La webapp muestra "Azure DevOps no está configurado"
+
+Si la herramienta MCP de Azure funciona pero la página `/azure-tasks` muestra ese error, normalmente es porque:
+
+- El **MCP** (tools `azure_*`) carga variables desde **`gateway/.env`**.
+- El **gateway en Docker** (llamado por la webapp vía `/api/azure/*`) carga variables desde **`.env`** (raíz del repo) y, en este proyecto, también desde **`gateway/.env`**.
+
+**Solución (local):**
+
+1. Asegúrate de tener en `gateway/.env`:
+   - `AZURE_DEVOPS_BASE_URL`
+   - `AZURE_DEVOPS_PROJECT`
+   - `AZURE_DEVOPS_PAT`
+2. Reinicia `gateway` y `nginx`:
+   - `docker compose restart gateway nginx`
+
+**Verificación rápida:**
+
+- `http://localhost/api/azure/work-items?from=2026-02-01&to=2026-02-28`
+
+Si devuelve JSON con `items`, la webapp ya podrá listar tareas.
+
 ## 1e. Cursor no conecta: "Maximum sessions per user (3) reached"
 
 Si en Cursor el MCP remoto falla con ese mensaje, en la **EC2** haz una de estas dos cosas:
