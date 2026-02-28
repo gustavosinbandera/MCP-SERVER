@@ -20,6 +20,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -33,6 +34,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:v1.7.4
@@ -46,6 +48,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   influxdb:
     image: influxdb:2.7
@@ -66,6 +69,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:11.1.4
@@ -171,10 +175,12 @@ services:
     container_name: mcp-webapp
     environment:
       NEXT_PUBLIC_GATEWAY_URL: ""
+      HOSTNAME: "0.0.0.0"
     expose:
       - "3000"
     depends_on:
       - gateway
+    restart: unless-stopped
 
   nginx:
     build: ./nginx

@@ -127,6 +127,19 @@ Para que tu **MCP local** (magaya, usar-mcp o el gateway en tu PC) use el **Qdra
 
 ---
 
+## 1d3. search_docs devuelve "Search failed: fetch failed"
+
+La tool **search_docs** necesita que el gateway pueda conectar con **Qdrant**. El error "fetch failed" suele significar que no llega a Qdrant.
+
+- **Si usas MCP local (magaya/usar-mcp) en tu PC:** el gateway corre en tu máquina y usa `QDRANT_URL` de `gateway/.env` (por defecto `http://localhost:6333`). Para que search_docs funcione:
+  1. **Opción A:** Túnel SSH a la instancia (ver 1d2) y deja el túnel abierto. Con `QDRANT_URL=http://localhost:6333`, el gateway usará el Qdrant de la instancia.
+  2. **Opción B:** Tener Qdrant corriendo en tu PC (por ejemplo con Docker) y apuntar `QDRANT_URL` a ese servicio.
+- **Si usas MCP remoto (gateway en la instancia):** el gateway ya está en la EC2; `QDRANT_URL` suele ser `http://localhost:6333` o el nombre del contenedor. Comprueba que el contenedor `mcp-qdrant` esté Up y healthy (`docker compose ps`).
+
+Tras cambiar `.env` o abrir el túnel, reinicia el proceso del MCP (reiniciar Cursor o recargar la ventana) para que cargue de nuevo las variables.
+
+---
+
 ## 1e. Cursor no conecta: "Maximum sessions per user (3) reached"
 
 Si en Cursor el MCP remoto falla con ese mensaje, en la **EC2** haz una de estas dos cosas:

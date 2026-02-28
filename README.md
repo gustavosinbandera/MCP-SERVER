@@ -4,6 +4,8 @@ Gateway MCP con búsqueda vectorial (Qdrant), indexación de documentación, web
 
 **Página de presentación:** si tienes [GitHub Pages](https://docs.github.com/en/pages) activado desde la carpeta `docs/`, la página está en **https://gustavosinbandera.github.io/MCP-SERVER/** (diagrama de arquitectura, tecnologías e infraestructura).
 
+**Diagrama de infraestructura para el equipo:** [docs/INFRAESTRUCTURA.md](docs/INFRAESTRUCTURA.md) (servicios, puertos, EC2, Mermaid + SVG).
+
 ---
 
 ## Índice (navegación)
@@ -11,6 +13,7 @@ Gateway MCP con búsqueda vectorial (Qdrant), indexación de documentación, web
 - [Tecnologías utilizadas](#tecnologías-utilizadas)
 - [Ejecución con Docker Compose](#ejecución-con-docker-compose)
 - [Ejecución sin Docker (solo MCP + Qdrant)](#ejecución-sin-docker-solo-mcp--qdrant)
+- [Webapp y puertos (desarrollo local)](#webapp-y-puertos-desarrollo-local)
 - [Ejecución de tests por fases](#ejecución-de-tests-por-fases)
 - [Herramientas MCP disponibles](#herramientas-mcp-disponibles)
 - [Conectar el IDE (Cursor / VS Code)](#conectar-el-ide-cursor--vs-code)
@@ -90,6 +93,56 @@ Para usar **solo el MCP en Cursor** (indexar y buscar documentación) no necesit
    node dist/supervisor.js
    ```
    O un solo ciclo: `node dist/supervisor.js --once`
+
+---
+
+## Webapp y puertos (desarrollo local)
+
+En desarrollo local hay **dos servidores** con puertos por defecto distintos:
+
+| Servidor | Puerto por defecto | Variable de entorno | Qué sirve |
+|----------|--------------------|---------------------|-----------|
+| **Gateway (Express)** | **3001** | `GATEWAY_PORT` | `/health`, `/logs/view`, `/inbox/upload`, `/kb/upload`, APIs de búsqueda, etc. |
+| **Webapp (Next.js)** | **3000** | — | `/` (home), `/upload` (subida a inbox/KB) |
+
+- **Web de logs:** si el gateway está en marcha en 3001 → **http://localhost:3001/logs/view**
+- **Página de upload:** hay que levantar la webapp → **http://localhost:3000/upload** (o el puerto que uses).
+
+**Levantar la webapp:**
+
+```powershell
+cd webapp
+npm install
+npm run build          # solo si vas a usar npm run start
+npm run dev            # desarrollo en http://localhost:3000
+# o, para no usar el 3000:
+npm run dev:3002       # desarrollo en http://localhost:3002
+# producción (tras npm run build):
+npm run start          # sirve en http://localhost:3000
+```
+
+**Que el formulario de upload llame al gateway:** crea `webapp/.env.local` (puedes copiar de `webapp/.env.local.example`) con:
+
+```env
+NEXT_PUBLIC_GATEWAY_URL=http://localhost:3001
+```
+
+Así la página `/upload` usará el gateway en 3001 para las APIs de subida (inbox y KB).
+
+**Resumen de URLs (desarrollo local):**
+
+| Qué | URL |
+|-----|-----|
+| Logs (gateway) | http://localhost:3001/logs/view |
+| Home webapp | http://localhost:3000/ |
+| Upload (webapp) | http://localhost:3000/upload |
+| Explorador de archivos (webapp) | http://localhost:3000/files |
+| Health gateway | http://localhost:3001/health |
+| Listar directorio (API) | http://localhost:3001/files/list?path= |
+
+Si usas `npm run dev:3002`, sustituye 3000 por 3002 en las URLs de la webapp.
+
+**Explorador de archivos:** la página `/files` muestra el sistema de archivos de la instancia (tipo Windows Explorer). La raíz se configura en el gateway con la variable **`FILES_EXPLORER_ROOT`** (por defecto: raíz del proyecto). Solo se pueden listar rutas bajo esa raíz.
 
 ---
 
@@ -202,6 +255,7 @@ La configuración MCP está en **`.cursor/mcp.json`** (servidor `mcp-knowledge-h
 | `SHARED_DIRS` | Carpetas compartidas a indexar; formato `proyecto:ruta` o `ruta` |
 | `INDEX_URL_USER` / `INDEX_URL_PASSWORD` | Login MediaWiki / Basic Auth para indexar URLs protegidas |
 | `VIEW_URL_MAX_LENGTH` | Límite en bytes para view_url (default 10 MB) |
+| `FILES_EXPLORER_ROOT` | Raíz del explorador de archivos (GET /files/list). Por defecto: raíz del proyecto. |
 
 ---
 

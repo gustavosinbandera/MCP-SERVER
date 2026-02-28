@@ -1,0 +1,29 @@
+---
+description: Por defecto, buscar primero vía MCP (magaya) y luego local si hace falta
+alwaysApply: true
+---
+
+# Default: primero MCP para búsquedas
+
+**Regla general:** cuando el usuario pida “buscar”, “encontrar”, “investigar”, “dónde está X”, “cómo funciona X”, o cualquier tarea que normalmente implique explorar documentación o el codebase, **priorizar herramientas del MCP server** antes de usar búsqueda/lectura local.
+
+## Qué hacer por defecto (orden)
+
+1. **MCP primero (magaya)**:
+   - **Documentación / Knowledge Hub**: usar `search_docs` (y si aplica `count_docs`) antes de leer archivos de docs localmente.
+   - **Entender flujo / localizar lógica en el repo**: usar `analize_code` antes de usar búsquedas locales (Grep/SemanticSearch).
+2. **Solo si MCP no alcanza**:
+   - Si las tools MCP no devuelven resultados útiles tras 2–3 intentos razonables (variando términos), entonces usar búsqueda local (`Grep`, `Glob`, `SemanticSearch`) y lectura (`Read`) para completar la respuesta.
+
+## Excepciones (permitido ir directo a local)
+
+- Si el usuario da un **path exacto** (ej. “abre `gateway/src/index.ts`”), usar `Read` directamente.
+- Si el usuario pide explícitamente **“sin MCP” / “no uses MCP”**, entonces usar herramientas locales.
+- Si la tarea es **editar/implementar código**, se puede usar lectura/búsqueda local según haga falta para hacer cambios, pero si la intención era “buscar/entender”, MCP sigue siendo la primera opción.
+
+## Nota importante sobre el identificador del server
+
+Al invocar tools del MCP de magaya, usar el identificador interno:
+
+- `server: "project-0-MCP-SERVER-magaya"`
+

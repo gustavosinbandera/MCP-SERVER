@@ -6,7 +6,14 @@
 
 import 'dotenv/config';
 import * as fs from 'fs';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
 import express from 'express';
+import multer from 'multer';
+import { getInboxPath, getFilesExplorerRoot, MAX_FILE_SIZE_BYTES, MAX_UPLOAD_FILES, MAX_UPLOAD_TOTAL_BYTES } from './config';
+import { isAllowedExtension, isMdExtension, sanitizeUploadPath, validateFileSize } from './inbox-upload';
+import { insertKbUpload } from './kb-uploads-db';
+import { writeUploadedKbDoc } from './user-kb';
 import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
@@ -29,6 +36,12 @@ const app = express();
 const PORT = process.env.GATEWAY_PORT || 3001;
 
 app.use(express.json());
+
+// CORS: allow webapp on another port (e.g. 3000) to call this gateway (e.g. 3001)
+app.use((_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
 
 const MCP_SESSION_ID_HEADER = 'mcp-session-id';
 
@@ -255,7 +268,7 @@ app.get('/', (_req, res) => {
   res.json({
     name: 'MCP Knowledge Hub Gateway',
     version: '0.1.0',
-    endpoints: { health: '/health', search: '/search?q=...', statsIndexing: '/stats/indexing?days=7', logs: '/logs?tail=200', logsStream: '/logs/stream', logsView: '/logs/view' },
+    endpoints: { health: '/health', search: '/search?q=...', statsIndexing: '/stats/indexing?days=7', logs: '/logs?tail=200', logsStream: '/logs/stream', logsView: '/logs/view', filesList: '/files/list?path=...' },
   });
 });
 
@@ -289,6 +302,142 @@ app.get('/search', async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
+  }
+});
+
+// ----- File explorer (list directory contents; path is relative to FILES_EXPLORER_ROOT) -----
+function resolveExplorerPath(relativePath: string): { fullPath: string; relativePath: string } | null {
+  const root = getFilesExplorerRoot();
+  const normalizedRoot = path.normalize(root);
+  const joined = path.join(root, relativePath || '.');
+  const fullPath = path.normalize(joined);
+  if (!fullPath.startsWith(normalizedRoot) && fullPath !== normalizedRoot) return null;
+  const relative = path.relative(root, fullPath).replace(/\\/g, '/') || '.';
+  return { fullPath, relativePath: relative };
+}
+
+app.get('/files/list', (req, res) => {
+  try {
+    const rawPath = (req.query.path as string) || '';
+    const resolved = resolveExplorerPath(rawPath);
+    if (!resolved) {
+      res.status(400).json({ error: 'Path outside allowed root' });
+      return;
+    }
+    const { fullPath, relativePath } = resolved;
+    if (!fs.existsSync(fullPath)) {
+      res.status(404).json({ error: 'Path not found' });
+      return;
+    }
+    const stat = fs.statSync(fullPath);
+    if (!stat.isDirectory()) {
+      res.status(400).json({ error: 'Not a directory' });
+      return;
+    }
+    const root = getFilesExplorerRoot();
+    const entries = fs.readdirSync(fullPath, { withFileTypes: true }).map((d) => {
+      const full = path.join(fullPath, d.name);
+      const rel = path.relative(root, full).replace(/\\/g, '/');
+      const st = fs.statSync(full);
+      return {
+        name: d.name,
+        path: rel,
+        isDir: st.isDirectory(),
+        size: st.isFile() ? st.size : undefined,
+        mtime: st.mtime ? st.mtime.toISOString() : undefined,
+      };
+    });
+    // Folders first, then files; sort each group alphabetically
+    entries.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+    res.json({ root: '.', path: relativePath, entries });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ----- Inbox upload (multipart) -----
+const uploadInbox = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE_BYTES, files: MAX_UPLOAD_FILES },
+});
+
+app.post('/inbox/upload', uploadInbox.array('file', MAX_UPLOAD_FILES), (req, res) => {
+  try {
+    const files = (req.files as Express.Multer.File[]) || [];
+    const projectRaw = (req.body && typeof req.body.project === 'string' ? req.body.project : '').trim();
+    const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
+    if (totalSize > MAX_UPLOAD_TOTAL_BYTES) {
+      res.status(400).json({ ok: false, error: `Total size exceeds ${MAX_UPLOAD_TOTAL_BYTES} bytes` });
+      return;
+    }
+    const inboxDir = getInboxPath();
+    const subdir = projectRaw
+      ? sanitizeUploadPath(projectRaw) || `upload-${randomUUID().slice(0, 8)}`
+      : `upload-${randomUUID().slice(0, 8)}`;
+    const destDir = path.join(inboxDir, subdir);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const paths: string[] = [];
+    for (const file of files) {
+      const name = file.originalname || 'file';
+      if (!isAllowedExtension(name)) continue;
+      if (!validateFileSize(file.size)) continue;
+      const safeName = sanitizeUploadPath(path.basename(name)) || name.replace(/[<>:"|?*\x00-\x1f]/g, '_') || 'file';
+      const destPath = path.join(destDir, safeName);
+      fs.writeFileSync(destPath, file.buffer, 'utf-8');
+      paths.push(path.join(subdir, safeName).replace(/\\/g, '/'));
+    }
+    res.json({ ok: true, written: paths.length, paths });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+// ----- KB upload (multipart, .md only) -----
+const uploadKb = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE_BYTES, files: MAX_UPLOAD_FILES },
+});
+
+app.post('/kb/upload', uploadKb.array('file', MAX_UPLOAD_FILES), (req, res) => {
+  try {
+    const files = (req.files as Express.Multer.File[]) || [];
+    const userId = (req.body && typeof req.body.userId === 'string' ? req.body.userId : '').trim() || 'local';
+    const project = (req.body && typeof req.body.project === 'string' ? req.body.project : '').trim() || '';
+    const source = (req.body && typeof req.body.source === 'string' ? req.body.source : '').trim() || undefined;
+    const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
+    if (totalSize > MAX_UPLOAD_TOTAL_BYTES) {
+      res.status(400).json({ ok: false, error: `Total size exceeds ${MAX_UPLOAD_TOTAL_BYTES} bytes` });
+      return;
+    }
+    const paths: string[] = [];
+    for (const file of files) {
+      const name = file.originalname || 'file.md';
+      if (!isMdExtension(name)) continue;
+      if (!validateFileSize(file.size)) continue;
+      const content = file.buffer.toString('utf-8');
+      const result = writeUploadedKbDoc({
+        userId,
+        originalFilename: name,
+        content,
+        project,
+        source,
+      });
+      if (result.error) {
+        res.status(500).json({ ok: false, error: result.error });
+        return;
+      }
+      insertKbUpload({ userId, project, filePath: result.relativePath, source });
+      paths.push(result.relativePath);
+    }
+    res.json({ ok: true, written: paths.length, paths });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 

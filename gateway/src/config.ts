@@ -7,8 +7,20 @@ import * as path from 'path';
 export const QDRANT_URL = (process.env.QDRANT_URL || 'http://localhost:6333').trim();
 export const COLLECTION_NAME = 'mcp_docs';
 
-/** Max size per file for indexing (bytes). */
+/** Max size per file for indexing (bytes). Also used for upload per-file limit. */
 export const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
+
+/** Max number of files per upload request (inbox or KB). From MAX_UPLOAD_FILES env or default 50. */
+export const MAX_UPLOAD_FILES = Math.min(
+  Math.max(1, Math.floor(Number(process.env.MAX_UPLOAD_FILES) || 50)),
+  500
+);
+
+/** Max total bytes per upload request. From MAX_UPLOAD_TOTAL_BYTES env or default 20 MB. */
+export const MAX_UPLOAD_TOTAL_BYTES = Math.min(
+  Math.max(MAX_FILE_SIZE_BYTES, Math.floor(Number(process.env.MAX_UPLOAD_TOTAL_BYTES) || 20 * 1024 * 1024)),
+  100 * 1024 * 1024
+);
 
 /** Batch size for Qdrant upsert. */
 export const BATCH_UPSERT_SIZE = 50;
@@ -22,6 +34,17 @@ export const INDEX_CONCURRENCY = Math.min(
 /** Project root (parent of gateway/). Used to resolve relative paths in SHARED_DIRS. */
 export function getProjectRoot(): string {
   return path.resolve(__dirname, '..', '..');
+}
+
+/**
+ * Root directory for the file explorer API (GET /files/list).
+ * Resolved from FILES_EXPLORER_ROOT or default: project root.
+ * The UI can only list paths under this root.
+ */
+export function getFilesExplorerRoot(): string {
+  const raw = process.env.FILES_EXPLORER_ROOT?.trim();
+  if (raw) return path.resolve(raw);
+  return getProjectRoot();
 }
 
 /**
@@ -136,6 +159,13 @@ export function getIndexingStatsDbPath(): string {
   const raw = process.env.INDEX_STATS_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'indexing_stats.db');
+}
+
+/** Ruta del archivo SQLite para registros de upload al KB (KB_UPLOADS_DB). */
+export function getKbUploadsDbPath(): string {
+  const raw = process.env.KB_UPLOADS_DB?.trim();
+  if (raw) return path.resolve(raw);
+  return path.resolve(__dirname, '..', 'data', 'kb_uploads.db');
 }
 
 /** Si true, se usa el índice persistente SQLite en lugar del scroll completo de Qdrant. */

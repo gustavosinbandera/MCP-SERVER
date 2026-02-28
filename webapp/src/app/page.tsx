@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
 
@@ -27,6 +28,11 @@ export default function Home() {
     <main style={{ fontFamily: 'system-ui', maxWidth: 800, margin: '2rem auto', padding: '0 1rem' }}>
       <h1>MCP Knowledge Hub</h1>
       <p>Búsqueda en documentación indexada</p>
+      <p style={{ marginBottom: 16 }}>
+        <Link href="/upload" style={{ color: '#0066cc' }}>Subir al índice / KB</Link>
+        {' · '}
+        <Link href="/files" style={{ color: '#0066cc' }}>Explorador de archivos</Link>
+      </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         <input
           type="text"

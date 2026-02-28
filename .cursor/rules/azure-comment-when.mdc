@@ -1,0 +1,19 @@
+---
+description: Detectar intención "comentar en ticket/bug Azure" y usar la tool correspondiente sin que el usuario nombre la tool
+globs: 
+alwaysApply: true
+---
+
+# Comentar en un ticket/bug de Azure (semántico)
+
+**Intención:** El usuario quiere *añadir un comentario* (o publicar texto, dejar una nota, escribir en la Discussion) en un work item de Azure DevOps (ticket, bug, task). No hace falta que diga el nombre de la tool; basta con que exprese esa intención.
+
+**Cuándo usar la tool `azure_add_work_item_comment`:**
+- Cualquier frase que implique "comentar" / "publicar" / "escribir" / "añadir" + "en el ticket/bug/work item [número]" o "en Azure en [id]".
+- Ejemplos en español: "comenta en el 124834 que…", "pon esto en el bug 127113", "escribe en la discussion del ticket X", "añade una nota al work item Y", "publica en Azure en el bug Z".
+- Ejemplos en inglés: "add a comment to bug 124834", "post this to work item X", "write in the ticket discussion".
+- Si menciona un número de bug/ticket y un mensaje (o pide que redactes el mensaje), extraer `work_item_id` y `comment_text` e invocar la tool.
+
+**Parámetros:** `work_item_id` = número del item; `comment_text` = texto en Markdown (formato se conserva en Azure). Si el usuario no da el texto, redactarlo según lo que pida (resumen, solución, etc.), en el idioma del dashboard si aplica.
+
+**No** pedir al usuario que "use la tool" o que "invoke azure_add_work_item_comment"; interpretar la intención y llamar a la tool con los datos que haya dado o que puedas inferir.

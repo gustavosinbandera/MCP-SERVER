@@ -72,6 +72,191 @@ async function httpJson<T = unknown>(url: string, options: RequestInit = {}): Pr
   return data;
 }
 
+/** JSON Patch operation for work item update. */
+export interface JsonPatchOp {
+  op: 'add' | 'replace' | 'remove' | 'test';
+  path: string;
+  value?: unknown;
+  from?: string;
+}
+
+/** PATCH work item with JSON Patch operations. Returns updated work item. */
+export async function updateWorkItem(
+  id: number,
+  patch: JsonPatchOp[]
+): Promise<{ id: number; rev?: number; fields?: Record<string, unknown>; [k: string]: unknown }> {
+  const { baseUrl, project } = ensureConfig();
+  const url =
+    joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems', id) +
+    `?api-version=${encodeURIComponent(API_VER)}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: authHeader(ensureConfig().pat),
+      'Content-Type': 'application/json-patch+json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(patch),
+  });
+  const text = await res.text();
+  let data: { id?: number; rev?: number; fields?: Record<string, unknown> };
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {};
+  }
+  if (!res.ok) {
+    throw new Error(
+      `Azure DevOps PATCH ${res.status} ${res.statusText}\nURL: ${url}\n` + (text || res.statusText)
+    );
+  }
+  return data as { id: number; rev?: number; fields?: Record<string, unknown>; [k: string]: unknown };
+}
+
+/** Update one or more fields on a work item. Field names must be full ref names (e.g. System.Description, Custom.PossibleCause). */
+export async function updateWorkItemFields(
+  id: number,
+  fields: Record<string, string>
+): Promise<{ id: number; rev?: number; fields?: Record<string, unknown> }> {
+  const patch: JsonPatchOp[] = [];
+  for (const [name, value] of Object.entries(fields)) {
+    if (name && value !== undefined) {
+      patch.push({ op: 'add', path: `/fields/${name}`, value });
+    }
+  }
+  if (patch.length === 0) throw new Error('No fields to update');
+  return updateWorkItem(id, patch);
+}
+
+/**
+ * Adds a comment to the work item Discussion (System.History).
+ * In our Azure DevOps (Server) instance, Discussion does NOT render raw Markdown—neither when
+ * sent via API nor when pasted directly. Format only appears when pasting content copied from
+ * a Markdown preview (i.e. HTML/rich). So we always convert Markdown → HTML and send HTML,
+ * so it behaves like "copy from preview".
+ */
+export async function addWorkItemCommentAsMarkdown(
+  id: number,
+  markdownText: string
+): Promise<{ id: number; rev?: number; fields?: Record<string, unknown> }> {
+  const text = String(markdownText || '').trim();
+  if (!text) throw new Error('Comment text is required');
+  const html = commentMarkdownToHtmlForHistory(text);
+  return updateWorkItem(id, [{ op: 'add', path: '/fields/System.History', value: html }]);
+}
+
+/**
+ * Converts Markdown to plain text for servers that don't render Markdown/HTML in Discussion.
+ * Removes ## ** *** etc. but keeps line breaks and structure so the comment is readable.
+ */
+export function markdownToPlainText(markdown: string): string {
+  let s = String(markdown || '').trim();
+  if (!s) return s;
+  // Headings: ## Title -> Title + newline
+  s = s.replace(/^#{1,6}\s+/gm, '');
+  // Bold/italic: ***x*** or **x** or *x* -> x
+  s = s.replace(/\*{2,3}([^*]+)\*{2,3}/g, '$1');
+  s = s.replace(/\*{1}([^*]+)\*{1}/g, '$1');
+  s = s.replace(/_{2,3}([^_]+)_{2,3}/g, '$1');
+  s = s.replace(/_{1}([^_]+)_{1}/g, '$1');
+  // Code blocks: ```lang\ncode``` -> code (keep newlines inside)
+  s = s.replace(/```\w*\n?([\s\S]*?)```/g, (_, code) => code.trimEnd() + '\n\n');
+  // Inline code: `x` -> x
+  s = s.replace(/`([^`]+)`/g, '$1');
+  return s.trim();
+}
+
+/**
+ * Converts Markdown to HTML for Discussion (fallback when multilineFieldsFormat is not supported).
+ * Produces semantic HTML (h2, h3, strong, ul/li, pre/code, p) so the UI can render it like pasted content.
+ */
+export function commentMarkdownToHtmlForHistory(markdown: string): string {
+  const s = String(markdown || '').trim();
+  if (!s) return s;
+  const lines = s.split(/\r?\n/);
+  const out: string[] = [];
+  let i = 0;
+  const flushParagraph = (chunk: string) => {
+    const t = chunk.trim();
+    if (!t) return;
+    out.push('<p>' + inlineMarkdownToHtml(t) + '</p>');
+  };
+  let para = '';
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (/^#{1,6}\s/.test(trimmed)) {
+      if (para) {
+        flushParagraph(para);
+        para = '';
+      }
+      const level = trimmed.match(/^(#{1,6})\s/)?.[1].length ?? 2;
+      const title = inlineMarkdownToHtml(trimmed.replace(/^#{1,6}\s+/, ''));
+      out.push(level <= 2 ? `<h2>${title}</h2>` : `<h3>${title}</h3>`);
+      i++;
+      continue;
+    }
+    if (/^```\w*\s*$/.test(trimmed) || trimmed.startsWith('```')) {
+      if (para) {
+        flushParagraph(para);
+        para = '';
+      }
+      const lang = trimmed.slice(3).trim();
+      i++;
+      const codeLines: string[] = [];
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++;
+      const raw = codeLines.join('\n');
+      out.push('<pre><code>' + escapeHtml(raw) + '</code></pre>');
+      continue;
+    }
+    // List: allow optional leading whitespace (e.g. "  - item")
+    const listMatch = trimmed.match(/^([-*]|\d+\.)\s+(.*)$/);
+    if (listMatch) {
+      if (para) {
+        flushParagraph(para);
+        para = '';
+      }
+      out.push('<ul>');
+      while (i < lines.length) {
+        const m = lines[i].trim().match(/^([-*]|\d+\.)\s+(.*)$/);
+        if (!m) break;
+        out.push('<li>' + inlineMarkdownToHtml(m[2]) + '</li>');
+        i++;
+      }
+      out.push('</ul>');
+      continue;
+    }
+    if (trimmed === '') {
+      if (para) {
+        flushParagraph(para);
+        para = '';
+      }
+      i++;
+      continue;
+    }
+    para = para ? para + '\n' + line : line;
+    i++;
+  }
+  if (para) flushParagraph(para);
+  return out.join('\n');
+}
+
+/** Inline Markdown: `code` then **bold** then *italic*. No newlines. */
+function inlineMarkdownToHtml(text: string): string {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function httpText(url: string): Promise<string> {
   const { pat } = ensureConfig();
   const res = await fetch(url, {

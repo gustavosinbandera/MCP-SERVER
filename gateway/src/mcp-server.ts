@@ -47,7 +47,11 @@ import {
   getChangesetChanges,
   getChangesetFileDiff,
   pickAuthor,
+  updateWorkItemFields,
+  addWorkItemCommentAsMarkdown,
 } from './azure-devops-client';
+import { findRelevantCode } from './bug-search-code';
+import { generatePossibleCauseEnglish, generateSolutionDescriptionEnglish, hasOpenAIForBugs } from './bug-solution-llm';
 import { info as logInfo } from './logger';
 
 /** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
@@ -629,21 +633,9 @@ mcpServer.tool(
 
 mcpServer.tool(
   'instance_update',
-  'Antes de devolver el comando SSH: hace add, commit y push del repo local. Luego devuelve el comando para actualizar la instancia (pull + build + reinicio). Opcional: message (mensaje de commit). INSTANCE_SSH_TARGET, INSTANCE_SSH_KEY_PATH en .env.',
-  { message: z.string().optional() } as any,
-  async (args: { message?: string }) => {
-    const commitMsg = (args.message ?? 'deploy: instance_update').trim() || 'deploy: instance_update';
-    const steps: string[] = [];
-
-    const addResult = runRepoGit({ action: 'add' });
-    steps.push(addResult.ok ? '[OK] git add' : `[ERROR] git add: ${addResult.error ?? addResult.output}`);
-
-    const commitResult = runRepoGit({ action: 'commit', message: commitMsg });
-    steps.push(commitResult.ok ? `[OK] git commit -m "${commitMsg}"` : `[ERROR] git commit: ${commitResult.error ?? commitResult.output}`);
-
-    const pushResult = runRepoGit({ action: 'push' });
-    steps.push(pushResult.ok ? '[OK] git push' : `[ERROR] git push: ${pushResult.error ?? pushResult.output}`);
-
+  'Devuelve el comando SSH para actualizar la instancia: en la instancia hace git pull, build, up, restart y verifica health (hasta 3 intentos; si falla revierte). No hace add/commit/push en tu repo local. INSTANCE_SSH_TARGET, INSTANCE_SSH_KEY_PATH en .env.',
+  {} as any,
+  async () => {
     const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@52.91.217.181';
     const keyPath = process.env.INSTANCE_SSH_KEY_PATH?.trim() || 'infra/mcp-server-key.pem';
     const cmd = "cd ~/MCP-SERVER && bash scripts/ec2/instance_update_with_verify.sh";
@@ -651,18 +643,13 @@ mcpServer.tool(
     const fullCommand = `${sshPart} "${cmd.replace(/"/g, '\\"')}"`;
 
     const text = [
-      '[instance_update] Repo local (add / commit / push):',
-      ...steps,
-      '',
-      'Ejecuta este comando en la terminal (desde la raíz del repo):',
+      '[instance_update] Ejecuta este comando en la terminal (desde la raíz del repo):',
       '',
       fullCommand,
       '',
       `Host: ${host} | Clave: ${keyPath}`,
       '',
-      steps.some((s) => s.startsWith('[ERROR]'))
-        ? 'Hubo errores en add/commit/push (p. ej. MCP remoto o sin cambios). Haz commit y push manual si hace falta y luego ejecuta el comando.'
-        : 'Si usas el MCP remoto: ejecuta el comando en la terminal de tu PC.',
+      'En la instancia se ejecuta: git pull, build gateway/supervisor, up -d, restart y verificación de health. Si ya hiciste push de tus cambios, el pull los traerá.',
     ].join('\n');
 
     return { content: [{ type: 'text' as const, text }] };
@@ -1105,6 +1092,119 @@ mcpServer.tool(
   );
 
   mcpServer.tool(
+    'azure_add_work_item_comment',
+    'Use when the user wants to add, post, or write a comment on an Azure DevOps work item (ticket, bug, task). Intent: "comment on ticket", "post to bug", "write in Discussion", "add a note to work item X", "publica/comenta en el ticket/bug [id]". Params: work_item_id (number), comment_text (Markdown; will be formatted in Azure). Config: gateway/.env AZURE_DEVOPS_*.',
+    {
+      work_item_id: z.number(),
+      comment_text: z.string(),
+    } as any,
+    async (args: { work_item_id: number; comment_text: string }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* not configured in .env.' }] };
+      }
+      try {
+        const text = String(args.comment_text || '').trim();
+        if (!text) {
+          return { content: [{ type: 'text' as const, text: 'comment_text is required and cannot be empty.' }] };
+        }
+        await addWorkItemCommentAsMarkdown(args.work_item_id, text);
+        return {
+          content: [{ type: 'text' as const, text: `Comment added to work item #${args.work_item_id} (Discussion / System.History).` }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_bug_analysis_or_solution',
+    'Azure: analysis or solution description for a bug. Invoke with work_item_id (bug number) and mode: "analysis" or "solution". This tool ALWAYS posts the generated content to the work item Discussion (System.History) in Markdown (English). Additionally, it will try to write to the configured Analysis/Solution fields if available (AZURE_DEVOPS_FIELD_ANALYSIS / AZURE_DEVOPS_FIELD_SOLUTION), but field update failures will not block the Discussion comment.',
+    {
+      work_item_id: z.number(),
+      mode: z.enum(['analysis', 'solution']),
+      assigned_to: z.string().optional(),
+    } as any,
+    async (args: { work_item_id: number; mode: 'analysis' | 'solution'; assigned_to?: string }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* not configured in .env.' }] };
+      }
+      if (!hasOpenAIForBugs()) {
+        return { content: [{ type: 'text' as const, text: 'OPENAI_API_KEY not set. Required for analysis/solution generation.' }] };
+      }
+      const analysisField = (process.env.AZURE_DEVOPS_FIELD_ANALYSIS || 'Custom.PossibleCause').trim();
+      const solutionField = (process.env.AZURE_DEVOPS_FIELD_SOLUTION || 'Custom.SolutionDescription').trim();
+      try {
+        const wi = await getWorkItem(args.work_item_id);
+        const f = wi.fields || {};
+        const title = String(f['System.Title'] ?? '').trim() || '(no title)';
+        const description = String(f['System.Description'] ?? f['Microsoft.VSTS.TCM.ReproSteps'] ?? '').trim() || '(no description)';
+        const assignedTo = (f['System.AssignedTo'] as { displayName?: string })?.displayName ?? '';
+        if (args.assigned_to?.trim() && assignedTo && !assignedTo.toLowerCase().includes(args.assigned_to.trim().toLowerCase())) {
+          return { content: [{ type: 'text' as const, text: `Work item #${args.work_item_id} is assigned to "${assignedTo}", not to "${args.assigned_to}". No update performed.` }] };
+        }
+        const codeSnippets = findRelevantCode(title, description);
+        let text: string;
+        let fieldName: string;
+        if (args.mode === 'analysis') {
+          text = await generatePossibleCauseEnglish(title, description, codeSnippets);
+          fieldName = analysisField;
+        } else {
+          text = await generateSolutionDescriptionEnglish(title, description, codeSnippets);
+          fieldName = solutionField;
+        }
+        const action = args.mode === 'analysis' ? 'Bug analysis' : 'Solution';
+
+        // Always post to Discussion (System.History) so the info is visible even if custom fields are not configured.
+        const plainDesc = String(description)
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const descPreview = plainDesc.length > 500 ? `${plainDesc.slice(0, 500)}...` : plainDesc;
+        const comment = [
+          `## ${action} (auto-generated)`,
+          ``,
+          `**Work item:** #${args.work_item_id} — ${title}`,
+          ``,
+          `**Bug context (preview):**`,
+          ``,
+          descPreview ? `> ${descPreview}` : `> (no description)`,
+          ``,
+          `### ${action}`,
+          ``,
+          text,
+          ``,
+          `_Note: This content was posted to Discussion by the MCP tool. It may also attempt to update configured custom fields._`,
+        ].join('\n');
+        await addWorkItemCommentAsMarkdown(args.work_item_id, comment);
+
+        // Best-effort: also update the configured field (if present). Do not fail the tool if the field is missing.
+        let fieldUpdated = false;
+        let fieldUpdateError = '';
+        try {
+          await updateWorkItemFields(args.work_item_id, { [fieldName]: text });
+          fieldUpdated = true;
+        } catch (errField) {
+          fieldUpdateError = azureError(errField);
+        }
+        return {
+          content: [{
+            type: 'text' as const,
+            text:
+              `Work item #${args.work_item_id}: ${action} posted to Discussion (System.History).\n` +
+              (fieldUpdated
+                ? `Also updated field "${fieldName}".\n`
+                : `Field update skipped/failed for "${fieldName}": ${fieldUpdateError}\n`) +
+              `\nPreview:\n${text.slice(0, 600)}${text.length > 600 ? '...' : ''}`,
+          }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Error: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
     'azure_get_bug_changesets',
     'Lista los changesets (TFVC) vinculados a un bug/work item. Devuelve autor, fecha, comentario y archivos modificados por cada changeset. Requiere config Azure DevOps en .env.',
     { bug_id: z.number() } as any,
@@ -1349,6 +1449,8 @@ mcpServer.tool(
         { name: 'azure_list_work_items', description: 'Lista work items de Azure DevOps. Opcional assigned_to (ej. "Gustavo Grisales" o "ggrisales") para tareas de ese usuario; si no, asignados a ti. Opcionales: type, states, year, top.' },
         { name: 'azure_get_work_item', description: 'Obtiene el detalle de un work item. work_item_id.' },
         { name: 'azure_get_work_item_updates', description: 'Historial de actualizaciones (logs) de un work item: quién cambió qué. work_item_id; opcional: top.' },
+        { name: 'azure_add_work_item_comment', description: 'Comment on an Azure ticket/bug/work item (intent: post, write, add note to work item). work_item_id, comment_text (Markdown).' },
+        { name: 'azure_bug_analysis_or_solution', description: 'Azure: analysis or solution for a bug. work_item_id, mode (analysis | solution); optional assigned_to. Writes possible cause or solution description in English to the work item. Requires OPENAI_API_KEY.' },
         { name: 'azure_get_bug_changesets', description: 'Lista changesets TFVC vinculados a un bug. bug_id.' },
         { name: 'azure_get_changeset', description: 'Obtiene un changeset TFVC: autor, fecha, archivos. changeset_id.' },
         { name: 'azure_get_changeset_diff', description: 'Muestra el diff de un archivo en un changeset. changeset_id; opcional: file_index.' },
