@@ -370,6 +370,16 @@ export default function AzureChangesetsPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {loading && (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 20 }}>
+                        <span className="spinnerRow">
+                          <span className="spinner" aria-hidden="true" />
+                          Loading work items…
+                        </span>
+                      </td>
+                    </tr>
+                  )}
                   {!data && !loading && (
                     <tr>
                       <td colSpan={7} style={{ padding: 20, color: 'var(--muted)' }}>
@@ -384,7 +394,7 @@ export default function AzureChangesetsPage() {
                       </td>
                     </tr>
                   )}
-                  {rowsWithChangesets.map((r) => (
+                  {!loading && rowsWithChangesets.map((r) => (
                     <tr
                       key={r.id}
                       style={{ borderTop: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}
@@ -433,7 +443,12 @@ export default function AzureChangesetsPage() {
               <button type="button" onClick={() => setDetailOpen(false)}>Close</button>
             </div>
             <div className="modalBody">
-              {detailLoading && <p>Loading work item…</p>}
+              {detailLoading && (
+                <p className="spinnerRow" style={{ margin: 0 }}>
+                  <span className="spinner" aria-hidden="true" />
+                  Loading work item…
+                </p>
+              )}
               {detailError && (
                 <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>
                   {detailError}
@@ -449,7 +464,7 @@ export default function AzureChangesetsPage() {
                     </p>
                   )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 320px) 1fr', gap: 12, alignItems: 'start' }}>
+                  <div className="changesetsModalLayout">
                     <div>
                       <div style={{ fontWeight: 650, marginBottom: 8 }}>
                         Linked changesets ({detail.changesetIds?.length || 0})
@@ -488,7 +503,12 @@ export default function AzureChangesetsPage() {
 
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontWeight: 650, marginBottom: 8 }}>Files</div>
-                        {csLoading && <p className="muted">Loading changeset…</p>}
+                        {csLoading && (
+                          <p className="spinnerRow" style={{ margin: 0 }}>
+                            <span className="spinner spinnerSm" aria-hidden="true" />
+                            Loading changeset…
+                          </p>
+                        )}
                         {csError && (
                           <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>
                             {csError}
@@ -538,9 +558,14 @@ export default function AzureChangesetsPage() {
                       </div>
                     </div>
 
-                    <div>
+                    <div className="changesetsDiffArea">
                       <div style={{ fontWeight: 650, marginBottom: 8 }}>Diff</div>
-                      {diffLoading && <p className="muted">Loading diff…</p>}
+                      {diffLoading && (
+                        <p className="spinnerRow" style={{ margin: 0 }}>
+                          <span className="spinner spinnerSm" aria-hidden="true" />
+                          Loading code…
+                        </p>
+                      )}
                       {diffError && (
                         <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>
                           {diffError}
@@ -552,21 +577,28 @@ export default function AzureChangesetsPage() {
                       {diff && (
                         <>
                           <div className="muted2" style={{ fontSize: 13, marginBottom: 8 }}>
-                            <b>File</b>: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>{diff.path}</span>
+                            <b>File</b>:{' '}
+                            <span className="changesetsFilePath" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                              {diff.path}
+                            </span>
                           </div>
 
                           <div className="changesetsDiffGrid">
                             <div className="changesetsDiffPanel">
                               <div className="changesetsDiffTitle">Before</div>
-                              <pre>
-                                <code ref={codeBeforeRef as any}>{diff.beforeText || ''}</code>
-                              </pre>
+                              <div className="changesetsCodeScroll">
+                                <pre>
+                                  <code ref={codeBeforeRef as any}>{diff.beforeText || ''}</code>
+                                </pre>
+                              </div>
                             </div>
                             <div className="changesetsDiffPanel">
                               <div className="changesetsDiffTitle">After</div>
-                              <pre>
-                                <code ref={codeAfterRef as any}>{diff.afterText || ''}</code>
-                              </pre>
+                              <div className="changesetsCodeScroll">
+                                <pre>
+                                  <code ref={codeAfterRef as any}>{diff.afterText || ''}</code>
+                                </pre>
+                              </div>
                             </div>
                           </div>
 

@@ -475,6 +475,55 @@ a:hover { text-decoration: underline; }
   padding: 14px;
 }
 
+/* Loading spinner */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-top-color: color-mix(in srgb, var(--brand) 70%, transparent);
+  animation: spin 0.9s linear infinite;
+  display: inline-block;
+}
+.spinnerSm { width: 14px; height: 14px; border-width: 2px; }
+.spinnerRow {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Changesets modal: constrain layout and horizontal scroll to code only */
+.changesetsModalLayout {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+.changesetsModalLayout > * { min-width: 0; }
+
+.changesetsDiffArea {
+  min-width: 0;
+}
+
+.changesetsFilePath {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.changesetsCodeScroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+.changesetsCodeScroll pre {
+  margin: 0;
+  min-width: max-content;
+}
+
 /* MCP Tools page layout */
 .toolsPage {
   display: flex;
