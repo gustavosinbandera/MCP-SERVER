@@ -514,14 +514,16 @@ a:hover { text-decoration: underline; }
 }
 
 .changesetsCodeScroll {
-  overflow-x: auto;
-  overflow-y: hidden;
+  min-width: 0;
+  overflow: auto;
   max-width: 100%;
+  max-height: 46vh;
 }
 
 .changesetsCodeScroll pre {
   margin: 0;
-  min-width: max-content;
+  display: inline-block;
+  min-width: 100%;
 }
 
 /* MCP Tools page layout */
@@ -594,9 +596,11 @@ a:hover { text-decoration: underline; }
   align-items: start;
 }
 
+.changesetsDiffGrid > * { min-width: 0; }
+.changesetsDiffPanel { min-width: 0; overflow: hidden; }
+
 .changesetsDiffPanel pre {
   font-size: 13px;
-  max-height: 46vh;
 }
 
 .changesetsDiffTitle {
@@ -613,6 +617,55 @@ a:hover { text-decoration: underline; }
   .changesetsDiffPanel pre {
     max-height: 32vh;
   }
+  .changesetsCodeScroll { max-height: 32vh; }
+}
+
+.codeLines {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.codeLine {
+  display: block;
+  padding: 0 10px;
+}
+
+.codeLineAdded { background: rgba(34, 197, 94, 0.16); }
+.codeLineRemoved { background: rgba(239, 68, 68, 0.14); }
+
+.codeLineGutter {
+  display: inline-block;
+  width: 44px;
+  user-select: none;
+  opacity: 0.55;
+}
+
+.codeLineText { display: inline; }
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.segmented button {
+  border: 0;
+  border-radius: 0;
+  padding: 8px 12px;
+  background: transparent;
+}
+
+.segmented button:hover {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.segmented .segActive {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  font-weight: 750;
 }
 
 /* highlight.js (minimal theme tuned for our code surfaces) */

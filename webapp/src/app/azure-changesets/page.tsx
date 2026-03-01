@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/core';
 import cpp from 'highlight.js/lib/languages/cpp';
 import diffLang from 'highlight.js/lib/languages/diff';
+import { diffLines } from 'diff';
 
 hljs.registerLanguage('cpp', cpp);
 hljs.registerLanguage('diff', diffLang);
@@ -67,6 +68,8 @@ type ChangesetDiffResponse = {
   unifiedDiff: string;
 };
 
+type ViewMode = 'view' | 'diff';
+
 function todayIsoDate(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -126,6 +129,7 @@ export default function AzureChangesetsPage() {
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [diff, setDiff] = useState<ChangesetDiffResponse | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('view');
 
   const codeBeforeRef = useRef<HTMLElement | null>(null);
   const codeAfterRef = useRef<HTMLElement | null>(null);
@@ -284,15 +288,78 @@ export default function AzureChangesetsPage() {
     const lang = detectLanguageByPath(diff.path);
     const before = codeBeforeRef.current;
     const after = codeAfterRef.current;
-    if (before) {
-      before.className = `hljs language-${lang}`;
-      hljs.highlightElement(before);
-    }
-    if (after) {
-      after.className = `hljs language-${lang}`;
-      hljs.highlightElement(after);
-    }
+    if (before) before.className = `hljs language-${lang}`;
+    if (after) after.className = `hljs language-${lang}`;
   }, [diff]);
+
+  const diffModel = useMemo(() => {
+    if (!diff) return null;
+    const beforeText = diff.beforeText || '';
+    const afterText = diff.afterText || '';
+    const parts = diffLines(beforeText, afterText, { newlineIsToken: false });
+    const beforeLines = beforeText.split('\n');
+    const afterLines = afterText.split('\n');
+
+    const removedIdx = new Set<number>();
+    const addedIdx = new Set<number>();
+    const ctx = 3;
+
+    let bi = 0;
+    let ai = 0;
+    for (const p of parts) {
+      const val = String(p.value ?? '');
+      const n = val === '' ? 0 : val.split('\n').length - (val.endsWith('\n') ? 1 : 0);
+      if (p.added) {
+        for (let k = 0; k < n; k++) addedIdx.add(ai + k);
+        ai += n;
+      } else if (p.removed) {
+        for (let k = 0; k < n; k++) removedIdx.add(bi + k);
+        bi += n;
+      } else {
+        bi += n;
+        ai += n;
+      }
+    }
+
+    const includeBefore = new Set<number>();
+    const includeAfter = new Set<number>();
+    for (const i of removedIdx) {
+      for (let k = Math.max(0, i - ctx); k <= Math.min(beforeLines.length - 1, i + ctx); k++) includeBefore.add(k);
+    }
+    for (const i of addedIdx) {
+      for (let k = Math.max(0, i - ctx); k <= Math.min(afterLines.length - 1, i + ctx); k++) includeAfter.add(k);
+    }
+
+    return {
+      lang: detectLanguageByPath(diff.path),
+      beforeLines,
+      afterLines,
+      removedIdx,
+      addedIdx,
+      includeBefore,
+      includeAfter,
+    };
+  }, [diff]);
+
+  const renderLines = (lines: string[], opts: { added?: Set<number>; removed?: Set<number>; include?: Set<number> }) => {
+    const lang = diffModel?.lang === 'cpp' ? 'cpp' : 'plaintext';
+    const out: JSX.Element[] = [];
+    const include = opts.include;
+    const added = opts.added;
+    const removed = opts.removed;
+    for (let i = 0; i < lines.length; i++) {
+      if (include && !include.has(i)) continue;
+      const cls = added?.has(i) ? 'codeLine codeLineAdded' : removed?.has(i) ? 'codeLine codeLineRemoved' : 'codeLine';
+      const html = hljs.highlight(lines[i] ?? '', { language: lang }).value || '';
+      out.push(
+        <span key={i} className={cls}>
+          <span className="codeLineGutter">{String(i + 1).padStart(4, ' ')}</span>
+          <span className="codeLineText" dangerouslySetInnerHTML={{ __html: html }} />
+        </span>
+      );
+    }
+    return <div className="codeLines">{out}</div>;
+  };
 
   return (
     <main className="changesetsPage">
@@ -559,7 +626,25 @@ export default function AzureChangesetsPage() {
                     </div>
 
                     <div className="changesetsDiffArea">
-                      <div style={{ fontWeight: 650, marginBottom: 8 }}>Diff</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                        <div style={{ fontWeight: 650 }}>Code</div>
+                        <div className="segmented" role="tablist" aria-label="View mode">
+                          <button
+                            type="button"
+                            className={viewMode === 'view' ? 'segActive' : ''}
+                            onClick={() => setViewMode('view')}
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            className={viewMode === 'diff' ? 'segActive' : ''}
+                            onClick={() => setViewMode('diff')}
+                          >
+                            Diff
+                          </button>
+                        </div>
+                      </div>
                       {diffLoading && (
                         <p className="spinnerRow" style={{ margin: 0 }}>
                           <span className="spinner spinnerSm" aria-hidden="true" />
@@ -587,17 +672,31 @@ export default function AzureChangesetsPage() {
                             <div className="changesetsDiffPanel">
                               <div className="changesetsDiffTitle">Before</div>
                               <div className="changesetsCodeScroll">
-                                <pre>
-                                  <code ref={codeBeforeRef as any}>{diff.beforeText || ''}</code>
-                                </pre>
+                                {diffModel
+                                  ? renderLines(
+                                      diffModel.beforeLines,
+                                      viewMode === 'diff'
+                                        ? { removed: diffModel.removedIdx, include: diffModel.includeBefore }
+                                        : { removed: diffModel.removedIdx }
+                                    )
+                                  : (
+                                    <pre><code ref={codeBeforeRef as any}>{diff.beforeText || ''}</code></pre>
+                                  )}
                               </div>
                             </div>
                             <div className="changesetsDiffPanel">
                               <div className="changesetsDiffTitle">After</div>
                               <div className="changesetsCodeScroll">
-                                <pre>
-                                  <code ref={codeAfterRef as any}>{diff.afterText || ''}</code>
-                                </pre>
+                                {diffModel
+                                  ? renderLines(
+                                      diffModel.afterLines,
+                                      viewMode === 'diff'
+                                        ? { added: diffModel.addedIdx, include: diffModel.includeAfter }
+                                        : { added: diffModel.addedIdx }
+                                    )
+                                  : (
+                                    <pre><code ref={codeAfterRef as any}>{diff.afterText || ''}</code></pre>
+                                  )}
                               </div>
                             </div>
                           </div>
