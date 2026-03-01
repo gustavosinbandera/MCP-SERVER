@@ -21,6 +21,10 @@ type AzureWorkItemRow = {
   changedDate: string;
   areaPath: string;
   webUrl?: string;
+  changesetIds?: number[];
+  changesetCount?: number;
+  parentId?: number | null;
+  isSubtask?: boolean;
 };
 
 type AzureListResponse = {
@@ -131,28 +135,75 @@ export default function AzureChangesetsPage() {
   const changesetsUrl = baseUrl ? `${baseUrl}/azure/changesets` : '/api/azure/changesets';
 
   const rows = data?.items || [];
+  const rowsWithChangesets = useMemo(() => {
+    return rows.filter((r) => {
+      const csCount = (r.changesetCount ?? (r.changesetIds?.length ?? 0)) || 0;
+      if (csCount <= 0) return false;
+      if (r.isSubtask) return false;
+      if (r.parentId && r.parentId > 0) return false;
+      return true;
+    });
+  }, [rows]);
 
   const summary = useMemo(() => {
     if (!data) return '';
-    return `${data.count} work item(s) (${data.from} → ${data.to})`;
-  }, [data]);
+    const withCs = rowsWithChangesets.length;
+    return `${withCs} work item(s) with changesets (${data.from} → ${data.to})`;
+  }, [data, rowsWithChangesets.length]);
 
   const fetchList = async (opts?: { auto?: boolean }) => {
     setLoading(true);
     setError(null);
     if (!opts?.auto) setData(null);
     try {
-      const q = new URLSearchParams();
-      q.set('from', from);
-      q.set('to', to);
-      q.set('dateField', dateField);
-      q.set('top', String(Math.min(Math.max(1, top || 100), 200)));
-      if (assignedTo.trim()) q.set('assignedTo', assignedTo.trim());
-      const res = await fetch(`${workItemsUrl}?${q.toString()}`);
-      const isJson = (res.headers.get('content-type') || '').includes('application/json');
-      const body = isJson ? await res.json() : { error: await res.text() };
-      if (!res.ok) throw new Error(body?.error || res.statusText);
-      setData(body as AzureListResponse);
+      const want = Math.min(Math.max(1, top || 100), 1000);
+      const pageSize = 200;
+      let skip = 0;
+      let scanned = 0;
+      const kept: AzureWorkItemRow[] = [];
+
+      while (kept.length < want) {
+        const q = new URLSearchParams();
+        q.set('from', from);
+        q.set('to', to);
+        q.set('dateField', dateField);
+        q.set('includeChangesets', '1');
+        q.set('top', String(pageSize));
+        q.set('skip', String(skip));
+        if (assignedTo.trim()) q.set('assignedTo', assignedTo.trim());
+
+        const res = await fetch(`${workItemsUrl}?${q.toString()}`);
+        const isJson = (res.headers.get('content-type') || '').includes('application/json');
+        const body = isJson ? await res.json() : { error: await res.text() };
+        if (!res.ok) throw new Error(body?.error || res.statusText);
+
+        const page = body as AzureListResponse;
+        const items = Array.isArray(page.items) ? page.items : [];
+        scanned += items.length;
+
+        const pageKept = items.filter((r) => {
+          const csCount = (r.changesetCount ?? (r.changesetIds?.length ?? 0)) || 0;
+          if (csCount <= 0) return false;
+          if (r.isSubtask) return false;
+          if (r.parentId && r.parentId > 0) return false;
+          return true;
+        });
+        kept.push(...pageKept);
+
+        if (items.length < pageSize) {
+          // no more pages
+          setData({ from: page.from, to: page.to, count: kept.length, items: kept.slice(0, want) });
+          return;
+        }
+        // next page
+        skip += items.length;
+
+        // Safety cap to avoid scanning huge datasets accidentally.
+        if (scanned >= 5000) break;
+      }
+
+      // Use last-known from/to range even if we stopped early.
+      setData({ from, to, count: kept.slice(0, want).length, items: kept.slice(0, want) });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setData(null);
@@ -303,7 +354,7 @@ export default function AzureChangesetsPage() {
 
       <section className="panel changesetsListPanel">
         <div className="panelInner changesetsListInner">
-          <div className="changesetsListScroll" aria-label="Work items list">
+          <div className="changesetsListScroll" aria-label="Work items with changesets list">
             <div style={{ overflow: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
               <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse', fontSize: 14 }}>
                 <thead>
@@ -313,6 +364,7 @@ export default function AzureChangesetsPage() {
                     <th style={{ padding: '10px 12px', width: 120 }}>Type</th>
                     <th style={{ padding: '10px 12px', width: 120 }}>State</th>
                     <th style={{ padding: '10px 12px', width: 210 }}>Assigned to</th>
+                    <th style={{ padding: '10px 12px', width: 110 }}>Changesets</th>
                     <th style={{ padding: '10px 12px', width: 180 }}>Created</th>
                     <th style={{ padding: '10px 12px', width: 180 }}>Changed</th>
                   </tr>
@@ -325,14 +377,14 @@ export default function AzureChangesetsPage() {
                       </td>
                     </tr>
                   )}
-                  {data && rows.length === 0 && (
+                  {data && rowsWithChangesets.length === 0 && (
                     <tr>
-                      <td colSpan={7} style={{ padding: 20, color: 'var(--muted)' }}>
-                        No results.
+                      <td colSpan={8} style={{ padding: 20, color: 'var(--muted)' }}>
+                        No work items with linked changesets found for those filters.
                       </td>
                     </tr>
                   )}
-                  {rows.map((r) => (
+                  {rowsWithChangesets.map((r) => (
                     <tr
                       key={r.id}
                       style={{ borderTop: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}
@@ -354,6 +406,9 @@ export default function AzureChangesetsPage() {
                       <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.type}</td>
                       <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.state}</td>
                       <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.assignedTo || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>
+                        {(r.changesetCount ?? (r.changesetIds?.length ?? 0)) || '—'}
+                      </td>
                       <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(r.createdDate)}</td>
                       <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(r.changedDate)}</td>
                     </tr>

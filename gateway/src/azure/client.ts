@@ -95,6 +95,117 @@ async function httpJson<T = unknown>(url: string, options: RequestInit = {}): Pr
   return data;
 }
 
+function isTfvcProjectScoped404(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Azure DevOps Server sometimes returns a plain HTML "Page not found." for TFVC endpoints
+  // when using the project-scoped route.
+  return msg.includes('Azure DevOps HTTP 404') && msg.toLowerCase().includes('page not found');
+}
+
+async function httpJsonTfvcWithFallback<T = unknown>(
+  projectScopedUrl: string,
+  collectionScopedUrl: string,
+  options: RequestInit = {}
+): Promise<T> {
+  try {
+    return await httpJson<T>(projectScopedUrl, options);
+  } catch (err) {
+    if (!isTfvcProjectScoped404(err)) throw err;
+    return await httpJson<T>(collectionScopedUrl, options);
+  }
+}
+
+async function httpTextTfvcWithFallback(
+  projectScopedUrl: string,
+  collectionScopedUrl: string
+): Promise<string> {
+  const { pat } = ensureConfig();
+  async function getText(url: string): Promise<{ ok: boolean; status: number; statusText: string; text: string; contentType: string }> {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: authHeader(pat),
+          Accept: '*/*',
+        },
+      });
+    } catch (err) {
+      throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
+    }
+    const text = await res.text();
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText,
+      text,
+      contentType: String(res.headers.get('content-type') || ''),
+    };
+  }
+
+  const a = await getText(projectScopedUrl);
+  if (a.ok) return a.text;
+  const msgA = `Azure DevOps HTTP ${a.status} ${a.statusText}\nURL: ${projectScopedUrl}\n${a.text || a.statusText}`;
+  // If it's the "project scoped TFVC 404 Page not found", retry at collection level.
+  if (a.status === 404 && a.text.toLowerCase().includes('page not found')) {
+    const b = await getText(collectionScopedUrl);
+    if (b.ok) return b.text;
+    throw new Error(`Azure DevOps HTTP ${b.status} ${b.statusText}\nURL: ${collectionScopedUrl}\n${b.text || b.statusText}`);
+  }
+  throw new Error(msgA);
+}
+
+function pickTfvcItemContent(raw: string, contentType: string): string {
+  const ct = contentType.toLowerCase();
+  if (!ct.includes('application/json')) return raw;
+  try {
+    const data = JSON.parse(raw);
+    if (typeof data?.content === 'string') return data.content;
+    // Some servers wrap in an object under "value".
+    if (typeof data?.value?.content === 'string') return data.value.content;
+  } catch {
+    // fall through
+  }
+  return raw;
+}
+
+export async function getTfvcItemTextAtChangeset(tfvcPath: string, changesetId: number): Promise<string> {
+  const { baseUrl, project } = ensureConfig();
+  const q = new URLSearchParams();
+  q.set('api-version', API_VER);
+  q.set('path', tfvcPath);
+  q.set('version', `C${changesetId}`);
+  q.set('includeContent', 'true');
+  const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/items') + `?${q.toString()}`;
+  const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/items') + `?${q.toString()}`;
+
+  // We need both raw body and content-type to unwrap JSON "content".
+  const { pat } = ensureConfig();
+  async function getRaw(url: string): Promise<{ ok: boolean; status: number; statusText: string; text: string; contentType: string }> {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: authHeader(pat),
+          Accept: 'application/json, text/plain, */*',
+        },
+      });
+    } catch (err) {
+      throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
+    }
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, statusText: res.statusText, text, contentType: String(res.headers.get('content-type') || '') };
+  }
+
+  const a = await getRaw(projectScopedUrl);
+  if (a.ok) return pickTfvcItemContent(a.text, a.contentType);
+  if (a.status === 404 && a.text.toLowerCase().includes('page not found')) {
+    const b = await getRaw(collectionScopedUrl);
+    if (b.ok) return pickTfvcItemContent(b.text, b.contentType);
+    throw new Error(`Azure DevOps HTTP ${b.status} ${b.statusText}\nURL: ${collectionScopedUrl}\n${b.text || b.statusText}`);
+  }
+  throw new Error(`Azure DevOps HTTP ${a.status} ${a.statusText}\nURL: ${projectScopedUrl}\n${a.text || a.statusText}`);
+}
+
 /** JSON Patch operation for work item update. */
 export interface JsonPatchOp {
   op: 'add' | 'replace' | 'remove' | 'test';
@@ -249,9 +360,21 @@ export function extractChangesetIds(wi: WorkItemBatchValue): number[] {
   const rels = wi.relations || [];
   const ids: number[] = [];
   for (const r of rels) {
-    const url = String(r.url || '');
-    const m = /changesets\/(\d+)/i.exec(url);
-    if (m) ids.push(parseInt(m[1], 10));
+    const url = String(r.url || '').trim();
+    if (!url) continue;
+
+    const patterns: RegExp[] = [
+      /changesets\/(\d+)/i, // .../changesets/123
+      /changeset\/(\d+)/i, // .../changeset/123
+      /versioncontrol\/changeset\/(\d+)/i, // vstfs:///VersionControl/Changeset/123
+      /changesetId=(\d+)/i, // ...?changesetId=123
+    ];
+    for (const re of patterns) {
+      const m = re.exec(url);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) ids.push(n);
+    }
   }
   return Array.from(new Set(ids)).filter((n) => Number.isFinite(n) && n > 0);
 }
@@ -306,8 +429,9 @@ export async function listChangesets(options: {
   if (options.author?.trim()) q.set('searchCriteria.author', options.author.trim());
   if (options.fromDate?.trim()) q.set('searchCriteria.fromDate', options.fromDate.trim());
   if (options.toDate?.trim()) q.set('searchCriteria.toDate', options.toDate.trim());
-  const url = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/changesets') + `?${q.toString()}`;
-  const data = await httpJson<{ value?: TfvcChangeset[] }>(url);
+  const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/changesets') + `?${q.toString()}`;
+  const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/changesets') + `?${q.toString()}`;
+  const data = await httpJsonTfvcWithFallback<{ value?: TfvcChangeset[] }>(projectScopedUrl, collectionScopedUrl);
   return data.value ?? [];
 }
 
@@ -341,18 +465,24 @@ export async function getChangesetCount(options: {
 
 export async function getChangeset(changesetId: number): Promise<TfvcChangeset> {
   const { baseUrl, project } = ensureConfig();
-  const url =
+  const projectScopedUrl =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/changesets', changesetId) +
     `?api-version=${encodeURIComponent(API_VER)}`;
-  return httpJson<TfvcChangeset>(url);
+  const collectionScopedUrl =
+    joinUrl(baseUrl, '_apis/tfvc/changesets', changesetId) +
+    `?api-version=${encodeURIComponent(API_VER)}`;
+  return httpJsonTfvcWithFallback<TfvcChangeset>(projectScopedUrl, collectionScopedUrl);
 }
 
 export async function getChangesetChanges(changesetId: number): Promise<{ value?: TfvcChangesetChange[] }> {
   const { baseUrl, project } = ensureConfig();
-  const url =
+  const projectScopedUrl =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/changesets', changesetId, 'changes') +
     `?api-version=${encodeURIComponent(API_VER)}`;
-  return httpJson<{ value?: TfvcChangesetChange[] }>(url);
+  const collectionScopedUrl =
+    joinUrl(baseUrl, '_apis/tfvc/changesets', changesetId, 'changes') +
+    `?api-version=${encodeURIComponent(API_VER)}`;
+  return httpJsonTfvcWithFallback<{ value?: TfvcChangesetChange[] }>(projectScopedUrl, collectionScopedUrl);
 }
 
 export async function getChangesetFileDiff(
@@ -365,8 +495,9 @@ export async function getChangesetFileDiff(
   q.set('path', tfvcPath);
   q.set('version', `C${changesetId}`);
   q.set('previousVersion', `C${changesetId - 1}`);
-  const url = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/diffs') + `?${q.toString()}`;
-  const data = await httpJson<{ diffBlocks?: unknown[]; [k: string]: unknown }>(url);
+  const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/diffs') + `?${q.toString()}`;
+  const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/diffs') + `?${q.toString()}`;
+  const data = await httpJsonTfvcWithFallback<{ diffBlocks?: unknown[]; [k: string]: unknown }>(projectScopedUrl, collectionScopedUrl);
   const blocks = (data as unknown as { diffBlocks?: any[] }).diffBlocks || [];
   const diff: { t: string; s: string }[] = [];
   for (const b of blocks) {

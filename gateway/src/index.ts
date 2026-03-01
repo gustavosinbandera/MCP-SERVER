@@ -27,6 +27,7 @@ import {
   getChangeset,
   getChangesetChanges,
   getChangesetFileDiff,
+  getTfvcItemTextAtChangeset,
   pickAuthor,
 } from './azure';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
@@ -373,6 +374,34 @@ function guessTfvcProjectFromPath(tfvcPath: string): TfvcProjectId {
   return 'unknown';
 }
 
+function getParentWorkItemId(wi: { fields?: Record<string, unknown>; relations?: { rel?: string; url?: string }[] }): number | undefined {
+  const f = wi.fields || {};
+  const fromField = f['System.Parent'];
+  if (typeof fromField === 'number' && Number.isFinite(fromField) && fromField > 0) return fromField;
+  if (typeof fromField === 'string') {
+    const n = parseInt(fromField, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const rels = wi.relations || [];
+  for (const r of rels) {
+    const rel = String(r.rel || '');
+    if (!rel.toLowerCase().includes('hierarchy-reverse')) continue; // child -> parent
+    const url = String(r.url || '').trim();
+    if (!url) continue;
+    const patterns: RegExp[] = [
+      /workitems\/(\d+)/i,
+      /WorkItemTracking\/WorkItem\/(\d+)/i,
+    ];
+    for (const re of patterns) {
+      const m = re.exec(url);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return undefined;
+}
+
 // ----- Azure DevOps: Work items (REST for webapp) -----
 app.get('/azure/work-items', async (req, res) => {
   try {
@@ -384,6 +413,10 @@ app.get('/azure/work-items', async (req, res) => {
     const to = typeof req.query.to === 'string' ? req.query.to : '';
     const assignedTo = typeof req.query.assignedTo === 'string' ? req.query.assignedTo : '';
     const dateField = req.query.dateField === 'changed' ? 'changed' : 'created';
+    const includeChangesets =
+      req.query.includeChangesets === '1' ||
+      req.query.includeChangesets === 'true' ||
+      req.query.includeChangesets === 'yes';
     const top = Math.min(Math.max(1, parseInt(String(req.query.top || '50'), 10) || 50), 200);
     const skip = Math.max(0, parseInt(String(req.query.skip || '0'), 10) || 0);
     const fromDate = parseDateOnly(from);
@@ -403,6 +436,8 @@ app.get('/azure/work-items', async (req, res) => {
     });
     const mapped = (items || []).map((wi) => {
       const f = wi.fields || {};
+      const changesetIds = includeChangesets ? extractChangesetIds(wi) : undefined;
+      const parentId = getParentWorkItemId(wi);
       return {
         id: wi.id,
         title: String(f['System.Title'] ?? ''),
@@ -414,6 +449,11 @@ app.get('/azure/work-items', async (req, res) => {
         changedDate: String(f['System.ChangedDate'] ?? ''),
         areaPath: String(f['System.AreaPath'] ?? ''),
         webUrl: getAzureWorkItemWebUrl(wi.id),
+        parentId: parentId || null,
+        isSubtask: !!parentId,
+        ...(includeChangesets
+          ? { changesetIds: changesetIds || [], changesetCount: (changesetIds || []).length }
+          : {}),
       };
     });
     res.json({ from: fromDate, to: toDate, count: mapped.length, items: mapped });
@@ -569,28 +609,32 @@ app.get('/azure/changesets/:id/diff', async (req, res) => {
     }
     const tfvcPath = files[Math.min(fileIndex, files.length - 1)];
 
-    const { diff, prevCs, currentCs, isNewFile } = await getChangesetFileDiff(tfvcPath, id);
+    // Prefer file content snapshots (more compatible with older/on-prem Azure DevOps Server).
+    // We still return a unified-style string for convenience, but the UI primarily uses before/after.
+    const currentCs = id;
+    const prevCs = Math.max(1, id - 1);
+    let beforeText = '';
+    let afterText = '';
+    let isNewFile = false;
 
-    const classify = (t: string): 'add' | 'del' | 'same' => {
-      const s = String(t || '').toLowerCase();
-      if (s.includes('insert') || s.includes('add')) return 'add';
-      if (s.includes('delete') || s.includes('remove')) return 'del';
-      return 'same';
-    };
+    try {
+      afterText = await getTfvcItemTextAtChangeset(tfvcPath, currentCs);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to load file content at C${currentCs}. ${msg}`);
+    }
+    try {
+      beforeText = await getTfvcItemTextAtChangeset(tfvcPath, prevCs);
+    } catch {
+      // If previous version is missing (new file or history not available), treat as new.
+      beforeText = '';
+      isNewFile = true;
+    }
 
-    const beforeLines: string[] = [];
-    const afterLines: string[] = [];
     const unified: string[] = [];
     unified.push(`--- ${tfvcPath}@C${prevCs}`);
     unified.push(`+++ ${tfvcPath}@C${currentCs}`);
-
-    for (const l of diff || []) {
-      const kind = classify((l as any).t);
-      const text = String((l as any).s ?? '');
-      if (kind !== 'add') beforeLines.push(text);
-      if (kind !== 'del') afterLines.push(text);
-      unified.push(`${kind === 'add' ? '+' : kind === 'del' ? '-' : ' '}${text}`);
-    }
+    if (isNewFile) unified.push(`+ (new file or previous content unavailable)`);
 
     const projGuess = guessTfvcProjectFromPath(tfvcPath);
 
@@ -603,9 +647,9 @@ app.get('/azure/changesets/:id/diff', async (req, res) => {
       prevCs,
       currentCs,
       isNewFile,
-      diff,
-      beforeText: beforeLines.join('\n'),
-      afterText: afterLines.join('\n'),
+      diff: [],
+      beforeText,
+      afterText,
       unifiedDiff: unified.join('\n'),
     });
   } catch (err) {

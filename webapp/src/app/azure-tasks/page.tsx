@@ -15,6 +15,8 @@ type AzureWorkItemRow = {
   changedDate: string;
   areaPath: string;
   webUrl?: string;
+  parentId?: number | null;
+  isSubtask?: boolean;
 };
 
 type AzureListResponse = {
@@ -101,7 +103,7 @@ export default function AzureTasksPage() {
   const baseUrl = GATEWAY_URL ? GATEWAY_URL.replace(/\/$/, '') : '';
   const workItemsUrl = baseUrl ? `${baseUrl}/azure/work-items` : '/api/azure/work-items';
 
-  const rows = data?.items || [];
+  const rows = (data?.items || []).filter((r) => !r?.isSubtask && !(r?.parentId && r.parentId > 0));
   const hasRows = rows.length > 0;
 
   const summary = useMemo(() => {
