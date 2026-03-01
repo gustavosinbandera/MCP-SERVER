@@ -18,7 +18,17 @@ import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
-import { hasAzureDevOpsConfig, listWorkItemsByDateRange, getWorkItemWithRelations, extractChangesetIds } from './azure';
+import {
+  hasAzureDevOpsConfig,
+  listWorkItemsByDateRange,
+  getWorkItemWithRelations,
+  extractChangesetIds,
+  listChangesets,
+  getChangeset,
+  getChangesetChanges,
+  getChangesetFileDiff,
+  pickAuthor,
+} from './azure';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
 import { enqueueAndWait, clearSessionQueue } from './mcp/session-queue';
 import { getMcpToolByName, getMcpToolsCatalog } from './mcp/tools-catalog';
@@ -336,6 +346,33 @@ function getAzureWorkItemWebUrl(id: number): string | undefined {
   return `${base}/${encodeURIComponent(project)}/_workitems/edit/${id}`;
 }
 
+function getAzureChangesetWebUrl(id: number): string | undefined {
+  const base = (process.env.AZURE_DEVOPS_BASE_URL || '').trim().replace(/\/+$/g, '');
+  const project = (process.env.AZURE_DEVOPS_PROJECT || '').trim();
+  if (!base || !project) return undefined;
+  // Works for Azure DevOps Server and Services.
+  return `${base}/${encodeURIComponent(project)}/_versionControl/changeset/${id}`;
+}
+
+type TfvcProjectId = 'blueivory' | 'core' | 'unknown';
+
+function projectLabel(p: TfvcProjectId): string {
+  switch (p) {
+    case 'blueivory': return 'BlueIvory';
+    case 'core': return 'Core';
+    default: return 'Unknown';
+  }
+}
+
+function guessTfvcProjectFromPath(tfvcPath: string): TfvcProjectId {
+  const s = String(tfvcPath || '').toLowerCase();
+  if (!s) return 'unknown';
+  if (s.includes('blue-ivory') || s.includes('blueivory')) return 'blueivory';
+  // CORE branch path commonly contains /CORE (or /core).
+  if (s.includes('/core') || s.includes('\\core')) return 'core';
+  return 'unknown';
+}
+
 // ----- Azure DevOps: Work items (REST for webapp) -----
 app.get('/azure/work-items', async (req, res) => {
   try {
@@ -405,6 +442,171 @@ app.get('/azure/work-items/:id', async (req, res) => {
       fields: wi.fields || {},
       relations: wi.relations || [],
       changesetIds,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ----- Azure DevOps: TFVC changesets (REST for webapp) -----
+app.get('/azure/changesets', async (req, res) => {
+  try {
+    if (!hasAzureDevOpsConfig()) {
+      res.status(400).json({ error: 'Azure DevOps is not configured (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      return;
+    }
+
+    const project = typeof req.query.project === 'string' ? req.query.project.trim().toLowerCase() : '';
+    const author = typeof req.query.author === 'string' ? req.query.author : '';
+    const from = typeof req.query.from === 'string' ? req.query.from : '';
+    const to = typeof req.query.to === 'string' ? req.query.to : '';
+    const top = Math.min(Math.max(1, parseInt(String(req.query.top || '100'), 10) || 100), 1000);
+
+    const fromDate = from.trim() ? (parseDateOnly(from) || from.trim()) : undefined;
+    const toDate = to.trim() ? (parseDateOnly(to) || to.trim()) : undefined;
+
+    const wantBoth = !project || project === 'all';
+    const wantCore = wantBoth || project === 'core' || project === 'classic';
+    const wantBlue = wantBoth || project === 'blueivory' || project === 'bi';
+
+    const pages: { proj: TfvcProjectId; list: Awaited<ReturnType<typeof listChangesets>> }[] = [];
+    if (wantCore) pages.push({ proj: 'core', list: await listChangesets({ project: 'core', author, fromDate, toDate, top }) });
+    if (wantBlue) pages.push({ proj: 'blueivory', list: await listChangesets({ project: 'blueivory', author, fromDate, toDate, top }) });
+    if (!wantCore && !wantBlue) {
+      // Fallback to no TFVC path filter.
+      pages.push({ proj: 'unknown', list: await listChangesets({ author, fromDate, toDate, top }) });
+    }
+
+    const merged = pages.flatMap((p) =>
+      (p.list || []).map((cs) => ({ cs, proj: p.proj }))
+    );
+
+    merged.sort((a, b) => {
+      const ad = String((a.cs as any).createdDate || (a.cs as any).checkinDate || '');
+      const bd = String((b.cs as any).createdDate || (b.cs as any).checkinDate || '');
+      return bd.localeCompare(ad);
+    });
+
+    const items = merged.slice(0, top).map(({ cs, proj }) => ({
+      id: (cs as any).changesetId,
+      project: projectLabel(proj),
+      projectId: proj,
+      author: pickAuthor(cs as any),
+      createdDate: String((cs as any).createdDate || (cs as any).checkinDate || ''),
+      comment: String((cs as any).comment || ''),
+      webUrl: getAzureChangesetWebUrl((cs as any).changesetId),
+    }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.get('/azure/changesets/:id', async (req, res) => {
+  try {
+    if (!hasAzureDevOpsConfig()) {
+      res.status(400).json({ error: 'Azure DevOps is not configured (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      return;
+    }
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+
+    const cs = await getChangeset(id);
+    const ch = await getChangesetChanges(id);
+    const changes = (ch.value || []).map((c) => {
+      const item = (c as any).item || {};
+      return {
+        changeType: String((c as any).changeType || ''),
+        path: String(item.path || item.serverItem || ''),
+      };
+    });
+
+    const projGuess =
+      changes.map((c) => guessTfvcProjectFromPath(c.path)).find((p) => p !== 'unknown') || 'unknown';
+
+    res.json({
+      id,
+      project: projectLabel(projGuess),
+      projectId: projGuess,
+      author: pickAuthor(cs as any),
+      createdDate: String((cs as any).createdDate || (cs as any).checkinDate || ''),
+      comment: String((cs as any).comment || ''),
+      webUrl: getAzureChangesetWebUrl(id),
+      changes,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.get('/azure/changesets/:id/diff', async (req, res) => {
+  try {
+    if (!hasAzureDevOpsConfig()) {
+      res.status(400).json({ error: 'Azure DevOps is not configured (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      return;
+    }
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    const fileIndex = Math.max(0, parseInt(String(req.query.fileIndex || '0'), 10) || 0);
+
+    const ch = await getChangesetChanges(id);
+    const files = (ch.value || [])
+      .map((c) => String((c as any)?.item?.path || (c as any)?.item?.serverItem || ''))
+      .filter(Boolean);
+    if (files.length === 0) {
+      res.status(400).json({ error: 'This changeset has no modified files.' });
+      return;
+    }
+    const tfvcPath = files[Math.min(fileIndex, files.length - 1)];
+
+    const { diff, prevCs, currentCs, isNewFile } = await getChangesetFileDiff(tfvcPath, id);
+
+    const classify = (t: string): 'add' | 'del' | 'same' => {
+      const s = String(t || '').toLowerCase();
+      if (s.includes('insert') || s.includes('add')) return 'add';
+      if (s.includes('delete') || s.includes('remove')) return 'del';
+      return 'same';
+    };
+
+    const beforeLines: string[] = [];
+    const afterLines: string[] = [];
+    const unified: string[] = [];
+    unified.push(`--- ${tfvcPath}@C${prevCs}`);
+    unified.push(`+++ ${tfvcPath}@C${currentCs}`);
+
+    for (const l of diff || []) {
+      const kind = classify((l as any).t);
+      const text = String((l as any).s ?? '');
+      if (kind !== 'add') beforeLines.push(text);
+      if (kind !== 'del') afterLines.push(text);
+      unified.push(`${kind === 'add' ? '+' : kind === 'del' ? '-' : ' '}${text}`);
+    }
+
+    const projGuess = guessTfvcProjectFromPath(tfvcPath);
+
+    res.json({
+      id,
+      fileIndex,
+      path: tfvcPath,
+      project: projectLabel(projGuess),
+      projectId: projGuess,
+      prevCs,
+      currentCs,
+      isNewFile,
+      diff,
+      beforeText: beforeLines.join('\n'),
+      afterText: afterLines.join('\n'),
+      unifiedDiff: unified.join('\n'),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

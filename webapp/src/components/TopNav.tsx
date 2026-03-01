@@ -12,6 +12,7 @@ const ITEMS: NavItem[] = [
   { href: '/upload', label: 'Upload' },
   { href: '/files', label: 'Files' },
   { href: '/azure-tasks', label: 'Azure' },
+  { href: '/azure-changesets', label: 'Changesets' },
   { href: '/mcp-tools', label: 'MCP Tools' },
 ];
 
