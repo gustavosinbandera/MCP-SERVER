@@ -184,20 +184,17 @@ export default function FilesPage() {
             background: 'var(--panel)',
           }}
         >
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.06)', textAlign: 'left' }}>
-                <th style={{ padding: '10px 12px', width: 40 }}></th>
                 <th style={{ padding: '10px 12px' }}>Name</th>
-                <th style={{ padding: '10px 12px', width: 100 }}>Size</th>
-                <th style={{ padding: '10px 12px', width: 160 }}>Modified</th>
-                <th style={{ padding: '10px 12px', width: 170 }}>Actions</th>
+                <th style={{ padding: '10px 12px', width: 110 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: 24, color: 'var(--muted)' }}>
+                  <td colSpan={2} style={{ padding: 24, color: 'var(--muted)' }}>
                     This folder is empty.
                   </td>
                 </tr>
@@ -219,23 +216,30 @@ export default function FilesPage() {
                   role={e.isDir ? 'button' : undefined}
                   tabIndex={e.isDir ? 0 : undefined}
                 >
-                  <td style={{ padding: '8px 12px' }}>
-                    {e.isDir ? '📁' : '📄'}
-                  </td>
                   <td style={{ padding: '8px 12px', fontWeight: e.isDir ? 500 : 400 }}>
-                    {e.name}
-                  </td>
-                  <td style={{ padding: '8px 12px', color: '#666' }}>
-                    {e.isDir ? '—' : (e.size != null ? formatSize(e.size) : '—')}
-                  </td>
-                  <td style={{ padding: '8px 12px', color: '#666' }}>
-                    {e.mtime ? formatDate(e.mtime) : '—'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span aria-hidden="true" style={{ width: 18, textAlign: 'center', flex: '0 0 auto' }}>
+                        {e.isDir ? '📁' : '📄'}
+                      </span>
+                      <span
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={e.name}
+                      >
+                        {e.name}
+                      </span>
+                    </div>
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     {!e.isDir ? (
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <div className="filesActions">
                         <button
                           type="button"
+                          className="filesActionButton"
+                          aria-label={`Download ${e.name}`}
                           title={`Download ${e.name}`}
                           onClick={async (ev) => {
                             ev.stopPropagation();
@@ -261,10 +265,18 @@ export default function FilesPage() {
                             }
                           }}
                         >
-                          Download
+                          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                            <path
+                              fill="currentColor"
+                              d="M12 3a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4.01 4.01a1 1 0 0 1-1.38 0L7.3 11.71a1 1 0 0 1 1.4-1.42L11 12.59V4a1 1 0 0 1 1-1Zm-7 14a1 1 0 0 1 1 1v2h12v-2a1 1 0 1 1 2 0v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1Z"
+                            />
+                          </svg>
                         </button>
                         <button
                           type="button"
+                          className="filesActionButton filesActionDanger"
+                          aria-label={`Delete ${e.name}`}
+                          title={`Delete ${e.name}`}
                           onClick={async (ev) => {
                             ev.stopPropagation();
                             const ok = confirm(`Delete "${e.name}"? This action cannot be undone.`);
@@ -281,7 +293,12 @@ export default function FilesPage() {
                             }
                           }}
                         >
-                          Delete
+                          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                            <path
+                              fill="currentColor"
+                              d="M9 3a1 1 0 0 0-1 1v1H5a1 1 0 1 0 0 2h1v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7h1a1 1 0 1 0 0-2h-3V4a1 1 0 0 0-1-1H9Zm1 2h4v0H10v0Zm-2 2h8v13H8V7Zm2 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0v-7a1 1 0 0 1 1-1Zm5 1a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Z"
+                            />
+                          </svg>
                         </button>
                       </div>
                     ) : (
