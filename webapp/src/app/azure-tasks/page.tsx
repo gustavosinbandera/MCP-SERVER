@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
+
 type AzureWorkItemRow = {
   id: number;
   title: string;
@@ -96,6 +98,9 @@ export default function AzureTasksPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<AzureDetailResponse | null>(null);
 
+  const baseUrl = GATEWAY_URL ? GATEWAY_URL.replace(/\/$/, '') : '';
+  const workItemsUrl = baseUrl ? `${baseUrl}/azure/work-items` : '/api/azure/work-items';
+
   const rows = data?.items || [];
   const hasRows = rows.length > 0;
 
@@ -114,7 +119,7 @@ export default function AzureTasksPage() {
       q.set('to', to);
       q.set('dateField', dateField);
       if (assignedTo.trim()) q.set('assignedTo', assignedTo.trim());
-      const res = await fetch(`/api/azure/work-items?${q.toString()}`);
+      const res = await fetch(`${workItemsUrl}?${q.toString()}`);
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : { error: await res.text() };
       if (!res.ok) throw new Error(body?.error || res.statusText);
@@ -132,7 +137,7 @@ export default function AzureTasksPage() {
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const res = await fetch(`/api/azure/work-items/${id}`);
+      const res = await fetch(`${workItemsUrl}/${id}`);
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : { error: await res.text() };
       if (!res.ok) throw new Error(body?.error || res.statusText);
@@ -220,8 +225,9 @@ export default function AzureTasksPage() {
       )}
 
       {!loading && !error && (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--panel)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--panel)' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.06)', textAlign: 'left' }}>
                 <th style={{ padding: '10px 12px', width: 90 }}>ID</th>
@@ -275,7 +281,8 @@ export default function AzureTasksPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       )}
 

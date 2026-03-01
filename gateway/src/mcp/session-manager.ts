@@ -3,7 +3,7 @@
  * with per-user limits and idle TTL.
  */
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { HttpStreamableTransport } from './http-streamable-transport';
 import { buildMcpServer } from '../mcp-server';
 import { createHttpStreamableTransport } from './http-streamable-transport';

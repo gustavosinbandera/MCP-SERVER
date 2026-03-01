@@ -9,8 +9,8 @@ import path from 'path';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { searchDocs, countDocs, type SearchOptions } from './search';
 import { listSharedDir, readSharedFile, getSharedRootsForDisplay } from './shared-dirs';
