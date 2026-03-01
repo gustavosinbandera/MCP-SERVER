@@ -10,19 +10,32 @@ hljs.registerLanguage('diff', diffLang);
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
 
-type ChangesetListItem = {
+type AzureWorkItemRow = {
   id: number;
-  project: string;
-  projectId: 'blueivory' | 'core' | 'unknown';
-  author: string;
+  title: string;
+  state: string;
+  type: string;
+  assignedTo: string;
+  createdBy: string;
   createdDate: string;
-  comment: string;
+  changedDate: string;
+  areaPath: string;
   webUrl?: string;
 };
 
-type ChangesetsListResponse = {
+type AzureListResponse = {
+  from: string;
+  to: string;
   count: number;
-  items: ChangesetListItem[];
+  items: AzureWorkItemRow[];
+};
+
+type AzureDetailResponse = {
+  id: number;
+  webUrl?: string;
+  fields: Record<string, unknown>;
+  relations: { rel?: string; url?: string }[];
+  changesetIds: number[];
 };
 
 type ChangesetDetailResponse = {
@@ -58,6 +71,15 @@ function todayIsoDate(): string {
   return `${y}-${m}-${day}`;
 }
 
+function daysAgoIsoDate(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function formatDate(iso: string): string {
   if (!iso) return '';
   try {
@@ -67,7 +89,7 @@ function formatDate(iso: string): string {
   }
 }
 
-function detectLanguageByPath(p: string): 'cpp' | 'diff' | 'plaintext' {
+function detectLanguageByPath(p: string): 'cpp' | 'plaintext' {
   const s = String(p || '').toLowerCase();
   if (s.endsWith('.cpp') || s.endsWith('.cc') || s.endsWith('.cxx') || s.endsWith('.h') || s.endsWith('.hpp') || s.endsWith('.hh')) {
     return 'cpp';
@@ -76,20 +98,26 @@ function detectLanguageByPath(p: string): 'cpp' | 'diff' | 'plaintext' {
 }
 
 export default function AzureChangesetsPage() {
-  const [from, setFrom] = useState<string>('');
-  const [to, setTo] = useState<string>(todayIsoDate());
-  const [author, setAuthor] = useState('');
-  const [project, setProject] = useState<'all' | 'core' | 'blueivory'>('all');
+  // Work items filters (same idea as Azure Tasks).
+  const [from, setFrom] = useState(daysAgoIsoDate(7));
+  const [to, setTo] = useState(todayIsoDate());
+  const [assignedTo, setAssignedTo] = useState('');
+  const [dateField, setDateField] = useState<'created' | 'changed'>('created');
   const [top, setTop] = useState(100);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<ChangesetsListResponse | null>(null);
+  const [data, setData] = useState<AzureListResponse | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ChangesetDetailResponse | null>(null);
+  const [detail, setDetail] = useState<AzureDetailResponse | null>(null);
+
+  const [selectedChangesetId, setSelectedChangesetId] = useState<number | null>(null);
+  const [csLoading, setCsLoading] = useState(false);
+  const [csError, setCsError] = useState<string | null>(null);
+  const [csDetail, setCsDetail] = useState<ChangesetDetailResponse | null>(null);
 
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
@@ -99,13 +127,14 @@ export default function AzureChangesetsPage() {
   const codeAfterRef = useRef<HTMLElement | null>(null);
 
   const baseUrl = GATEWAY_URL ? GATEWAY_URL.replace(/\/$/, '') : '';
+  const workItemsUrl = baseUrl ? `${baseUrl}/azure/work-items` : '/api/azure/work-items';
   const changesetsUrl = baseUrl ? `${baseUrl}/azure/changesets` : '/api/azure/changesets';
 
-  const items = data?.items || [];
+  const rows = data?.items || [];
 
   const summary = useMemo(() => {
     if (!data) return '';
-    return `${data.count} changeset(s)`;
+    return `${data.count} work item(s) (${data.from} → ${data.to})`;
   }, [data]);
 
   const fetchList = async (opts?: { auto?: boolean }) => {
@@ -114,17 +143,16 @@ export default function AzureChangesetsPage() {
     if (!opts?.auto) setData(null);
     try {
       const q = new URLSearchParams();
-      if (project) q.set('project', project);
-      if (author.trim()) q.set('author', author.trim());
-      if (from.trim()) q.set('from', from.trim());
-      if (to.trim()) q.set('to', to.trim());
-      q.set('top', String(Math.min(Math.max(1, top || 100), 1000)));
-      const url = `${changesetsUrl}?${q.toString()}`;
-      const res = await fetch(url);
+      q.set('from', from);
+      q.set('to', to);
+      q.set('dateField', dateField);
+      q.set('top', String(Math.min(Math.max(1, top || 100), 200)));
+      if (assignedTo.trim()) q.set('assignedTo', assignedTo.trim());
+      const res = await fetch(`${workItemsUrl}?${q.toString()}`);
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : { error: await res.text() };
       if (!res.ok) throw new Error(body?.error || res.statusText);
-      setData(body as ChangesetsListResponse);
+      setData(body as AzureListResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setData(null);
@@ -133,19 +161,22 @@ export default function AzureChangesetsPage() {
     }
   };
 
-  const openDetail = async (id: number) => {
+  const openWorkItem = async (id: number) => {
     setDetailOpen(true);
     setDetail(null);
     setDetailLoading(true);
     setDetailError(null);
+    setSelectedChangesetId(null);
+    setCsDetail(null);
+    setCsError(null);
     setDiff(null);
     setDiffError(null);
     try {
-      const res = await fetch(`${changesetsUrl}/${id}`);
+      const res = await fetch(`${workItemsUrl}/${id}`);
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : { error: await res.text() };
       if (!res.ok) throw new Error(body?.error || res.statusText);
-      setDetail(body as ChangesetDetailResponse);
+      setDetail(body as AzureDetailResponse);
     } catch (err) {
       setDetailError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -153,12 +184,32 @@ export default function AzureChangesetsPage() {
     }
   };
 
-  const fetchDiff = async (id: number, fileIndex: number) => {
+  const openChangeset = async (changesetId: number) => {
+    setSelectedChangesetId(changesetId);
+    setCsLoading(true);
+    setCsError(null);
+    setCsDetail(null);
+    setDiff(null);
+    setDiffError(null);
+    try {
+      const res = await fetch(`${changesetsUrl}/${changesetId}`);
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const body = isJson ? await res.json() : { error: await res.text() };
+      if (!res.ok) throw new Error(body?.error || res.statusText);
+      setCsDetail(body as ChangesetDetailResponse);
+    } catch (err) {
+      setCsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCsLoading(false);
+    }
+  };
+
+  const fetchDiff = async (changesetId: number, fileIndex: number) => {
     setDiffLoading(true);
     setDiffError(null);
     setDiff(null);
     try {
-      const res = await fetch(`${changesetsUrl}/${id}/diff?fileIndex=${encodeURIComponent(String(fileIndex))}`);
+      const res = await fetch(`${changesetsUrl}/${changesetId}/diff?fileIndex=${encodeURIComponent(String(fileIndex))}`);
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : { error: await res.text() };
       if (!res.ok) throw new Error(body?.error || res.statusText);
@@ -170,7 +221,7 @@ export default function AzureChangesetsPage() {
     }
   };
 
-  // Auto-load latest changesets on first render.
+  // Auto-load "my recent work items" on first render (same defaults as Azure Tasks).
   useEffect(() => {
     fetchList({ auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,11 +234,11 @@ export default function AzureChangesetsPage() {
     const before = codeBeforeRef.current;
     const after = codeAfterRef.current;
     if (before) {
-      before.className = `hljs language-${lang === 'cpp' ? 'cpp' : 'plaintext'}`;
+      before.className = `hljs language-${lang}`;
       hljs.highlightElement(before);
     }
     if (after) {
-      after.className = `hljs language-${lang === 'cpp' ? 'cpp' : 'plaintext'}`;
+      after.className = `hljs language-${lang}`;
       hljs.highlightElement(after);
     }
   }, [diff]);
@@ -197,35 +248,34 @@ export default function AzureChangesetsPage() {
       <div className="changesetsHeader">
         <h1 className="pageTitle">Azure (Changesets)</h1>
         <p className="pageSubtitle">
-          Browse TFVC changesets by date and author. Click a row to inspect file diffs.
+          Find changesets by browsing work items, then opening linked changesets.
         </p>
       </div>
 
       <div className="panel changesetsFilters">
         <div className="panelInner" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <label style={{ display: 'grid', gap: 6, fontSize: 14 }}>
-            From (optional)
+            From
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </label>
           <label style={{ display: 'grid', gap: 6, fontSize: 14 }}>
-            To (optional)
+            To
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
           <label style={{ display: 'grid', gap: 6, fontSize: 14, minWidth: 220 }}>
-            Author (optional)
+            Assigned to (optional)
             <input
               type="text"
-              value={author}
+              value={assignedTo}
               placeholder="e.g. John Smith"
-              onChange={(e) => setAuthor(e.target.value)}
+              onChange={(e) => setAssignedTo(e.target.value)}
             />
           </label>
           <label style={{ display: 'grid', gap: 6, fontSize: 14 }}>
-            Project
-            <select value={project} onChange={(e) => setProject(e.target.value === 'core' ? 'core' : e.target.value === 'blueivory' ? 'blueivory' : 'all')}>
-              <option value="all">All</option>
-              <option value="core">Core</option>
-              <option value="blueivory">BlueIvory</option>
+            Date field
+            <select value={dateField} onChange={(e) => setDateField(e.target.value === 'changed' ? 'changed' : 'created')}>
+              <option value="created">CreatedDate</option>
+              <option value="changed">ChangedDate</option>
             </select>
           </label>
           <label style={{ display: 'grid', gap: 6, fontSize: 14, width: 120 }}>
@@ -233,9 +283,9 @@ export default function AzureChangesetsPage() {
             <input
               type="number"
               min={1}
-              max={1000}
+              max={200}
               value={top}
-              onChange={(e) => setTop(Math.min(Math.max(1, parseInt(e.target.value || '100', 10) || 100), 1000))}
+              onChange={(e) => setTop(Math.min(Math.max(1, parseInt(e.target.value || '100', 10) || 100), 200))}
             />
           </label>
           <button type="button" onClick={() => fetchList()} disabled={loading}>
@@ -253,59 +303,59 @@ export default function AzureChangesetsPage() {
 
       <section className="panel changesetsListPanel">
         <div className="panelInner changesetsListInner">
-          <div className="changesetsListScroll" aria-label="Changesets list">
+          <div className="changesetsListScroll" aria-label="Work items list">
             <div style={{ overflow: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
               <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse', fontSize: 14 }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.06)', textAlign: 'left' }}>
                     <th style={{ padding: '10px 12px', width: 90 }}>ID</th>
-                    <th style={{ padding: '10px 12px', width: 120 }}>Project</th>
-                    <th style={{ padding: '10px 12px', width: 220 }}>Author</th>
-                    <th style={{ padding: '10px 12px', width: 190 }}>Date</th>
-                    <th style={{ padding: '10px 12px' }}>Comment</th>
+                    <th style={{ padding: '10px 12px' }}>Title</th>
+                    <th style={{ padding: '10px 12px', width: 120 }}>Type</th>
+                    <th style={{ padding: '10px 12px', width: 120 }}>State</th>
+                    <th style={{ padding: '10px 12px', width: 210 }}>Assigned to</th>
+                    <th style={{ padding: '10px 12px', width: 180 }}>Created</th>
+                    <th style={{ padding: '10px 12px', width: 180 }}>Changed</th>
                   </tr>
                 </thead>
                 <tbody>
                   {!data && !loading && (
                     <tr>
-                      <td colSpan={5} style={{ padding: 20, color: 'var(--muted)' }}>
-                        Click “Search” to load the latest changesets.
+                      <td colSpan={7} style={{ padding: 20, color: 'var(--muted)' }}>
+                        Click “Search” to load work items, then open one to view its linked changesets.
                       </td>
                     </tr>
                   )}
-                  {data && items.length === 0 && (
+                  {data && rows.length === 0 && (
                     <tr>
-                      <td colSpan={5} style={{ padding: 20, color: 'var(--muted)' }}>
+                      <td colSpan={7} style={{ padding: 20, color: 'var(--muted)' }}>
                         No results.
                       </td>
                     </tr>
                   )}
-                  {items.map((c) => (
+                  {rows.map((r) => (
                     <tr
-                      key={c.id}
+                      key={r.id}
                       style={{ borderTop: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}
-                      onClick={() => openDetail(c.id)}
+                      onClick={() => openWorkItem(r.id)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(ev) => {
                         if (ev.key === 'Enter' || ev.key === ' ') {
                           ev.preventDefault();
-                          openDetail(c.id);
+                          openWorkItem(r.id);
                         }
                       }}
-                      title="Click to view details"
+                      title="Click to view linked changesets"
                     >
                       <td style={{ padding: '8px 12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-                        {c.id}
+                        {r.id}
                       </td>
-                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{c.project}</td>
-                      <td style={{ padding: '8px 12px' }}>{c.author || '—'}</td>
-                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(c.createdDate)}</td>
-                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>
-                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {c.comment || '—'}
-                        </span>
-                      </td>
+                      <td style={{ padding: '8px 12px' }}>{r.title}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.type}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.state}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.assignedTo || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(r.createdDate)}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(r.changedDate)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -320,15 +370,15 @@ export default function AzureChangesetsPage() {
           <div onClick={(e) => e.stopPropagation()} className="modalCard">
             <div className="modalHeader">
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, color: 'var(--muted)' }}>Changeset</div>
+                <div style={{ fontSize: 14, color: 'var(--muted)' }}>Work Item</div>
                 <div style={{ fontSize: 18, fontWeight: 650 }}>
-                  {detail ? `#${detail.id} — ${detail.project}` : 'Loading…'}
+                  {detail ? `#${detail.id} — linked changesets` : 'Loading…'}
                 </div>
               </div>
               <button type="button" onClick={() => setDetailOpen(false)}>Close</button>
             </div>
             <div className="modalBody">
-              {detailLoading && <p>Loading details…</p>}
+              {detailLoading && <p>Loading work item…</p>}
               {detailError && (
                 <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>
                   {detailError}
@@ -336,58 +386,100 @@ export default function AzureChangesetsPage() {
               )}
               {!detailLoading && detail && (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, marginBottom: 12 }}>
-                    <div><b>Author</b>: {detail.author || '—'}</div>
-                    <div><b>Date</b>: {detail.createdDate ? formatDate(detail.createdDate) : '—'}</div>
-                    <div><b>Project</b>: {detail.project}</div>
-                    <div><b>Files</b>: {detail.changes?.length || 0}</div>
-                  </div>
-
                   {detail.webUrl && (
                     <p style={{ marginBottom: 12 }}>
                       <a href={detail.webUrl} target="_blank" rel="noreferrer">
-                        Open in Azure DevOps
+                        Open work item in Azure DevOps
                       </a>
                     </p>
                   )}
 
-                  {detail.comment && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontWeight: 650, marginBottom: 6 }}>Comment</div>
-                      <div className="muted2" style={{ whiteSpace: 'pre-wrap' }}>{detail.comment}</div>
-                    </div>
-                  )}
-
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 320px) 1fr', gap: 12, alignItems: 'start' }}>
                     <div>
-                      <div style={{ fontWeight: 650, marginBottom: 8 }}>Files</div>
+                      <div style={{ fontWeight: 650, marginBottom: 8 }}>
+                        Linked changesets ({detail.changesetIds?.length || 0})
+                      </div>
                       <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--panel-2)', overflow: 'hidden' }}>
                         <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                          {(detail.changes || []).map((c, idx) => (
-                            <button
-                              key={`${idx}-${c.path}`}
-                              type="button"
-                              onClick={() => fetchDiff(detail.id, idx)}
-                              style={{
-                                width: '100%',
-                                textAlign: 'left',
-                                border: '0',
-                                borderBottom: '1px solid color-mix(in srgb, var(--border) 65%, transparent)',
-                                background: 'transparent',
-                                padding: '10px 10px',
-                                cursor: 'pointer',
-                              }}
-                              title={c.path}
-                            >
-                              <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {c.path.split('/').slice(-1)[0] || c.path}
-                              </div>
-                              <div className="muted2" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {c.changeType || 'change'}
-                              </div>
-                            </button>
-                          ))}
+                          {(detail.changesetIds || []).length === 0 ? (
+                            <div style={{ padding: 12 }} className="muted2">No linked changesets.</div>
+                          ) : (
+                            (detail.changesetIds || []).map((cid) => (
+                              <button
+                                key={cid}
+                                type="button"
+                                onClick={() => openChangeset(cid)}
+                                style={{
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  border: '0',
+                                  borderBottom: '1px solid color-mix(in srgb, var(--border) 65%, transparent)',
+                                  background: selectedChangesetId === cid ? 'color-mix(in srgb, var(--brand) 10%, transparent)' : 'transparent',
+                                  padding: '10px 10px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div style={{ fontWeight: 750, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                                  #{cid}
+                                </div>
+                                <div className="muted2" style={{ fontSize: 12 }}>
+                                  Open changeset
+                                </div>
+                              </button>
+                            ))
+                          )}
                         </div>
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontWeight: 650, marginBottom: 8 }}>Files</div>
+                        {csLoading && <p className="muted">Loading changeset…</p>}
+                        {csError && (
+                          <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>
+                            {csError}
+                          </p>
+                        )}
+                        {!csLoading && !csError && csDetail && (
+                          <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--panel-2)', overflow: 'hidden' }}>
+                            <div style={{ padding: 10, borderBottom: '1px solid color-mix(in srgb, var(--border) 70%, transparent)' }}>
+                              <div style={{ fontWeight: 750 }}>Changeset #{csDetail.id}</div>
+                              <div className="muted2" style={{ fontSize: 12 }}>
+                                {csDetail.author} · {csDetail.createdDate ? formatDate(csDetail.createdDate) : ''}
+                              </div>
+                              {csDetail.webUrl && (
+                                <div style={{ marginTop: 6 }}>
+                                  <a href={csDetail.webUrl} target="_blank" rel="noreferrer">Open changeset in Azure DevOps</a>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+                              {(csDetail.changes || []).map((c, idx) => (
+                                <button
+                                  key={`${idx}-${c.path}`}
+                                  type="button"
+                                  onClick={() => fetchDiff(csDetail.id, idx)}
+                                  style={{
+                                    width: '100%',
+                                    textAlign: 'left',
+                                    border: '0',
+                                    borderBottom: '1px solid color-mix(in srgb, var(--border) 65%, transparent)',
+                                    background: 'transparent',
+                                    padding: '10px 10px',
+                                    cursor: 'pointer',
+                                  }}
+                                  title={c.path}
+                                >
+                                  <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {c.path.split('/').slice(-1)[0] || c.path}
+                                  </div>
+                                  <div className="muted2" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {c.changeType || 'change'}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 

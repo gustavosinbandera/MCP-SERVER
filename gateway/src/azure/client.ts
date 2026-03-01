@@ -275,12 +275,13 @@ export type TfvcChangesetChange = {
 function tfvcProjectPath(project?: string): string {
   const p = (project || '').trim().toLowerCase();
   if (p === 'blueivory' || p === 'bi') {
-    return (process.env.AZURE_DEVOPS_TFVC_PATH_BLUEIVORY || '').trim() ||
-      '$/Magaya Core Project/Projects/MAIN-BRANCHES/BLUE-IVORY-MAIN';
+    // Keep default empty so environments without correct TFVC paths don't hard-fail.
+    // If you want itemPath scoping, set AZURE_DEVOPS_TFVC_PATH_BLUEIVORY explicitly.
+    return (process.env.AZURE_DEVOPS_TFVC_PATH_BLUEIVORY || '').trim();
   }
   if (p === 'core' || p === 'classic') {
-    return (process.env.AZURE_DEVOPS_TFVC_PATH_CORE || '').trim() ||
-      '$/Magaya Core Project/Projects/MAIN-BRANCHES/CORE';
+    // If you want itemPath scoping, set AZURE_DEVOPS_TFVC_PATH_CORE explicitly.
+    return (process.env.AZURE_DEVOPS_TFVC_PATH_CORE || '').trim();
   }
   return '';
 }
