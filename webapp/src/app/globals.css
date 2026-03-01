@@ -453,9 +453,10 @@ a:hover { text-decoration: underline; }
 }
 
 .modalCard {
-  width: min(920px, 100%);
+  width: min(1280px, 96vw);
   max-height: 85vh;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--panel);
   border-radius: var(--radius);
   border: 1px solid var(--border);
@@ -634,6 +635,10 @@ a:hover { text-decoration: underline; }
 
 .codeLineAdded { background: rgba(34, 197, 94, 0.16); }
 .codeLineRemoved { background: rgba(239, 68, 68, 0.14); }
+.codeLineActive {
+  outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
+  outline-offset: -2px;
+}
 
 .codeLineGutter {
   display: inline-block;
@@ -643,6 +648,25 @@ a:hover { text-decoration: underline; }
 }
 
 .codeLineText { display: inline; }
+
+.changeNav {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.changeNav button {
+  border: 0;
+  padding: 8px 12px;
+  background: transparent;
+  line-height: 1;
+}
+
+.changeNav button:hover {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
 
 .segmented {
   display: inline-flex;

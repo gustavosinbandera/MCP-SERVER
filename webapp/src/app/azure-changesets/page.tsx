@@ -70,6 +70,8 @@ type ChangesetDiffResponse = {
 
 type ViewMode = 'view' | 'diff';
 
+type ChangeAnchor = { beforeLine: number; afterLine: number };
+
 function todayIsoDate(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -120,6 +122,7 @@ export default function AzureChangesetsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<AzureDetailResponse | null>(null);
+  const [fallbackChangesetIds, setFallbackChangesetIds] = useState<number[]>([]);
 
   const [selectedChangesetId, setSelectedChangesetId] = useState<number | null>(null);
   const [csLoading, setCsLoading] = useState(false);
@@ -133,6 +136,10 @@ export default function AzureChangesetsPage() {
 
   const codeBeforeRef = useRef<HTMLElement | null>(null);
   const codeAfterRef = useRef<HTMLElement | null>(null);
+  const beforeScrollRef = useRef<HTMLDivElement | null>(null);
+  const afterScrollRef = useRef<HTMLDivElement | null>(null);
+  const [changeNavIdx, setChangeNavIdx] = useState(0);
+  const syncScrollLockRef = useRef<null | 'before' | 'after'>(null);
 
   const baseUrl = GATEWAY_URL ? GATEWAY_URL.replace(/\/$/, '') : '';
   const workItemsUrl = baseUrl ? `${baseUrl}/azure/work-items` : '/api/azure/work-items';
@@ -216,18 +223,19 @@ export default function AzureChangesetsPage() {
     }
   };
 
-  const openWorkItem = async (id: number) => {
+  const openWorkItem = async (row: AzureWorkItemRow) => {
     setDetailOpen(true);
     setDetail(null);
     setDetailLoading(true);
     setDetailError(null);
+    setFallbackChangesetIds(Array.isArray(row.changesetIds) ? row.changesetIds : []);
     setSelectedChangesetId(null);
     setCsDetail(null);
     setCsError(null);
     setDiff(null);
     setDiffError(null);
     try {
-      const res = await fetch(`${workItemsUrl}/${id}`);
+      const res = await fetch(`${workItemsUrl}/${row.id}`);
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : { error: await res.text() };
       if (!res.ok) throw new Error(body?.error || res.statusText);
@@ -302,6 +310,7 @@ export default function AzureChangesetsPage() {
 
     const removedIdx = new Set<number>();
     const addedIdx = new Set<number>();
+    const changeAnchorsRaw: Array<{ beforeLine: number; afterLine: number }> = [];
     const ctx = 3;
 
     let bi = 0;
@@ -310,9 +319,11 @@ export default function AzureChangesetsPage() {
       const val = String(p.value ?? '');
       const n = val === '' ? 0 : val.split('\n').length - (val.endsWith('\n') ? 1 : 0);
       if (p.added) {
+        if (n > 0) changeAnchorsRaw.push({ beforeLine: bi, afterLine: ai });
         for (let k = 0; k < n; k++) addedIdx.add(ai + k);
         ai += n;
       } else if (p.removed) {
+        if (n > 0) changeAnchorsRaw.push({ beforeLine: bi, afterLine: ai });
         for (let k = 0; k < n; k++) removedIdx.add(bi + k);
         bi += n;
       } else {
@@ -330,6 +341,20 @@ export default function AzureChangesetsPage() {
       for (let k = Math.max(0, i - ctx); k <= Math.min(afterLines.length - 1, i + ctx); k++) includeAfter.add(k);
     }
 
+    const clampLine = (idx: number, len: number) => {
+      if (len <= 0) return 0;
+      return Math.min(Math.max(0, idx), len - 1);
+    };
+
+    const changeAnchors: ChangeAnchor[] = [];
+    for (const a of changeAnchorsRaw) {
+      const beforeLine = clampLine(a.beforeLine, beforeLines.length);
+      const afterLine = clampLine(a.afterLine, afterLines.length);
+      const last = changeAnchors[changeAnchors.length - 1];
+      if (last && last.beforeLine === beforeLine && last.afterLine === afterLine) continue;
+      changeAnchors.push({ beforeLine, afterLine });
+    }
+
     return {
       lang: detectLanguageByPath(diff.path),
       beforeLines,
@@ -338,27 +363,102 @@ export default function AzureChangesetsPage() {
       addedIdx,
       includeBefore,
       includeAfter,
+      changeAnchors,
     };
   }, [diff]);
 
-  const renderLines = (lines: string[], opts: { added?: Set<number>; removed?: Set<number>; include?: Set<number> }) => {
+  const renderLines = (
+    lines: string[],
+    opts: { added?: Set<number>; removed?: Set<number>; include?: Set<number>; activeLine?: number }
+  ) => {
     const lang = diffModel?.lang === 'cpp' ? 'cpp' : 'plaintext';
     const out: JSX.Element[] = [];
     const include = opts.include;
     const added = opts.added;
     const removed = opts.removed;
+    const activeLine = opts.activeLine;
     for (let i = 0; i < lines.length; i++) {
       if (include && !include.has(i)) continue;
-      const cls = added?.has(i) ? 'codeLine codeLineAdded' : removed?.has(i) ? 'codeLine codeLineRemoved' : 'codeLine';
+      const clsBase = added?.has(i) ? 'codeLine codeLineAdded' : removed?.has(i) ? 'codeLine codeLineRemoved' : 'codeLine';
+      const cls = activeLine === i ? `${clsBase} codeLineActive` : clsBase;
       const html = hljs.highlight(lines[i] ?? '', { language: lang }).value || '';
       out.push(
-        <span key={i} className={cls}>
+        <span key={i} className={cls} data-line={i}>
           <span className="codeLineGutter">{String(i + 1).padStart(4, ' ')}</span>
           <span className="codeLineText" dangerouslySetInnerHTML={{ __html: html }} />
         </span>
       );
     }
     return <div className="codeLines">{out}</div>;
+  };
+
+  const changeCount = diffModel?.changeAnchors?.length ?? 0;
+
+  const activeAnchor = useMemo(() => {
+    if (!diffModel || !diffModel.changeAnchors || diffModel.changeAnchors.length === 0) return null;
+    const idx = Math.min(Math.max(0, changeNavIdx), diffModel.changeAnchors.length - 1);
+    return diffModel.changeAnchors[idx] || null;
+  }, [diffModel, changeNavIdx]);
+
+  useEffect(() => {
+    if (!diffModel || !diffModel.changeAnchors || diffModel.changeAnchors.length === 0) {
+      if (changeNavIdx !== 0) setChangeNavIdx(0);
+      return;
+    }
+    if (changeNavIdx >= diffModel.changeAnchors.length) setChangeNavIdx(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffModel?.changeAnchors?.length]);
+
+  useEffect(() => {
+    if (viewMode !== 'view') return;
+    if (!activeAnchor) return;
+    const scrollTo = (container: HTMLDivElement | null, line: number) => {
+      if (!container) return;
+      const el = container.querySelector(`[data-line="${line}"]`) as HTMLElement | null;
+      if (!el) return;
+      el.scrollIntoView({ block: 'center' });
+    };
+    scrollTo(beforeScrollRef.current, activeAnchor.beforeLine);
+    scrollTo(afterScrollRef.current, activeAnchor.afterLine);
+  }, [activeAnchor, viewMode]);
+
+  useEffect(() => {
+    const before = beforeScrollRef.current;
+    const after = afterScrollRef.current;
+    if (!before || !after) return;
+
+    const onBefore = () => {
+      if (syncScrollLockRef.current === 'after') return;
+      syncScrollLockRef.current = 'before';
+      after.scrollTop = before.scrollTop;
+      after.scrollLeft = before.scrollLeft;
+      requestAnimationFrame(() => {
+        if (syncScrollLockRef.current === 'before') syncScrollLockRef.current = null;
+      });
+    };
+
+    const onAfter = () => {
+      if (syncScrollLockRef.current === 'before') return;
+      syncScrollLockRef.current = 'after';
+      before.scrollTop = after.scrollTop;
+      before.scrollLeft = after.scrollLeft;
+      requestAnimationFrame(() => {
+        if (syncScrollLockRef.current === 'after') syncScrollLockRef.current = null;
+      });
+    };
+
+    before.addEventListener('scroll', onBefore, { passive: true });
+    after.addEventListener('scroll', onAfter, { passive: true });
+    return () => {
+      before.removeEventListener('scroll', onBefore);
+      after.removeEventListener('scroll', onAfter);
+    };
+  }, [diff, viewMode]);
+
+  const jumpChange = (delta: -1 | 1) => {
+    if (!diffModel || !diffModel.changeAnchors || diffModel.changeAnchors.length === 0) return;
+    const len = diffModel.changeAnchors.length;
+    setChangeNavIdx((prev) => (prev + delta + len) % len);
   };
 
   return (
@@ -465,13 +565,13 @@ export default function AzureChangesetsPage() {
                     <tr
                       key={r.id}
                       style={{ borderTop: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}
-                      onClick={() => openWorkItem(r.id)}
+                      onClick={() => openWorkItem(r)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(ev) => {
                         if (ev.key === 'Enter' || ev.key === ' ') {
                           ev.preventDefault();
-                          openWorkItem(r.id);
+                          openWorkItem(r);
                         }
                       }}
                       title="Click to view linked changesets"
@@ -510,6 +610,11 @@ export default function AzureChangesetsPage() {
               <button type="button" onClick={() => setDetailOpen(false)}>Close</button>
             </div>
             <div className="modalBody">
+              {(() => {
+                const fromDetail = detail?.changesetIds;
+                const linkedIds = (Array.isArray(fromDetail) && fromDetail.length > 0) ? fromDetail : fallbackChangesetIds;
+                return (
+                  <>
               {detailLoading && (
                 <p className="spinnerRow" style={{ margin: 0 }}>
                   <span className="spinner" aria-hidden="true" />
@@ -521,52 +626,50 @@ export default function AzureChangesetsPage() {
                   {detailError}
                 </p>
               )}
-              {!detailLoading && detail && (
-                <>
-                  {detail.webUrl && (
-                    <p style={{ marginBottom: 12 }}>
-                      <a href={detail.webUrl} target="_blank" rel="noreferrer">
-                        Open work item in Azure DevOps
-                      </a>
-                    </p>
-                  )}
+              {detail?.webUrl && (
+                <p style={{ marginBottom: 12 }}>
+                  <a href={detail.webUrl} target="_blank" rel="noreferrer">
+                    Open work item in Azure DevOps
+                  </a>
+                </p>
+              )}
 
-                  <div className="changesetsModalLayout">
-                    <div>
-                      <div style={{ fontWeight: 650, marginBottom: 8 }}>
-                        Linked changesets ({detail.changesetIds?.length || 0})
-                      </div>
-                      <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--panel-2)', overflow: 'hidden' }}>
-                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                          {(detail.changesetIds || []).length === 0 ? (
-                            <div style={{ padding: 12 }} className="muted2">No linked changesets.</div>
-                          ) : (
-                            (detail.changesetIds || []).map((cid) => (
-                              <button
-                                key={cid}
-                                type="button"
-                                onClick={() => openChangeset(cid)}
-                                style={{
-                                  width: '100%',
-                                  textAlign: 'left',
-                                  border: '0',
-                                  borderBottom: '1px solid color-mix(in srgb, var(--border) 65%, transparent)',
-                                  background: selectedChangesetId === cid ? 'color-mix(in srgb, var(--brand) 10%, transparent)' : 'transparent',
-                                  padding: '10px 10px',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <div style={{ fontWeight: 750, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-                                  #{cid}
-                                </div>
-                                <div className="muted2" style={{ fontSize: 12 }}>
-                                  Open changeset
-                                </div>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
+              <div className="changesetsModalLayout">
+                <div>
+                  <div style={{ fontWeight: 650, marginBottom: 8 }}>
+                    Linked changesets ({linkedIds.length})
+                  </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--panel-2)', overflow: 'hidden' }}>
+                    <div style={{ maxHeight: 300, overflow: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+                      {linkedIds.length === 0 ? (
+                        <div style={{ padding: 12 }} className="muted2">No linked changesets.</div>
+                      ) : (
+                        linkedIds.map((cid) => (
+                          <button
+                            key={cid}
+                            type="button"
+                            onClick={() => openChangeset(cid)}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              border: '0',
+                              borderBottom: '1px solid color-mix(in srgb, var(--border) 65%, transparent)',
+                              background: selectedChangesetId === cid ? 'color-mix(in srgb, var(--brand) 10%, transparent)' : 'transparent',
+                              padding: '10px 10px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ fontWeight: 750, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                              #{cid}
+                            </div>
+                            <div className="muted2" style={{ fontSize: 12 }}>
+                              Open changeset
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
 
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontWeight: 650, marginBottom: 8 }}>Files</div>
@@ -594,7 +697,7 @@ export default function AzureChangesetsPage() {
                                 </div>
                               )}
                             </div>
-                            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+                            <div style={{ maxHeight: 240, overflow: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
                               {(csDetail.changes || []).map((c, idx) => (
                                 <button
                                   key={`${idx}-${c.path}`}
@@ -627,22 +730,41 @@ export default function AzureChangesetsPage() {
 
                     <div className="changesetsDiffArea">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                        <div style={{ fontWeight: 650 }}>Code</div>
-                        <div className="segmented" role="tablist" aria-label="View mode">
-                          <button
-                            type="button"
-                            className={viewMode === 'view' ? 'segActive' : ''}
-                            onClick={() => setViewMode('view')}
-                          >
-                            View
-                          </button>
-                          <button
-                            type="button"
-                            className={viewMode === 'diff' ? 'segActive' : ''}
-                            onClick={() => setViewMode('diff')}
-                          >
-                            Diff
-                          </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <div style={{ fontWeight: 650 }}>Code</div>
+                          {viewMode === 'view' && changeCount > 0 && (
+                            <div className="muted2" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                              Change {Math.min(changeNavIdx + 1, changeCount)}/{changeCount}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {viewMode === 'view' && changeCount > 0 && (
+                            <div className="changeNav" role="group" aria-label="Navigate changes">
+                              <button type="button" onClick={() => jumpChange(-1)} aria-label="Previous change" title="Previous change">
+                                ↑
+                              </button>
+                              <button type="button" onClick={() => jumpChange(1)} aria-label="Next change" title="Next change">
+                                ↓
+                              </button>
+                            </div>
+                          )}
+                          <div className="segmented" role="tablist" aria-label="View mode">
+                            <button
+                              type="button"
+                              className={viewMode === 'view' ? 'segActive' : ''}
+                              onClick={() => setViewMode('view')}
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              className={viewMode === 'diff' ? 'segActive' : ''}
+                              onClick={() => setViewMode('diff')}
+                            >
+                              Diff
+                            </button>
+                          </div>
                         </div>
                       </div>
                       {diffLoading && (
@@ -671,13 +793,13 @@ export default function AzureChangesetsPage() {
                           <div className="changesetsDiffGrid">
                             <div className="changesetsDiffPanel">
                               <div className="changesetsDiffTitle">Before</div>
-                              <div className="changesetsCodeScroll">
+                              <div className="changesetsCodeScroll" ref={beforeScrollRef}>
                                 {diffModel
                                   ? renderLines(
                                       diffModel.beforeLines,
                                       viewMode === 'diff'
                                         ? { removed: diffModel.removedIdx, include: diffModel.includeBefore }
-                                        : { removed: diffModel.removedIdx }
+                                        : { removed: diffModel.removedIdx, activeLine: viewMode === 'view' ? activeAnchor?.beforeLine : undefined }
                                     )
                                   : (
                                     <pre><code ref={codeBeforeRef as any}>{diff.beforeText || ''}</code></pre>
@@ -686,13 +808,13 @@ export default function AzureChangesetsPage() {
                             </div>
                             <div className="changesetsDiffPanel">
                               <div className="changesetsDiffTitle">After</div>
-                              <div className="changesetsCodeScroll">
+                              <div className="changesetsCodeScroll" ref={afterScrollRef}>
                                 {diffModel
                                   ? renderLines(
                                       diffModel.afterLines,
                                       viewMode === 'diff'
                                         ? { added: diffModel.addedIdx, include: diffModel.includeAfter }
-                                        : { added: diffModel.addedIdx }
+                                        : { added: diffModel.addedIdx, activeLine: viewMode === 'view' ? activeAnchor?.afterLine : undefined }
                                     )
                                   : (
                                     <pre><code ref={codeAfterRef as any}>{diff.afterText || ''}</code></pre>
@@ -713,8 +835,9 @@ export default function AzureChangesetsPage() {
                       )}
                     </div>
                   </div>
-                </>
-              )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
