@@ -540,6 +540,70 @@ a:hover { text-decoration: underline; }
   min-height: 0;
 }
 
+.toolsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toolsGroupHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toolsGroupHeader:hover {
+  background: color-mix(in srgb, var(--brand) 8%, var(--panel));
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--border));
+}
+
+.toolsGroupChevron {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid color-mix(in srgb, var(--text) 70%, transparent);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+  opacity: 0.85;
+}
+
+.toolsGroupHeaderOpen .toolsGroupChevron {
+  transform: rotate(0deg);
+}
+
+.toolsGroupTitle {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolsGroupCount {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--panel-2);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.toolsGroupItems {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 10px;
+}
+
 .toolsDetailPanel {
   height: 100%;
   min-height: 0;

@@ -30,6 +30,23 @@ type ToolsListResponse = {
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
 
+type ToolGroupId =
+  | 'azure'
+  | 'clickup'
+  | 'indexing'
+  | 'instance'
+  | 'git'
+  | 'shared'
+  | 'urls'
+  | 'docs'
+  | 'other';
+
+type ToolGroup = {
+  id: ToolGroupId;
+  label: string;
+  tools: ToolCatalogEntry[];
+};
+
 function prettyJson(v: unknown): string {
   try {
     return JSON.stringify(v, null, 2);
@@ -38,12 +55,114 @@ function prettyJson(v: unknown): string {
   }
 }
 
+function groupLabel(id: ToolGroupId): string {
+  switch (id) {
+    case 'azure': return 'Azure';
+    case 'clickup': return 'ClickUp';
+    case 'indexing': return 'Indexing';
+    case 'instance': return 'Instance';
+    case 'git': return 'Git';
+    case 'shared': return 'Shared';
+    case 'urls': return 'URLs';
+    case 'docs': return 'Docs';
+    default: return 'Other';
+  }
+}
+
+function toolGroupId(name: string): ToolGroupId {
+  if (name === 'azure' || name.startsWith('azure_')) return 'azure';
+  if (name.startsWith('clickup_')) return 'clickup';
+  if (name.startsWith('index_') || name === 'index_url' || name === 'index_site' || name === 'index_url_with_links') return 'indexing';
+  if (name.startsWith('instance_')) return 'instance';
+  if (name.startsWith('repo_') || name === 'repo_git' || name === 'repo_pull') return 'git';
+  if (name.startsWith('list_shared_') || name.startsWith('read_shared_')) return 'shared';
+  if (name === 'list_url_links' || name === 'view_url' || name === 'mediawiki_login') return 'urls';
+  if (name === 'search_docs' || name === 'count_docs' || name === 'analize_code' || name === 'write_flow_doc' || name === 'documentar_sesion') return 'docs';
+  return 'other';
+}
+
+function titleCaseWords(s: string): string {
+  return s
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.length <= 2 ? w.toUpperCase() : (w[0]?.toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
+function uiToolLabel(toolName: string): string {
+  // Special cases for clarity and to keep labels short.
+  const special: Record<string, string> = {
+    azure: 'List tasks (alias)',
+    azure_add_work_item_comment: 'Add comment',
+    azure_list_work_items: 'List work items',
+    azure_get_work_item: 'Get work item',
+    azure_get_work_item_updates: 'Work item updates',
+    azure_bug_analysis_or_solution: 'Bug analysis / solution',
+    azure_get_bug_changesets: 'Bug changesets',
+    azure_get_changeset: 'Get changeset',
+    azure_get_changeset_diff: 'Changeset diff',
+    azure_count_changesets: 'Count changesets',
+    azure_list_changesets: 'List changesets',
+    azure_list_changeset_authors: 'List authors',
+
+    clickup_list_workspaces: 'List workspaces',
+    clickup_list_spaces: 'List spaces',
+    clickup_list_folders: 'List folders',
+    clickup_list_lists: 'List lists',
+    clickup_list_tasks: 'List tasks',
+    clickup_get_task: 'Get task',
+    clickup_create_task: 'Create task',
+    clickup_update_task: 'Update task',
+    clickup_create_subtask: 'Create subtask',
+    clickup_add_comment: 'Add comment',
+    clickup_complete_task_by_id: 'Complete task',
+
+    index_url: 'Index URL',
+    index_url_with_links: 'Index URL + links',
+    index_site: 'Index site',
+
+    instance_update: 'Update instance',
+    instance_report: 'Instance report',
+    instance_reboot: 'Reboot instance',
+
+    repo_git: 'Git (safe)',
+    repo_pull: 'Pull',
+
+    list_shared_dir: 'List shared dir',
+    read_shared_file: 'Read shared file',
+
+    list_url_links: 'List links',
+    view_url: 'View URL',
+    mediawiki_login: 'MediaWiki login',
+
+    search_docs: 'Search docs',
+    count_docs: 'Count docs',
+    analize_code: 'Analyze code',
+    write_flow_doc: 'Write flow doc',
+    documentar_sesion: 'Document session',
+  };
+
+  const hit = special[toolName];
+  if (hit) return hit;
+
+  // Default: remove group prefix and underscores.
+  const grp = toolGroupId(toolName);
+  let base = toolName;
+  if (grp === 'azure') base = base.replace(/^azure_/, '');
+  if (grp === 'clickup') base = base.replace(/^clickup_/, '');
+  if (grp === 'instance') base = base.replace(/^instance_/, '');
+  if (grp === 'git') base = base.replace(/^repo_/, '');
+  base = base.replace(/_/g, ' ').trim();
+  return titleCaseWords(base);
+}
+
 export default function McpToolsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tools, setTools] = useState<ToolCatalogEntry[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [filter, setFilter] = useState('');
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const baseUrl = GATEWAY_URL ? GATEWAY_URL.replace(/\/$/, '') : '';
   const listUrl = baseUrl ? `${baseUrl}/mcp/tools` : '/api/mcp/tools';
@@ -66,13 +185,49 @@ export default function McpToolsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listUrl]);
 
-  const filtered = useMemo(() => {
+  const filteredTools = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return tools;
     return tools.filter((t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q));
   }, [tools, filter]);
 
+  const groups = useMemo<ToolGroup[]>(() => {
+    const map = new Map<ToolGroupId, ToolCatalogEntry[]>();
+    for (const t of filteredTools) {
+      const id = toolGroupId(t.name);
+      const arr = map.get(id) ?? [];
+      arr.push(t);
+      map.set(id, arr);
+    }
+
+    const order: ToolGroupId[] = ['azure', 'indexing', 'docs', 'clickup', 'shared', 'urls', 'git', 'instance', 'other'];
+    const out: ToolGroup[] = [];
+    for (const id of order) {
+      const arr = map.get(id);
+      if (!arr || arr.length === 0) continue;
+      arr.sort((a, b) => a.name.localeCompare(b.name));
+      out.push({ id, label: groupLabel(id), tools: arr });
+    }
+    return out;
+  }, [filteredTools]);
+
   const current = useMemo(() => tools.find((t) => t.name === selected) || null, [tools, selected]);
+
+  // Ensure the selected tool's group is open.
+  useEffect(() => {
+    if (!selected) return;
+    const gid = toolGroupId(selected);
+    setOpenGroups((prev) => (prev[gid] ? prev : { ...prev, [gid]: true }));
+  }, [selected]);
+
+  // When filtering, auto-open groups that contain matches.
+  useEffect(() => {
+    const q = filter.trim();
+    if (!q) return;
+    const next: Record<string, boolean> = {};
+    for (const g of groups) next[g.id] = true;
+    setOpenGroups((prev) => ({ ...prev, ...next }));
+  }, [filter, groups]);
 
   return (
     <main className="toolsPage">
@@ -96,24 +251,45 @@ export default function McpToolsPage() {
               {loading && <p style={{ margin: 0 }}>Loading…</p>}
               {error && <p className="dangerText" style={{ margin: 0 }}>{error}</p>}
               {!loading && !error && (
-                <div className="toolsCount">{filtered.length} tool(s)</div>
+                <div className="toolsCount">{filteredTools.length} tool(s)</div>
               )}
             </div>
 
             {!loading && !error && (
               <div className="toolsListScroll" role="list" aria-label="Tools list">
-                {filtered.map((t) => (
-                  <button
-                    key={t.name}
-                    type="button"
-                    onClick={() => setSelected(t.name)}
-                    className={`toolsListItem${t.name === selected ? ' toolsListItemActive' : ''}`}
-                    title={t.description}
-                  >
-                    <div className="toolsListItemName">{t.name}</div>
-                    <div className="toolsListItemDesc">{t.description}</div>
-                  </button>
-                ))}
+                {groups.map((g) => {
+                  const isOpen = !!openGroups[g.id];
+                  return (
+                    <div key={g.id} className="toolsGroup" role="group" aria-label={`${g.label} tools`}>
+                      <button
+                        type="button"
+                        className={`toolsGroupHeader${isOpen ? ' toolsGroupHeaderOpen' : ''}`}
+                        onClick={() => setOpenGroups((prev) => ({ ...prev, [g.id]: !isOpen }))}
+                        aria-expanded={isOpen}
+                      >
+                        <span className="toolsGroupChevron" aria-hidden="true" />
+                        <span className="toolsGroupTitle">{g.label}</span>
+                        <span className="toolsGroupCount">{g.tools.length}</span>
+                      </button>
+                      {isOpen && (
+                        <div className="toolsGroupItems">
+                          {g.tools.map((t) => (
+                            <button
+                              key={t.name}
+                              type="button"
+                              onClick={() => setSelected(t.name)}
+                              className={`toolsListItem${t.name === selected ? ' toolsListItemActive' : ''}`}
+                              title={`${t.name} — ${t.description}`}
+                            >
+                              <div className="toolsListItemName">{uiToolLabel(t.name)}</div>
+                              <div className="toolsListItemDesc">{t.description}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
