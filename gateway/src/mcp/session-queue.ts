@@ -1,7 +1,7 @@
 /**
- * Cola por sesión para serializar requests MCP en el gateway.
- * Un request a la vez por (userId, sessionId) para que las respuestas no se crucen
- * y el fallback FIFO del transport asigne bien cada respuesta.
+ * Per-session queue to serialize MCP requests in the gateway.
+ * One request at a time per (userId, sessionId) so responses don't cross
+ * and the transport FIFO fallback assigns each response correctly.
  */
 
 import type { HttpStreamableTransport } from './http-streamable-transport';
@@ -25,7 +25,7 @@ type QueueItem = {
   t0: number;
 };
 
-/** key = `${userId}:${sessionId}` -> cola y estado de procesamiento */
+/** key = `${userId}:${sessionId}` -> queue and processing state */
 const sessionQueues = new Map<
   string,
   { queue: QueueItem[]; processing: boolean }
@@ -36,7 +36,7 @@ function getQueueKey(userId: string, sessionId: string): string {
 }
 
 /**
- * Procesa el siguiente item de la cola para esta sesión (si hay y no estamos procesando).
+ * Process the next queue item for this session (if present and not already processing).
  */
 function processNext(key: string): void {
   const state = sessionQueues.get(key);
@@ -62,8 +62,8 @@ function processNext(key: string): void {
 }
 
 /**
- * Encola un request para la sesión y devuelve una promesa que se resuelve
- * cuando este request haya sido procesado (su turno y handleRequest completado).
+ * Enqueue a request for the session and return a promise that resolves
+ * when that request has been processed (its turn + handleRequest completed).
  */
 export function enqueueAndWait(
   userId: string,
@@ -94,7 +94,7 @@ export function enqueueAndWait(
 }
 
 /**
- * Limpia la cola de una sesión (p. ej. al cerrar sesión).
+ * Clear a session queue (e.g. when closing a session).
  */
 export function clearSessionQueue(userId: string, sessionId: string): void {
   const key = getQueueKey(userId, sessionId);

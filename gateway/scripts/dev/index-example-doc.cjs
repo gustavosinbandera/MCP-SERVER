@@ -6,11 +6,12 @@
 const path = require('path');
 const fs = require('fs');
 const { QdrantClient } = require('@qdrant/js-client-rest');
+const { gatewayRoot } = require('../_shared/script-env.cjs');
 
 const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
 const COLLECTION = 'mcp_docs';
 
-const docsPath = path.join(__dirname, '../../docs_repo/docs/ejemplo.txt');
+const docsPath = path.join(gatewayRoot(), '..', 'docs_repo', 'docs', 'ejemplo.txt');
 
 async function main() {
   const content = fs.readFileSync(docsPath, 'utf8');

@@ -1,6 +1,7 @@
 /**
- * User KB: escribe documentos Markdown persistentes por usuario en USER_KB_ROOT_DIR/<userId>/<yyyy>/<mm>/<id>__<slug>.md.
- * El supervisor los indexa en Qdrant (indexUserKbRoots) sin borrarlos.
+ * User KB: writes persistent per-user Markdown documents to
+ * USER_KB_ROOT_DIR/<userId>/<yyyy>/<mm>/<id>__<slug>.md.
+ * The supervisor indexes them into Qdrant (indexUserKbRoots) without deleting them.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -27,8 +28,8 @@ export type WriteUserExperienceDocOptions = {
 };
 
 /**
- * Escribe un documento de experiencia/usuario en USER_KB_ROOT_DIR/<userId>/<yyyy>/<mm>/<id>__<slug>.md.
- * No se borra; el supervisor lo indexa con payload owner_user_id, doc_kind: "experience".
+ * Write a user experience document to USER_KB_ROOT_DIR/<userId>/<yyyy>/<mm>/<id>__<slug>.md.
+ * It is not deleted; the supervisor indexes it with payload owner_user_id, doc_kind: "experience".
  */
 export function writeUserExperienceDoc(options: WriteUserExperienceDocOptions): {
   path: string;
@@ -53,7 +54,7 @@ export function writeUserExperienceDoc(options: WriteUserExperienceDocOptions): 
       fs.mkdirSync(dirPath, { recursive: true });
     }
     const frontmatter: Record<string, string | string[] | boolean> = {
-      title: title || 'Documento',
+      title: title || 'Document',
       doc_kind: 'experience',
       created_at: now.toISOString(),
     };
@@ -71,7 +72,7 @@ export function writeUserExperienceDoc(options: WriteUserExperienceDocOptions): 
     return {
       path: filePath,
       relativePath,
-      message: `Documento guardado: ${relativePath}. Será indexado por el supervisor.`,
+      message: `Document saved: ${relativePath}. It will be indexed by the supervisor.`,
     };
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
@@ -88,8 +89,8 @@ export type WriteUploadedKbDocOptions = {
 };
 
 /**
- * Escribe un MD subido por webapp en User KB con frontmatter fusionado (project, source, created_at, doc_kind).
- * Usado por POST /kb/upload.
+ * Write a webapp-uploaded MD into User KB with merged frontmatter (project, source, created_at, doc_kind).
+ * Used by POST /kb/upload.
  */
 export function writeUploadedKbDoc(options: WriteUploadedKbDocOptions): { path: string; relativePath: string; error?: string } {
   const { userId, originalFilename, content, project, source } = options;

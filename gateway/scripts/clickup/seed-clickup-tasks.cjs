@@ -6,7 +6,8 @@
  * Ver docs/CLICKUP-TAREAS-ENTREGABLES.md para plantillas completas al documentar cada tarea.
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
 const {
   getTeams,
@@ -16,7 +17,7 @@ const {
   createTask,
   getAuthorizedUser,
   hasClickUpToken,
-} = require('../dist/clickup-client.js');
+} = requireDist(['clickup-client.js', 'clickup']);
 
 const TASKS = [
   { name: '1.1 CloudFormation: stack EC2 y Security Group', description: 'Plantilla en docs/CLICKUP-TAREAS-ENTREGABLES.md § 1.1. Infra: mcp-ec2.yaml, scripts 1–3.' },

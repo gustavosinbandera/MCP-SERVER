@@ -1,6 +1,6 @@
 /**
- * Directorios compartidos sin indexar.
- * El cliente MCP puede listar y leer archivos dentro de las rutas configuradas en SHARED_DIRS.
+ * Shared directories without indexing.
+ * The MCP client can list and read files within paths configured in SHARED_DIRS.
  */
 
 import * as fs from 'fs';
@@ -27,8 +27,8 @@ function resolveUnderRoots(relativePath: string): { root: string; absolute: stri
 }
 
 /**
- * Lista directorios y archivos en una ruta relativa dentro del primer directorio compartido.
- * @param relativePath - Ruta relativa (ej. "" o "subcarpeta"). Vacía = raíz del compartido.
+ * List directories and files for a relative path under the first shared directory.
+ * @param relativePath - Relative path (e.g. "" or "subfolder"). Empty = shared root.
  */
 export function listSharedDir(relativePath: string = ''): { entries: string[]; root: string } | null {
   const roots = getSharedRoots();
@@ -52,8 +52,8 @@ export function listSharedDir(relativePath: string = ''): { entries: string[]; r
 }
 
 /**
- * Lee el contenido de un archivo por ruta relativa al directorio compartido.
- * @param relativePath - Ruta relativa al archivo (ej. "readme.txt" o "src/index.js").
+ * Read a file content by a path relative to the shared directory.
+ * @param relativePath - Relative file path (e.g. "readme.txt" or "src/index.js").
  */
 export function readSharedFile(relativePath: string): { content: string; path: string } | null {
   const info = resolveUnderRoots(relativePath);

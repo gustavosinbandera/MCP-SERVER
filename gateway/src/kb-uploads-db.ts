@@ -1,6 +1,6 @@
 /**
- * SQLite para registros de upload al KB: user_id, project, file_path, source, created_at.
- * Usado por POST /kb/upload para guardar información relacionada al proyecto.
+ * SQLite for KB upload records: user_id, project, file_path, source, created_at.
+ * Used by POST /kb/upload to store project-related information.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -40,7 +40,7 @@ export type InsertKbUploadParams = {
   source?: string;
 };
 
-/** Inserta un registro de upload al KB y devuelve el id. */
+/** Insert a KB upload record and return its id. */
 export function insertKbUpload(params: InsertKbUploadParams): number {
   const db = getDb();
   const now = new Date().toISOString();
@@ -66,7 +66,7 @@ export type KbUploadRow = {
   created_at: string;
 };
 
-/** Lista registros de upload por proyecto (opcional, para futuras consultas). */
+/** List upload records by project (optional; for future queries). */
 export function listKbUploadsByProject(project: string): KbUploadRow[] {
   const db = getDb();
   return db.prepare(`SELECT id, user_id, project, file_path, source, created_at FROM ${TABLE} WHERE project = ? ORDER BY created_at DESC`).all(project) as KbUploadRow[];

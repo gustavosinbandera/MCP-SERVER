@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -23,11 +22,11 @@ export default function UploadPage() {
   function validateFiles(fileList: FileList | null): string | null {
     if (!fileList || fileList.length === 0) return null;
     if (fileList.length > MAX_FILES) {
-      return `Demasiados archivos (${fileList.length}). Máximo ${MAX_FILES}.`;
+      return `Too many files (${fileList.length}). Maximum ${MAX_FILES}.`;
     }
     for (let i = 0; i < fileList.length; i++) {
       if (fileList[i].size > MAX_FILE_SIZE_BYTES) {
-        return `El archivo "${fileList[i].name}" supera 2 MB (${(fileList[i].size / 1024 / 1024).toFixed(2)} MB).`;
+        return `The file "${fileList[i].name}" exceeds 2 MB (${(fileList[i].size / 1024 / 1024).toFixed(2)} MB).`;
       }
     }
     return null;
@@ -45,7 +44,7 @@ export default function UploadPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!files || files.length === 0) {
-      setMessage({ type: 'error', text: 'Elige al menos un archivo.' });
+      setMessage({ type: 'error', text: 'Select at least one file.' });
       return;
     }
     const warn = validateFiles(files);
@@ -72,7 +71,7 @@ export default function UploadPage() {
         }
         setMessage({
           type: 'success',
-          text: `${data.written ?? 0} archivos enviados al KB. El supervisor los indexará en el próximo ciclo.`,
+          text: `${data.written ?? 0} file(s) sent to KB. The supervisor will index them in the next cycle.`,
         });
       } else {
         if (project) formData.append('project', project);
@@ -84,70 +83,67 @@ export default function UploadPage() {
         }
         setMessage({
           type: 'success',
-          text: `${data.written ?? 0} archivos enviados. El supervisor los indexará en el próximo ciclo.`,
+          text: `${data.written ?? 0} file(s) sent. The supervisor will index them in the next cycle.`,
         });
       }
       setFiles(null);
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error al subir' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error uploading' });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main style={{ fontFamily: 'system-ui', maxWidth: 800, margin: '2rem auto', padding: '0 1rem' }}>
-      <h1>Subir al Knowledge Hub</h1>
-      <p>Enviar archivos al índice (inbox) o al KB (Knowledge Base, persistente).</p>
-      <p style={{ marginBottom: 24 }}>
-        <Link href="/" style={{ color: '#0066cc' }}>← Volver a búsqueda</Link>
-        {' · '}
-        <Link href="/files" style={{ color: '#0066cc' }}>Explorador de archivos</Link>
-      </p>
+    <main>
+      <h1 className="pageTitle">Upload</h1>
+      <p className="pageSubtitle">Send files to the index (inbox) or to the KB (persistent).</p>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="panel">
+        <div className="panelInner">
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Destino</label>
+          <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Destination</label>
           <select
             value={destination}
             onChange={(e) => setDestination(e.target.value as Destination)}
-            style={{ padding: 8, fontSize: 16, minWidth: 200 }}
+            style={{ minWidth: 220 }}
           >
-            <option value="kb">KB (Knowledge Base, persistente)</option>
-            <option value="inbox">Inbox (indexar y borrar)</option>
+            <option value="kb">KB (Knowledge Base, persistent)</option>
+            <option value="inbox">Inbox (index and delete)</option>
           </select>
         </div>
 
         {destination === 'kb' && (
           <>
             <div>
-              <label style={{ display: 'block', marginBottom: 4 }}>Usuario (opcional)</label>
+              <label style={{ display: 'block', marginBottom: 4 }}>User (optional)</label>
               <input
                 type="text"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
                 placeholder="local"
-                style={{ padding: 8, fontSize: 16, width: '100%', maxWidth: 300 }}
+                style={{ maxWidth: 360 }}
               />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: 4 }}>Proyecto (recomendado)</label>
+              <label style={{ display: 'block', marginBottom: 4 }}>Project (recommended)</label>
               <input
                 type="text"
                 value={project}
                 onChange={(e) => setProject(e.target.value)}
-                placeholder="nombre del proyecto"
-                style={{ padding: 8, fontSize: 16, width: '100%', maxWidth: 300 }}
+                placeholder="project name"
+                style={{ maxWidth: 360 }}
               />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: 4 }}>Origen (opcional)</label>
+              <label style={{ display: 'block', marginBottom: 4 }}>Source (optional)</label>
               <input
                 type="text"
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
-                placeholder="ia_conversation o webapp_upload"
-                style={{ padding: 8, fontSize: 16, width: '100%', maxWidth: 300 }}
+                placeholder="ia_conversation or webapp_upload"
+                style={{ maxWidth: 520 }}
               />
             </div>
           </>
@@ -155,23 +151,23 @@ export default function UploadPage() {
 
         {destination === 'inbox' && (
           <div>
-            <label style={{ display: 'block', marginBottom: 4 }}>Proyecto / carpeta en inbox (opcional)</label>
+            <label style={{ display: 'block', marginBottom: 4 }}>Project / folder in inbox (optional)</label>
             <input
               type="text"
               value={project}
               onChange={(e) => setProject(e.target.value)}
-              placeholder="nombre de subcarpeta"
-              style={{ padding: 8, fontSize: 16, width: '100%', maxWidth: 300 }}
+              placeholder="subfolder name"
+              style={{ maxWidth: 360 }}
             />
           </div>
         )}
 
         <div>
-          <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Archivos</label>
+          <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Files</label>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={useFolder} onChange={(e) => setUseFolder(e.target.checked)} />
-              Subir carpeta completa
+              Upload entire folder
             </label>
           </div>
           {!useFolder && (
@@ -180,7 +176,7 @@ export default function UploadPage() {
               multiple
               accept={destination === 'kb' ? '.md' : undefined}
               onChange={(e) => onFilesChange(e.target.files)}
-              style={{ padding: 8, marginTop: 8 }}
+              style={{ marginTop: 8 }}
             />
           )}
           {useFolder && (
@@ -189,25 +185,25 @@ export default function UploadPage() {
               multiple
               {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
               onChange={(e) => onFilesChange(e.target.files)}
-              style={{ padding: 8, marginTop: 8 }}
+              style={{ marginTop: 8 }}
             />
           )}
           {files && files.length > 0 && (
-            <p style={{ marginTop: 4, fontSize: 14, color: '#666' }}>{files.length} archivo(s) seleccionado(s)</p>
+            <p className="muted2" style={{ marginTop: 6, fontSize: 14 }}>{files.length} file(s) selected</p>
           )}
           {validationWarning && (
-            <p style={{ marginTop: 8, fontSize: 14, color: '#c00' }}>{validationWarning}</p>
+            <p className="dangerText" style={{ marginTop: 8, fontSize: 14 }}>{validationWarning}</p>
           )}
         </div>
 
         <button
           type="submit"
           disabled={loading || !!validationWarning}
-          style={{ padding: '10px 20px', fontSize: 16, alignSelf: 'flex-start' }}
+          style={{ alignSelf: 'flex-start' }}
         >
-          {loading ? 'Subiendo...' : 'Subir'}
+          {loading ? 'Uploading...' : 'Upload'}
         </button>
-      </form>
+          </form>
 
       {message && (
         <p
@@ -215,13 +211,16 @@ export default function UploadPage() {
             marginTop: 24,
             padding: 12,
             borderRadius: 8,
-            backgroundColor: message.type === 'success' ? '#e6f7e6' : '#ffe6e6',
-            color: message.type === 'success' ? '#0a0' : '#c00',
+            backgroundColor: message.type === 'success' ? 'rgba(94, 234, 212, 0.14)' : 'rgba(255, 107, 107, 0.14)',
+            border: '1px solid var(--border)',
+            color: message.type === 'success' ? 'var(--text)' : 'var(--danger)',
           }}
         >
           {message.text}
         </p>
       )}
+        </div>
+      </div>
     </main>
   );
 }

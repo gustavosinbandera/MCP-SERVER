@@ -3,7 +3,8 @@
  */
 const fs = require('fs');
 const path = require('path');
-const p = path.join(__dirname, '..', 'dist', 'mcp-server.js');
+const { distPath } = require('../_shared/script-env.cjs');
+const p = distPath('mcp-server.js');
 let code = fs.readFileSync(p, 'utf8');
 code = code.replace(
   /require\("@modelcontextprotocol\/sdk\/server\/mcp"\)/g,

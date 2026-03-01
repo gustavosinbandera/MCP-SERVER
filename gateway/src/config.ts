@@ -77,7 +77,7 @@ export function getUserKbUserDir(userId: string): string {
 
 /**
  * Parsed SHARED_DIRS entries: project + absolute path.
- * Format: "proyecto:ruta" or "ruta" (project = folder name).
+ * Format: "project:path" or "path" (project = folder name).
  * Relative paths (e.g. classic, blueivory) are resolved against project root.
  */
 export function getSharedDirsEntries(): { project: string; path: string }[] {
@@ -104,28 +104,28 @@ export function getSharedDirsEntries(): { project: string; path: string }[] {
 
 /**
  * Absolute roots only (for list/read in shared-dirs).
- * One root per entry in SHARED_DIRS (path part after optional "proyecto:").
+ * One root per entry in SHARED_DIRS (path part after optional "project:").
  */
 export function getSharedRoots(): string[] {
   return getSharedDirsEntries().map((e) => e.path).filter((p) => p.length > 0);
 }
 
-/** Si true, en indexSharedDirs se reindexan archivos cuyo contenido cambió (por hash). */
+/** If true, indexSharedDirs re-indexes files whose content changed (by hash). */
 export function getSharedReindexChanged(): boolean {
   const v = process.env.INDEX_SHARED_REINDEX_CHANGED?.toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
 
-/** Si true, en indexSharedDirs se borran de Qdrant los (project, title) que ya no existen en disco. */
+/** If true, indexSharedDirs deletes from Qdrant any (project, title) that no longer exists on disk. */
 export function getSharedSyncDeleted(): boolean {
   const v = process.env.INDEX_SHARED_SYNC_DELETED?.toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
 
 /**
- * Proyectos que se indexan una sola vez (p. ej. classic, blueivory).
- * Tras completar un ciclo, se persisten y no se vuelven a indexar aunque se reinicie.
- * Formato: SHARED_DIRS_ONCE=classic;blueivory
+ * Projects that are indexed only once (e.g. classic, blueivory).
+ * After a successful cycle, they are persisted and won't be indexed again even after a restart.
+ * Format: SHARED_DIRS_ONCE=classic;blueivory
  */
 export function getSharedDirsOnce(): string[] {
   const raw = process.env.SHARED_DIRS_ONCE?.trim();
@@ -133,42 +133,42 @@ export function getSharedDirsOnce(): string[] {
   return raw.split(/[;|,]/).map((p) => p.trim().toLowerCase()).filter(Boolean);
 }
 
-/** Ruta del archivo SQLite que persiste los proyectos ya indexados una vez (evita reindexar). */
+/** SQLite file path that persists projects already indexed once (avoids re-indexing). */
 export function getOneTimeIndexedDbPath(): string {
   const raw = process.env.ONE_TIME_INDEXED_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'one_time_indexed.db');
 }
 
-/** Ruta del archivo SQLite para el índice persistente de claves (project, source_path). */
+/** SQLite file path for persistent key index (project, source_path). */
 export function getIndexedKeysDbPath(): string {
   const raw = process.env.INDEXED_KEYS_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'indexed_keys.db');
 }
 
-/** Ruta del archivo SQLite para User KB indexed (owner_user_id, source_path) + content_hash. */
+/** SQLite file path for User KB indexed (owner_user_id, source_path) + content_hash. */
 export function getUserKbIndexedDbPath(): string {
   const raw = process.env.USER_KB_INDEXED_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'user_kb_indexed.db');
 }
 
-/** Ruta del archivo SQLite para estadísticas de indexación por día (INDEX_STATS_DB). */
+/** SQLite file path for per-day indexing stats (INDEX_STATS_DB). */
 export function getIndexingStatsDbPath(): string {
   const raw = process.env.INDEX_STATS_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'indexing_stats.db');
 }
 
-/** Ruta del archivo SQLite para registros de upload al KB (KB_UPLOADS_DB). */
+/** SQLite file path for KB upload records (KB_UPLOADS_DB). */
 export function getKbUploadsDbPath(): string {
   const raw = process.env.KB_UPLOADS_DB?.trim();
   if (raw) return path.resolve(raw);
   return path.resolve(__dirname, '..', 'data', 'kb_uploads.db');
 }
 
-/** Si true, se usa el índice persistente SQLite en lugar del scroll completo de Qdrant. */
+/** If true, use the persistent SQLite index instead of a full Qdrant scroll. */
 export function getUsePersistentIndexedKeys(): boolean {
   const v = process.env.INDEX_USE_PERSISTENT_KEYS?.toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
@@ -180,10 +180,10 @@ export function getRequireEmbeddings(): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
-/** Alias de proyecto que mapean a branch "classic" (comparación en minúsculas). */
+/** Project aliases that map to branch "classic" (case-insensitive). */
 const CLASSIC_ALIASES = ['classic', 'clasic', 'core'];
 
-/** Alias de proyecto que mapean a branch "blueivory" (comparación en minúsculas). */
+/** Project aliases that map to branch "blueivory" (case-insensitive). */
 const BLUEIVORY_ALIASES = ['bi', 'blueivory', 'blue-ivory'];
 
 /**

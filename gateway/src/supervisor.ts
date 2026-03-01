@@ -1,11 +1,11 @@
 /**
- * Supervisor: revisa INDEX_INBOX_DIR y SHARED_DIRS cada 2 min (o el intervalo configurado),
- * indexa en Qdrant. Las URLs (INDEX_URLS / INDEX_SITE) no se tocan aquí: solo bajo demanda
- * con las herramientas MCP index_url, index_url_with_links, index_site.
+ * Supervisor: checks INDEX_INBOX_DIR and SHARED_DIRS every 2 minutes (or the configured interval),
+ * and indexes into Qdrant. URLs (INDEX_URLS / INDEX_SITE) are not handled here: only on demand
+ * via MCP tools index_url, index_url_with_links, index_site.
  *
- * Uso:
- *   node dist/supervisor.js           → bucle cada 2 min (inbox + shared)
- *   node dist/supervisor.js --once     → un ciclo y termina (bajo demanda)
+ * Usage:
+ *   node dist/supervisor.js           → loop every 2 minutes (inbox + shared)
+ *   node dist/supervisor.js --once     → run one cycle and exit (on demand)
  */
 import 'dotenv/config';
 import { processInbox, getInboxPathOrNull, indexSharedDirs, indexUserKbRoots } from './inbox-indexer';
@@ -13,7 +13,7 @@ import { recordInbox, recordShared, getStatsByDay } from './indexing-stats';
 import { info } from './logger';
 import { recordIndexingDailyMetric, recordIndexingEventMetric } from './metrics';
 
-const DEFAULT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
+const DEFAULT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 const POLL_INTERVAL_MS = Number(process.env.SUPERVISOR_INTERVAL_MS) ||
   Number(process.env.POLL_INTERVAL_MS) ||
   DEFAULT_INTERVAL_MS;
@@ -35,13 +35,13 @@ export async function runCycle(): Promise<void> {
       recordIndexingEventMetric({ source: 'inbox', indexed: result.indexed, inbox: result.indexed });
     }
     if (result.indexed > 0 || result.processed > 0) {
-      log(`Inbox ${result.inboxPath}: procesados=${result.processed}, indexados=${result.indexed}`);
+      log(`Inbox ${result.inboxPath}: processed=${result.processed}, indexed=${result.indexed}`);
     }
     if (result.errors.length > 0) {
       result.errors.forEach((e: string) => log(`Error: ${e}`));
     }
   } else {
-    log('INDEX_INBOX_DIR no configurado.');
+    log('INDEX_INBOX_DIR is not configured.');
   }
 
   const sharedResult = await indexSharedDirs();
@@ -55,16 +55,16 @@ export async function runCycle(): Promise<void> {
     });
   }
   if (sharedResult.indexed > 0 || sharedResult.errors.length > 0) {
-    const parts = [`indexados=${sharedResult.indexed}`];
-    if (sharedResult.newCount > 0) parts.push(`nuevos=${sharedResult.newCount}`);
-    if (sharedResult.reindexedCount > 0) parts.push(`reindexados=${sharedResult.reindexedCount}`);
-    log(`SHARED_DIRS: ${parts.join(', ')}, errores=${sharedResult.errors.length}`);
+    const parts = [`indexed=${sharedResult.indexed}`];
+    if (sharedResult.newCount > 0) parts.push(`new=${sharedResult.newCount}`);
+    if (sharedResult.reindexedCount > 0) parts.push(`reindexed=${sharedResult.reindexedCount}`);
+    log(`SHARED_DIRS: ${parts.join(', ')}, errors=${sharedResult.errors.length}`);
     sharedResult.errors.forEach((e: string) => log(`  SHARED_DIRS: ${e}`));
   }
 
   const userKbResult = await indexUserKbRoots();
   if (userKbResult.indexed > 0 || userKbResult.errors.length > 0) {
-    log(`USER_KB: indexados=${userKbResult.indexed}, errores=${userKbResult.errors.length}`);
+    log(`USER_KB: indexed=${userKbResult.indexed}, errors=${userKbResult.errors.length}`);
     userKbResult.errors.forEach((e: string) => log(`  USER_KB: ${e}`));
   }
 
@@ -100,15 +100,15 @@ function isRunOnceArg(arg: string): boolean {
 async function main(): Promise<void> {
   const runOnce = process.argv.slice(2).some(isRunOnceArg);
 
-  log('Supervisor iniciado (inbox + SHARED_DIRS cada ' + (POLL_INTERVAL_MS / 60000) + ' min). URLs solo bajo demanda (MCP: index_url, index_site).');
-  log(`Intervalo: ${POLL_INTERVAL_MS} ms, RESTART_DELAY_MS=${RESTART_DELAY_MS}`);
+  log('Supervisor started (inbox + SHARED_DIRS every ' + (POLL_INTERVAL_MS / 60000) + ' min). URLs are on-demand only (MCP: index_url, index_site).');
+  log(`Interval: ${POLL_INTERVAL_MS} ms, RESTART_DELAY_MS=${RESTART_DELAY_MS}`);
   if (runOnce) {
-    log('Modo bajo demanda: un ciclo y salir.');
+    log('On-demand mode: one cycle then exit.');
   }
 
   if (runOnce) {
     await runCycle();
-    log('Ciclo bajo demanda terminado.');
+    log('On-demand cycle finished.');
     process.exit(0);
   }
 
@@ -116,8 +116,8 @@ async function main(): Promise<void> {
     try {
       await runCycle();
     } catch (err) {
-      log(`Fallo del ciclo: ${err instanceof Error ? err.message : String(err)}`);
-      log(`Reinicio en ${RESTART_DELAY_MS} ms...`);
+      log(`Cycle failure: ${err instanceof Error ? err.message : String(err)}`);
+      log(`Restarting in ${RESTART_DELAY_MS} ms...`);
       await new Promise((r) => setTimeout(r, RESTART_DELAY_MS));
       continue;
     }
@@ -126,6 +126,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  log(`Error fatal: ${err instanceof Error ? err.message : String(err)}`);
+  log(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

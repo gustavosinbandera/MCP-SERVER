@@ -30,7 +30,7 @@ export async function getHtmlWithBrowser(url: string): Promise<string> {
     puppeteer = await import('puppeteer');
   } catch {
     throw new Error(
-      'Puppeteer no está instalado. Para indexar/ver URLs que cargan contenido por JavaScript (SPA), ejecuta en gateway: npm install puppeteer'
+      'Puppeteer is not installed. To index/view URLs that load content via JavaScript (SPA), run in gateway: npm install puppeteer'
     );
   }
 

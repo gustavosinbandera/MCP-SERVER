@@ -1,8 +1,8 @@
-# Gráfico: solución al bloqueo de search_docs (MCP)
+# Diagram: fix for `search_docs` hanging (MCP)
 
-## El problema (antes)
+## The problem (before)
 
-Varias búsquedas en paralelo compartían **una sola promesa** en el transport. Solo la última petición HTTP recibía respuesta; las demás se quedaban colgadas.
+Multiple parallel searches shared **a single promise** in the transport. Only the last HTTP request got a response; the others would hang.
 
 ```mermaid
 sequenceDiagram
@@ -11,7 +11,7 @@ sequenceDiagram
   participant Transport
   participant SDK
 
-  Note over Transport: Una sola currentResolve (promesa)
+  Note over Transport: Single currentResolve (promise)
 
   Cursor->>Gateway: POST 1 (search_docs A)
   Gateway->>Transport: handleRequest(bodyA)
@@ -20,27 +20,27 @@ sequenceDiagram
 
   Cursor->>Gateway: POST 2 (search_docs B)
   Gateway->>Transport: handleRequest(bodyB)
-  Transport->>Transport: currentResolve = resolveB (machaca A)
+  Transport->>Transport: currentResolve = resolveB (overwrites A)
   Transport->>SDK: onmessage(bodyB)
 
   Cursor->>Gateway: POST 3 (search_docs C)
   Gateway->>Transport: handleRequest(bodyC)
-  Transport->>Transport: currentResolve = resolveC (machaca B)
+  Transport->>Transport: currentResolve = resolveC (overwrites B)
   Transport->>SDK: onmessage(bodyC)
 
   SDK->>Transport: send(respuestaA)
-  Transport->>Transport: Resuelve resolveC con respuestaA (incorrecto)
+  Transport->>Transport: Resolves resolveC with responseA (incorrect)
   Transport-->>Gateway: respuesta para POST 3
   Gateway-->>Cursor: POST 3 ok (con contenido de A)
 
-  Note over Cursor,Gateway: POST 1 y POST 2 nunca reciben respuesta (colgados)
+  Note over Cursor,Gateway: POST 1 and POST 2 never receive a response (hung)
 ```
 
 ---
 
-## La solución (ahora)
+## The solution (now)
 
-Cada petición se guarda en una **cola** con su `id`. Cuando llega una respuesta, se empareja por `id` o, si no hay id, se asigna la más antigua (FIFO). Así cada POST recibe su respuesta.
+Each request is stored in a **queue** with its `id`. When a response arrives, it is matched by `id` or, if there’s no id, assigned to the oldest pending request (FIFO). This way each POST receives its own response.
 
 ```mermaid
 sequenceDiagram
@@ -66,34 +66,34 @@ sequenceDiagram
   Transport->>Transport: pendingQueue.push(id 103, resolveC)
   Transport->>SDK: onmessage(bodyC)
 
-  SDK->>Transport: send(respuestaB con id=102)
-  Transport->>Transport: Busca en cola id=102, saca resolveB
-  Transport->>Transport: resolveB(respuestaB)
-  Transport-->>Gateway: POST 2 resuelto
-  Gateway-->>Cursor: POST 2 ok (respuesta B)
+  SDK->>Transport: send(responseB with id=102)
+  Transport->>Transport: Find id=102 in queue, pop resolveB
+  Transport->>Transport: resolveB(responseB)
+  Transport-->>Gateway: POST 2 resolved
+  Gateway-->>Cursor: POST 2 ok (response B)
 
-  SDK->>Transport: send(respuestaA con id=101)
-  Transport->>Transport: Busca id=101, saca resolveA
-  Transport->>Transport: resolveA(respuestaA)
-  Transport-->>Gateway: POST 1 resuelto
-  Gateway-->>Cursor: POST 1 ok (respuesta A)
+  SDK->>Transport: send(responseA with id=101)
+  Transport->>Transport: Find id=101, pop resolveA
+  Transport->>Transport: resolveA(responseA)
+  Transport-->>Gateway: POST 1 resolved
+  Gateway-->>Cursor: POST 1 ok (response A)
 
-  SDK->>Transport: send(respuestaC con id=103)
-  Transport->>Transport: Busca id=103, saca resolveC
-  Transport->>Transport: resolveC(respuestaC)
-  Transport-->>Gateway: POST 3 resuelto
-  Gateway-->>Cursor: POST 3 ok (respuesta C)
+  SDK->>Transport: send(responseC with id=103)
+  Transport->>Transport: Find id=103, pop resolveC
+  Transport->>Transport: resolveC(responseC)
+  Transport-->>Gateway: POST 3 resolved
+  Gateway-->>Cursor: POST 3 ok (response C)
 
-  Note over Cursor,Gateway: Las tres peticiones reciben su respuesta correcta
+  Note over Cursor,Gateway: All three requests receive the correct response
 ```
 
 ---
 
-## Resumen visual del transport
+## Transport visual summary
 
 ```mermaid
 flowchart LR
-  subgraph entradas [Peticiones HTTP]
+  subgraph entradas [HTTP requests]
     P1[POST 1 id=101]
     P2[POST 2 id=102]
     P3[POST 3 id=103]
@@ -111,7 +111,7 @@ flowchart LR
     T3[Tool C]
   end
 
-  subgraph salidas [Respuestas]
+  subgraph salidas [Responses]
     R1[resp id=101]
     R2[resp id=102]
     R3[resp id=103]
@@ -126,37 +126,37 @@ flowchart LR
   T1 --> R1
   T2 --> R2
   T3 --> R3
-  R1 -->|"match por id"| Q1
-  R2 -->|"match por id"| Q2
-  R3 -->|"match por id"| Q3
+  R1 -->|"match by id"| Q1
+  R2 -->|"match by id"| Q2
+  R3 -->|"match by id"| Q3
 ```
 
-**Regla en `send(message)`:**
+**Rule in `send(message)`:**
 
-1. Si `message.id` existe → buscar en la cola la promesa con ese `requestId` y resolverla.
-2. Si no hay `id` o no hay coincidencia → tomar la promesa más antigua (FIFO) y resolverla para no dejar peticiones colgadas.
-
----
-
-## Paso 4: Cola por sesión en el gateway (serialización)
-
-Para garantizar que las respuestas no se crucen aunque el SDK no envíe `id`, el gateway **serializa** los requests por sesión: solo un request a la vez por `(userId, sessionId)`.
-
-- Cada POST /mcp entra en una cola por sesión (`gateway/src/mcp/session-queue.ts`).
-- Se llama a `handleRequest` solo cuando es el turno de ese request; al terminar, se procesa el siguiente.
-- Efecto: las tools/call (varias `search_docs`) se ejecutan en orden; cada `send()` del SDK corresponde al request en curso, así el transport asigna bien la respuesta (FIFO con un solo pending a la vez).
+1. If `message.id` exists → find the queued promise with that `requestId` and resolve it.
+2. If there’s no `id` or no match → take the oldest promise (FIFO) and resolve it to avoid leaving requests hanging.
 
 ---
 
-## Logs de diagnóstico (lo que añadimos)
+## Step 4: Per-session queue in the gateway (serialization)
 
-Para ver en producción si el emparejamiento funciona:
+To ensure responses don’t cross even if the SDK doesn’t include an `id`, the gateway **serializes** requests per session: only one request at a time per `(userId, sessionId)`.
 
-| Log | Qué indica |
+- Each POST /mcp goes into a per-session queue (`gateway/src/mcp/session-queue.ts`).
+- `handleRequest` is called only when it’s that request’s turn; when it finishes, the next one is processed.
+- Effect: tools/calls (multiple `search_docs`) run in order; each SDK `send()` corresponds to the in-flight request, so the transport assigns responses correctly (FIFO with only one pending at a time).
+
+---
+
+## Diagnostic logs (what we added)
+
+To verify in production that matching works:
+
+| Log | What it indicates |
 |-----|------------|
-| `mcp POST start` con `requestId` | Inicio de cada petición y su id JSON-RPC. |
-| `mcp transport send resolve` con `matchedBy: "id"` | La respuesta se emparejó por id (correcto). |
-| `mcp transport send resolve` con `matchedBy: "fifo"` | No había id en la respuesta; se usó la más antigua. |
-| `mcp POST ok` / `mcp POST slow` con `requestId` | Fin de la petición; puedes correlacionar con el start. |
+| `mcp POST start` with `requestId` | Start of each request and its JSON-RPC id. |
+| `mcp transport send resolve` with `matchedBy: "id"` | Response matched by id (correct). |
+| `mcp transport send resolve` with `matchedBy: "fifo"` | No id in the response; the oldest pending request was used. |
+| `mcp POST ok` / `mcp POST slow` with `requestId` | End of the request; you can correlate with the start. |
 
-Si siempre ves `matchedBy: "fifo"`, el SDK no envía `id` en la respuesta pero las peticiones siguen recibiendo respuesta en orden (FIFO).
+If you always see `matchedBy: "fifo"`, the SDK isn’t including `id` in responses, but requests still receive responses in order (FIFO).

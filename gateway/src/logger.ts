@@ -18,7 +18,7 @@ const LEVEL_ORDER: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const logContext = new AsyncLocalStorage<LogRequestContext>();
 let logFileStream: fs.WriteStream | null = null;
 
-/** Ruta del archivo de log MCP (para lectura desde API /logs). */
+/** MCP log file path (read via API /logs). */
 export function getLogFilePath(): string {
   const p = process.env.MCP_LOG_PATH?.trim();
   if (p) return path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
@@ -41,7 +41,7 @@ function ensureLogFileStream(): fs.WriteStream | null {
 
 const logSubscribers = new Set<(entry: Record<string, unknown>) => void>();
 
-/** Suscribe a cada nueva entrada de log (para SSE). Devuelve función para desuscribirse. */
+/** Subscribe to each new log entry (for SSE). Returns an unsubscribe function. */
 export function subscribeToLogEntries(cb: (entry: Record<string, unknown>) => void): () => void {
   logSubscribers.add(cb);
   return () => logSubscribers.delete(cb);

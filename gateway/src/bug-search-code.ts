@@ -1,6 +1,6 @@
 /**
- * Búsqueda de código relevante para un bug (título + descripción).
- * Extrae palabras clave y busca en gateway/src archivos que las contengan.
+ * Find code relevant to a bug (title + description).
+ * Extracts keywords and searches for files under gateway/src that contain them.
  */
 
 import * as fs from 'fs';
@@ -11,14 +11,14 @@ const DEFAULT_MAX_FILES = 8;
 const DEFAULT_MAX_CHARS_PER_FILE = 6000;
 const MIN_KEYWORD_LEN = 3;
 
-/** Fragmento de código: ruta relativa y contenido (truncado). */
+/** Code snippet: relative path and (truncated) content. */
 export interface CodeSnippet {
   path: string;
   content: string;
 }
 
 /**
- * Extrae palabras clave del texto (alfanuméricos, longitud >= MIN_KEYWORD_LEN).
+ * Extract keywords from text (alphanumeric, length >= MIN_KEYWORD_LEN).
  */
 function extractKeywords(text: string): string[] {
   const lower = text.toLowerCase();
@@ -48,9 +48,8 @@ function listSourceFiles(dir: string, ext: string): string[] {
 }
 
 /**
- * Devuelve archivos de gateway/src (y opcionalmente raíz del repo) cuyo contenido
- * o path contenga alguna palabra clave del bug. Ordenados por número de coincidencias.
- * Limita número de archivos y caracteres por archivo para caber en contexto LLM.
+ * Return gateway/src files whose content or path contains any bug keyword,
+ * ordered by match count. Limits number of files and characters per file to fit LLM context.
  */
 export function findRelevantCode(
   bugTitle: string,
@@ -94,7 +93,7 @@ export function findRelevantCode(
     try {
       let content = fs.readFileSync(fullPath, 'utf8');
       if (content.length > maxCharsPerFile) {
-        content = content.slice(0, maxCharsPerFile) + '\n// ... (truncado)';
+        content = content.slice(0, maxCharsPerFile) + '\n// ... (truncated)';
       }
       snippets.push({ path: relPath, content });
     } catch {

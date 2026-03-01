@@ -3,9 +3,10 @@
  * Uso: desde gateway/ → node scripts/test-clickup-get-tasks.cjs
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
-const { getTasks, getList, hasClickUpToken } = require('../dist/clickup-client.js');
+const { getTasks, getList, hasClickUpToken } = requireDist(['clickup-client.js', 'clickup']);
 
 async function main() {
   if (!hasClickUpToken()) {

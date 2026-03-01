@@ -5,7 +5,8 @@
  * Opcional en .env: CLICKUP_TAG=entregable (el tag debe existir en el workspace).
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
 const {
   getTeams,
@@ -19,7 +20,7 @@ const {
   createTimeEntry,
   addTaskLink,
   hasClickUpToken,
-} = require('../dist/clickup-client.js');
+} = requireDist(['clickup-client.js', 'clickup']);
 
 const TASK_NAMES = [
   '1.1 CloudFormation: stack EC2 y Security Group',

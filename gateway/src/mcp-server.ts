@@ -1,8 +1,8 @@
 /**
  * MCP Knowledge Hub - MCP Server (stdio)
- * Los IDEs (Cursor, VS Code, etc.) conectan con su cliente MCP y la IA usa la herramienta search_docs.
- * Ejecutar: node dist/mcp-server.js (el IDE suele arrancar este proceso y comunica por stdin/stdout).
- * Env: se cargan desde gateway/.env (ruta fija respecto a dist/mcp-server.js para que funcione aunque el cwd no sea gateway).
+ * IDEs (Cursor, VS Code, etc.) connect via an MCP client and the AI uses the search_docs tool.
+ * Run: node dist/mcp-server.js (the IDE usually starts this process and communicates over stdin/stdout).
+ * Env: loaded from gateway/.env (fixed path relative to dist/mcp-server.js so it works even if cwd is not gateway).
  */
 
 import path from 'path';
@@ -49,13 +49,13 @@ import {
   pickAuthor,
   updateWorkItemFields,
   addWorkItemCommentAsMarkdown,
-} from './azure-devops-client';
+} from './azure';
 import { findRelevantCode } from './bug-search-code';
 import { generatePossibleCauseEnglish, generateSolutionDescriptionEnglish, hasOpenAIForBugs } from './bug-solution-llm';
 import { info as logInfo } from './logger';
 import { getMcpToolsCatalog } from './mcp/tools-catalog';
 
-/** Nombre del proyecto/hub (ej. "BlueIvory Beta"). Opcional, para mostrar en respuestas. */
+/** Optional hub/project name (e.g. "BlueIvory Beta") shown in responses. */
 const KNOWLEDGE_HUB_NAME = (process.env.KNOWLEDGE_HUB_NAME || process.env.PROJECT_NAME || '').trim();
 
 type SearchFilterArgs = {
@@ -104,9 +104,9 @@ function formatFilterInfo(opts: SearchOptions): string {
 export type McpContext = { userId: string };
 
 /**
- * Factory: crea un McpServer con el set completo de tools.
- * ctx.userId se usa para rutas/payloads por usuario (ej. User KB en Fase 4).
- * Modo stdio: buildMcpServer({ userId: 'local' }).
+ * Factory: creates an McpServer with the full tool set.
+ * ctx.userId is used for per-user paths/payloads (e.g. User KB).
+ * Stdio mode: buildMcpServer({ userId: 'local' }).
  */
 export function buildMcpServer(ctx: McpContext): McpServer {
   const mcpServer = new McpServer({
@@ -116,7 +116,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
 
   mcpServer.tool(
   'search_docs',
-  'Busca en la documentación indexada del Knowledge Hub (Qdrant). Filtros opcionales (alineados con el payload indexado): project, branch (classic|blueivory), source_type (code|doc|url), domain, class_name (clase que contiene el doc), referenced_type (tipo referenciado), file_name. Usa esta herramienta cuando necesites información de la documentación del proyecto, ADRs, bugs, flujos o docs corporativos.',
+  'Search indexed Knowledge Hub documentation (Qdrant). Optional filters (aligned with the indexed payload): project, branch (classic|blueivory), source_type (code|doc|url), domain, class_name (class containing the doc), referenced_type (referenced type), file_name. Use this tool when you need information from project documentation, ADRs, bugs, flows, or corporate docs.',
   {
     query: z.string(),
     limit: z.number().optional(),
@@ -148,21 +148,21 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     const { results, total } = await searchDocs(query, maxResults, opts);
     logInfo('tool search_docs end', { elapsedMs: Date.now() - toolStart, total });
     const header = KNOWLEDGE_HUB_NAME ? `[${KNOWLEDGE_HUB_NAME}] ` : '';
-    const filterInfo = opts ? ` Filtros: ${formatFilterInfo(opts)}` : '';
+    const filterInfo = opts ? ` Filters: ${formatFilterInfo(opts)}` : '';
     const text =
       results.length === 0
-        ? `Sin resultados para "${query}".`
+        ? `No results for "${query}".`
         : results
             .map(
               (r, i) =>
-                `[${i + 1}] ${(r.payload?.title as string) || 'Sin título'}\n${(r.payload?.content as string) || ''}`,
+                `[${i + 1}] ${(r.payload?.title as string) || 'Untitled'}\n${(r.payload?.content as string) || ''}`,
             )
             .join('\n\n---\n\n');
     return {
       content: [
         {
           type: 'text' as const,
-          text: `${header}Búsqueda: "${query}" (${total} resultado(s))${filterInfo}\n\n${text}`,
+          text: `${header}Search: "${query}" (${total} result(s))${filterInfo}\n\n${text}`,
         },
       ],
     };
@@ -171,12 +171,12 @@ export function buildMcpServer(ctx: McpContext): McpServer {
 
 mcpServer.tool(
   'count_docs',
-  'Devuelve cuántos documentos hay indexados en la colección de Qdrant (mcp_docs). Úsala cuando necesites saber el total de documentos en el Knowledge Hub.',
+  'Return the number of documents indexed in the Qdrant collection (mcp_docs). Use this when you need the total document count in the Knowledge Hub.',
   {} as any,
   async () => {
     const { count, collection } = await countDocs();
-    const projectLine = KNOWLEDGE_HUB_NAME ? `Proyecto: ${KNOWLEDGE_HUB_NAME}\n` : '';
-    const text = `${projectLine}Colección: ${collection}\nDocumentos indexados: ${count}`;
+    const projectLine = KNOWLEDGE_HUB_NAME ? `Project: ${KNOWLEDGE_HUB_NAME}\n` : '';
+    const text = `${projectLine}Collection: ${collection}\nIndexed documents: ${count}`;
     return {
       content: [{ type: 'text' as const, text }],
     };
@@ -185,7 +185,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'analize_code',
-  'Análisis de código con contexto de la BD: dado una descripción (bug, funcionalidad, componente), busca en el Knowledge Hub (Qdrant) documentación relevante y devuelve el conteo de docs + fragmentos para que la IA analice el código con contexto. Úsala cuando el usuario pida analizar código, reporte un bug o necesite contexto desde la documentación indexada.',
+  'Code analysis with DB context: given a description (bug, feature, component), search the Knowledge Hub (Qdrant) for relevant docs and return the doc count + excerpts so the AI can analyze with context. Use this when the user asks to analyze code, reports a bug, or needs context from indexed documentation.',
   {
     description: z.string(),
     component: z.string().optional(),
@@ -220,23 +220,23 @@ mcpServer.tool(
     const opts = buildSearchOptionsFromArgs(args);
     const { results, total } = await searchDocs(query, limit, opts);
     const hubName = KNOWLEDGE_HUB_NAME ? ` – ${KNOWLEDGE_HUB_NAME}` : '';
-    const projectInfo = opts?.project ? ` | Proyecto: ${opts.project}` : opts ? ` | Filtros: ${formatFilterInfo(opts)}` : '';
+    const projectInfo = opts?.project ? ` | Project: ${opts.project}` : opts ? ` | Filters: ${formatFilterInfo(opts)}` : '';
     const header = [
-      `[ANÁLISIS DE CÓDIGO${hubName} – contexto desde la BD]`,
-      `Colección: mcp_docs | Documentos totales indexados: ${count}${projectInfo}`,
-      `Búsqueda: "${query}" → ${total} resultado(s) relevantes`,
+      `[CODE ANALYSIS${hubName} – context from the DB]`,
+      `Collection: mcp_docs | Total indexed documents: ${count}${projectInfo}`,
+      `Query: "${query}" → ${total} relevant result(s)`,
       ``,
     ].join('\n');
     const body =
       results.length === 0
-        ? `Sin documentos en la BD que coincidan con la descripción. Considera indexar más documentación (index_url, index_site) o ampliar la descripción.`
+        ? `No documents in the DB match the description. Consider indexing more documentation (index_url, index_site) or expanding the description.`
         : results
             .map((r, i) => {
-              const title = (r.payload?.title as string) || 'Sin título';
+              const title = (r.payload?.title as string) || 'Untitled';
               const url = r.payload?.url as string | undefined;
               const sourcePath = r.payload?.source_path as string | undefined;
               const proj = r.payload?.project as string | undefined;
-              const meta = [url && `URL: ${url}`, sourcePath && `Ruta: ${sourcePath}`, proj && `Proyecto: ${proj}`]
+              const meta = [url && `URL: ${url}`, sourcePath && `Path: ${sourcePath}`, proj && `Project: ${proj}`]
                 .filter(Boolean)
                 .join(' | ');
               return `[${i + 1}] ${title}${meta ? `\n${meta}` : ''}\n${(r.payload?.content as string) || ''}`;
@@ -251,44 +251,44 @@ mcpServer.tool(
 
 mcpServer.tool(
   'index_url',
-  'Indexa el contenido de una URL en Qdrant (Knowledge Hub). Obtiene la página, convierte HTML a texto y lo guarda en mcp_docs. Si la URL ya existía, se actualiza. project opcional (ej. magaya-help) para filtrar después por source_type=url. Para páginas SPA usa render_js: true. Úsala para añadir documentación o páginas importantes desde internet.',
+  'Index the content of a URL into Qdrant (Knowledge Hub). Fetches the page, converts HTML to text, and stores it in mcp_docs. If the URL already exists, it is updated. Optional project (e.g. magaya-help) can be used later to filter by source_type=url. For SPA pages use render_js: true. Use this to add important documentation or pages from the internet.',
   { url: z.string(), render_js: z.boolean().optional(), project: z.string().optional() } as any,
   async (args: { url: string; render_js?: boolean; project?: string }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
-        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+        content: [{ type: 'text' as const, text: 'URL must start with http:// or https://' }],
       };
     }
     const result = await indexUrl(url, { renderJs: args.render_js, project: args.project?.trim() });
     if (result.indexed) {
       return {
-        content: [{ type: 'text' as const, text: `URL indexada: ${result.title}\n${url}` }],
+        content: [{ type: 'text' as const, text: `URL indexed: ${result.title}\n${url}` }],
       };
     }
     return {
-      content: [{ type: 'text' as const, text: `Error al indexar ${url}: ${result.error ?? 'desconocido'}` }],
+      content: [{ type: 'text' as const, text: `Failed to index ${url}: ${result.error ?? 'unknown'}` }],
     };
   },
 );
 
 mcpServer.tool(
   'index_url_with_links',
-  'Indexa una URL y hasta max_links páginas enlazadas del mismo dominio (documentación, FAQ, etc.). Para sitios SPA (ej. help.magaya.com) usa render_js: true. Úsala para indexar un sitio y sus subpáginas relacionadas.',
+  'Index a URL and up to max_links linked pages from the same domain (docs, FAQ, etc.). For SPA sites (e.g. help.magaya.com) use render_js: true. Use this to index a site and its related subpages.',
   { url: z.string(), max_links: z.number().optional(), render_js: z.boolean().optional() } as any,
   async (args: { url: string; max_links?: number; render_js?: boolean }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
-        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+        content: [{ type: 'text' as const, text: 'URL must start with http:// or https://' }],
       };
     }
     const maxLinks = Math.min(Math.max(0, args.max_links ?? 20), 50);
     const result = await indexUrlWithLinks(url, maxLinks, { renderJs: args.render_js });
     const lines = [
-      `Indexadas: ${result.indexed}/${result.total} páginas.`,
+      `Indexed: ${result.indexed}/${result.total} pages.`,
       result.urls.length > 0 ? `URLs: ${result.urls.join(', ')}` : '',
-      result.errors.length > 0 ? `Errores: ${result.errors.join('; ')}` : '',
+      result.errors.length > 0 ? `Errors: ${result.errors.join('; ')}` : '',
     ].filter(Boolean);
     return {
       content: [{ type: 'text' as const, text: lines.join('\n') }],
@@ -298,7 +298,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'index_site',
-  'Indexa todo un sitio desde una URL semilla: recorre enlaces del mismo dominio (BFS) hasta indexar max_pages páginas. Con skip_already_indexed: true solo indexa URLs nuevas y salta las que ya están en Qdrant (útil para reanudar sin reindexar). Para sitios SPA (ej. help.magaya.com) usa render_js: true.',
+  'Index an entire site starting from a seed URL: crawls same-domain links (BFS) up to max_pages pages. With skip_already_indexed: true, it only indexes new URLs and skips those already in Qdrant (useful to resume without reindexing). For SPA sites (e.g. help.magaya.com) use render_js: true.',
   {
     url: z.string(),
     max_pages: z.number().optional(),
@@ -309,7 +309,7 @@ mcpServer.tool(
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
-        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+        content: [{ type: 'text' as const, text: 'URL must start with http:// or https://' }],
       };
     }
     const maxPages = Math.min(Math.max(1, args.max_pages ?? 1000), 20000);
@@ -318,10 +318,10 @@ mcpServer.tool(
       skipAlreadyIndexed: args.skip_already_indexed,
     });
     const lines = [
-      `Indexadas: ${result.indexed} páginas.`,
-      result.skipped > 0 ? `Saltadas (ya en índice): ${result.skipped} páginas.` : '',
-      result.urls.length > 0 ? `URLs (primeras 20): ${result.urls.slice(0, 20).join(', ')}${result.urls.length > 20 ? '...' : ''}` : '',
-      result.errors.length > 0 ? `Errores (primeros 5): ${result.errors.slice(0, 5).join('; ')}` : '',
+      `Indexed: ${result.indexed} pages.`,
+      result.skipped > 0 ? `Skipped (already indexed): ${result.skipped} pages.` : '',
+      result.urls.length > 0 ? `URLs (first 20): ${result.urls.slice(0, 20).join(', ')}${result.urls.length > 20 ? '...' : ''}` : '',
+      result.errors.length > 0 ? `Errors (first 5): ${result.errors.slice(0, 5).join('; ')}` : '',
     ].filter(Boolean);
     return {
       content: [{ type: 'text' as const, text: lines.join('\n') }],
@@ -331,7 +331,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'write_flow_doc',
-  'Crea un documento markdown (nodo del mapa de flujos) y lo guarda en INDEX_INBOX_DIR para que el supervisor lo indexe. Cuándo usarla: (1) Si el usuario dice "usar-mcp": crea el documento y empieza a añadir la información que te ayude a formar un mapa de cómo se interconecta el código (archivos, funciones, descripción del flujo). (2) Si usas una tool de análisis de código o revisión de flujo (analize_code, search_docs) y obtienes resultados relevantes: también crea el documento y almacénalo. Los documentos generados por la IA llevan en el frontmatter los campos generated_by_ia: true y source: ai_generated para identificarlos explícitamente. Parámetros: title, description; opcional: files, functions, flow_summary, bug_id, project.',
+  'Create a Markdown document (a flow-map node) and save it to INDEX_INBOX_DIR so the supervisor can index it. When to use it: (1) If the user says "usar-mcp": create the document and start adding information that helps build a map of how the code connects (files, functions, flow description). (2) If you use a code-analysis / flow-review tool (analize_code, search_docs) and get relevant results: also create and store the document. AI-generated docs include frontmatter fields generated_by_ia: true and source: ai_generated to explicitly identify them. Params: title, description; optional: files, functions, flow_summary, bug_id, project.',
   {
     title: z.string(),
     description: z.string(),
@@ -367,7 +367,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'documentar_sesion',
-  'Guarda un documento Markdown de experiencia/sesión en la KB personal del usuario (persistente, no se borra). Se indexa en Qdrant con owner_user_id y doc_kind "experience". Úsala para documentar sesiones, hallazgos, bugs o features. Parámetros: title, content (markdown); opcionales: bugOrFeatureId, tags (array de strings).',
+  'Save a Markdown experience/session document in the user personal KB (persistent; not deleted). It is indexed in Qdrant with owner_user_id and doc_kind "experience". Use this to document sessions, findings, bugs, or features. Params: title, content (markdown); optional: bugOrFeatureId, tags (array of strings).',
   {
     title: z.string(),
     content: z.string(),
@@ -384,7 +384,7 @@ mcpServer.tool(
     });
     if (result.error) {
       return {
-        content: [{ type: 'text' as const, text: `Error al guardar: ${result.error}` }],
+        content: [{ type: 'text' as const, text: `Failed to save: ${result.error}` }],
       };
     }
     return {
@@ -395,7 +395,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'list_shared_dir',
-  'Lista directorios y archivos en un directorio compartido (sin índice). Usa relative_path vacío para la raíz del primer directorio compartido (SHARED_DIRS).',
+  'List directories and files in a shared directory (no indexing). Use empty relative_path for the root of the first shared directory (SHARED_DIRS).',
   { relative_path: z.string().optional() } as any,
   async (args: { relative_path?: string }) => {
     const roots = getSharedRootsForDisplay();
@@ -403,15 +403,15 @@ mcpServer.tool(
       const envVal = process.env.SHARED_DIRS;
       const diag =
         envVal === undefined
-          ? ' (variable no definida en el proceso)'
+          ? ' (variable not set in the process)'
           : envVal === ''
-            ? ' (variable vacía)'
-            : ` (valor recibido: "${envVal}")`;
+            ? ' (variable is empty)'
+            : ` (received value: "${envVal}")`;
       return {
         content: [
           {
             type: 'text' as const,
-            text: `No hay directorios compartidos configurados. SHARED_DIRS vacío o inválido${diag}. Comprueba .cursor/mcp.json y reinicia Cursor.`,
+            text: `No shared directories are configured. SHARED_DIRS is empty or invalid${diag}. Check .cursor/mcp.json and restart Cursor.`,
           },
         ],
       };
@@ -423,13 +423,13 @@ mcpServer.tool(
         content: [
           {
             type: 'text' as const,
-            text: `No se pudo listar "${relativePath || '(raíz)'}" en ${roots[0]}. Ruta inválida o no existe.`,
+            text: `Could not list "${relativePath || '(root)'}" in ${roots[0]}. Invalid path or does not exist.`,
           },
         ],
       };
     }
-    const pathLabel = relativePath ? relativePath : '(raíz)';
-    const text = `Directorio compartido: ${result.root}\nRuta: ${pathLabel}\n\nEntradas:\n${result.entries.join('\n')}`;
+    const pathLabel = relativePath ? relativePath : '(root)';
+    const text = `Shared directory: ${result.root}\nPath: ${pathLabel}\n\nEntries:\n${result.entries.join('\n')}`;
     return {
       content: [{ type: 'text' as const, text }],
     };
@@ -438,7 +438,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'read_shared_file',
-  'Lee el contenido de un archivo dentro del directorio compartido (sin índice). Pasa la ruta relativa al archivo (ej. "readme.txt" o "src/index.js").',
+  'Read the contents of a file inside the shared directory (no indexing). Pass the relative path to the file (e.g. "readme.txt" or "src/index.js").',
   { relative_path: z.string() } as any,
   async (args: { relative_path: string }) => {
     const roots = getSharedRootsForDisplay();
@@ -447,7 +447,7 @@ mcpServer.tool(
         content: [
           {
             type: 'text' as const,
-            text: 'No hay directorios compartidos configurados (SHARED_DIRS vacío).',
+            text: 'No shared directories are configured (SHARED_DIRS is empty).',
           },
         ],
       };
@@ -458,12 +458,12 @@ mcpServer.tool(
         content: [
           {
             type: 'text' as const,
-            text: `No se pudo leer "${args.relative_path}" en ${roots[0]}. Ruta inválida, no existe o no es un archivo.`,
+            text: `Could not read "${args.relative_path}" in ${roots[0]}. Invalid path, it does not exist, or it is not a file.`,
           },
         ],
       };
     }
-    const text = `Archivo: ${result.path}\n\n---\n\n${result.content}`;
+    const text = `File: ${result.path}\n\n---\n\n${result.content}`;
     return {
       content: [{ type: 'text' as const, text }],
     };
@@ -472,13 +472,13 @@ mcpServer.tool(
 
 mcpServer.tool(
   'list_url_links',
-  'Lista cuántos subenlaces y archivos contiene una URL. Obtiene la página, extrae todos los href y devuelve conteos y listas en Markdown. Úsala para inspeccionar enlaces remotos, listar URLs dentro de una página o listar archivos referenciados.',
+  'List how many sub-links and files a URL contains. Fetches the page, extracts all hrefs, and returns counts and lists in Markdown. Use this to inspect remote links, list URLs within a page, or list referenced files.',
   { url: z.string() } as any,
   async (args: { url: string }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
-        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+        content: [{ type: 'text' as const, text: 'URL must start with http:// or https://' }],
       };
     }
     const result = await listUrlLinks(url);
@@ -491,13 +491,13 @@ mcpServer.tool(
 
 mcpServer.tool(
   'view_url',
-  'Muestra el contenido de una URL en formato Markdown (título, texto y bloques de código con ```). En MediaWiki solo se devuelve el artículo (.mw-parser-output), sin menús ni pie. Para páginas que cargan el contenido por JavaScript (SPA, ej. help.magaya.com), usa render_js: true para abrir la URL en un navegador headless y obtener el HTML renderizado. Úsala para ver una página: ver url, inspeccionar url.',
+  'Show the content of a URL in Markdown format (title, text, and code blocks with ```). For MediaWiki, only the article (.mw-parser-output) is returned (no menus/footer). For pages that load content via JavaScript (SPA, e.g. help.magaya.com), use render_js: true to open the URL in a headless browser and get rendered HTML. Use this to inspect a page: view url, inspect url.',
   { url: z.string(), render_js: z.boolean().optional() } as any,
   async (args: { url: string; render_js?: boolean }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
-        content: [{ type: 'text' as const, text: 'URL debe comenzar con http:// o https://' }],
+        content: [{ type: 'text' as const, text: 'URL must start with http:// or https://' }],
       };
     }
     const result = await viewUrlContent(url, { renderJs: args.render_js });
@@ -514,17 +514,17 @@ mcpServer.tool(
 
 mcpServer.tool(
   'mediawiki_login',
-  'Inicia sesión en un sitio MediaWiki (obtiene token de login vía API y guarda la sesión en cookies). Usa las credenciales INDEX_URL_USER e INDEX_URL_PASSWORD de gateway/.env. Después de un login correcto, view_url, index_url y list_url_links podrán acceder a páginas protegidas de ese sitio. Úsala cuando una URL pida login: login mediawiki, iniciar sesión, login url.',
+  'Log into a MediaWiki site (fetches a login token via API and stores the session in cookies). Uses INDEX_URL_USER and INDEX_URL_PASSWORD from gateway/.env. After a successful login, view_url, index_url, and list_url_links can access protected pages on that site. Use this when a URL requires login: mediawiki login, sign in, login url.',
   { url: z.string() } as any,
   async (args: { url: string }) => {
     const url = (args.url || '').trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return {
-        content: [{ type: 'text' as const, text: '## Error\n\nLa URL u origen debe comenzar con http:// o https://' }],
+        content: [{ type: 'text' as const, text: '## Error\n\nThe URL (or origin) must start with http:// or https://' }],
       };
     }
     const result = await loginMediaWiki(url);
-    const title = result.success ? 'Sesión iniciada' : 'Error de login';
+    const title = result.success ? 'Signed in' : 'Login failed';
     const text = `## ${title}\n\n${result.message}`;
     return {
       content: [{ type: 'text' as const, text }],
@@ -534,7 +534,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'search_github_repos',
-  'SOLO BÚSQUEDA en GitHub: lista repositorios existentes por tema (no crea repos, no escribe scripts). Cuando el usuario diga "buscar en github X", "repos de X", "encontrar repos esp32/mcp/etc" → usa esta tool y devuelve los resultados; no crear repos ni código. Parámetros: topic (tema, ej. esp32, MCP server), opcional limit (máx. 30), opcional sort (updated | stars | forks).',
+  'GitHub SEARCH ONLY: list existing repositories by topic (does not create repos, does not write scripts). When the user says "search on GitHub X", "repos about X", "find esp32/mcp repos", use this tool and return results; do not create repos or code. Params: topic (e.g. esp32, MCP server), optional limit (max 30), optional sort (updated | stars | forks).',
   {
     topic: z.string(),
     limit: z.number().optional(),
@@ -544,7 +544,7 @@ mcpServer.tool(
     const topic = (args.topic ?? '').trim();
     if (!topic) {
       return {
-        content: [{ type: 'text' as const, text: 'Indica un tema (topic) para buscar repositorios en GitHub.' }],
+        content: [{ type: 'text' as const, text: 'Provide a topic to search repositories on GitHub.' }],
       };
     }
     const limit = args.limit != null ? Math.min(Math.max(1, args.limit), 30) : 10;
@@ -555,17 +555,17 @@ mcpServer.tool(
         content: [
           {
             type: 'text' as const,
-            text: `[search_github_repos – error]\n\n${result.error ?? 'Error desconocido'}`,
+            text: `[search_github_repos – error]\n\n${result.error ?? 'Unknown error'}`,
           },
         ],
       };
     }
     const lines: string[] = [
-      `Búsqueda: "${topic}" | Orden: ${sort} | Total en GitHub: ${result.total_count}`,
+      `Query: "${topic}" | Sort: ${sort} | Total on GitHub: ${result.total_count}`,
       '',
       ...result.repos.map((r, i) => {
         const desc = r.description ? `\n  ${r.description.slice(0, 200)}${r.description.length > 200 ? '…' : ''}` : '';
-        const meta = [r.language && `Lang: ${r.language}`, `★ ${r.stargazers_count}`, `Fork: ${r.forks_count}`, `Actualizado: ${r.updated_at.slice(0, 10)}`].filter(Boolean).join(' | ');
+        const meta = [r.language && `Lang: ${r.language}`, `★ ${r.stargazers_count}`, `Fork: ${r.forks_count}`, `Updated: ${r.updated_at.slice(0, 10)}`].filter(Boolean).join(' | ');
         const topics = r.topics.length > 0 ? `\n  Topics: ${r.topics.slice(0, 8).join(', ')}` : '';
         return `[${i + 1}] ${r.full_name}\n  ${r.html_url}${desc}\n  ${meta}${topics}`;
       }),
@@ -578,7 +578,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'repo_git',
-  'Manipula el repositorio Git del workspace. Alias: hacer push, hacer commit, subir los cambios, ver estado del repo, etc. Acciones permitidas: status (ver estado), add (añadir archivos al stage), commit (crear commit; requiere message), push (subir al remoto), pull (traer del remoto). Por defecto opera en el directorio de trabajo del proceso (normalmente la raíz del proyecto abierto en el IDE). Opcionalmente pasa directory para otro repo.',
+  'Operate on the workspace Git repository. Aliases: push, commit, upload changes, view repo status, etc. Allowed actions: status (show status), add (stage files), commit (create a commit; requires message), push (push to remote), pull (pull from remote). By default it operates in the process working directory (usually the opened project root in the IDE). Optionally pass directory to target a different repo.',
   {
     action: z.enum(['status', 'add', 'commit', 'push', 'pull']),
     message: z.string().optional(),
@@ -592,7 +592,7 @@ mcpServer.tool(
         content: [
           {
             type: 'text' as const,
-            text: `Acción no permitida: "${args.action}". Usa: status, add, commit, push o pull.`,
+            text: `Action not allowed: "${args.action}". Use: status, add, commit, push, or pull.`,
           },
         ],
       };
@@ -614,7 +614,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'repo_pull',
-  'Hace git pull en el repositorio del workspace (trae cambios del remoto). Opcional: directory para otro repo.',
+  'Run git pull in the workspace repository (fetch changes from remote). Optional: directory to target a different repo.',
   {
     directory: z.string().optional(),
   } as any,
@@ -634,7 +634,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'instance_update',
-  'Devuelve el comando SSH para actualizar la instancia: en la instancia hace git pull, build, up, restart y verifica health (hasta 3 intentos; si falla revierte). No hace add/commit/push en tu repo local. INSTANCE_SSH_TARGET, INSTANCE_SSH_KEY_PATH en .env.',
+  'Return the SSH command to update the instance: on the instance it runs git pull, build, up, restart, and health verification (up to 3 attempts; if it fails, it reverts). It does not add/commit/push in your local repo. Configure INSTANCE_SSH_TARGET and INSTANCE_SSH_KEY_PATH in .env.',
   {} as any,
   async () => {
     const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@52.91.217.181';
@@ -644,13 +644,13 @@ mcpServer.tool(
     const fullCommand = `${sshPart} "${cmd.replace(/"/g, '\\"')}"`;
 
     const text = [
-      '[instance_update] Ejecuta este comando en la terminal (desde la raíz del repo):',
+      '[instance_update] Run this command in your terminal (from the repo root):',
       '',
       fullCommand,
       '',
-      `Host: ${host} | Clave: ${keyPath}`,
+      `Host: ${host} | Key: ${keyPath}`,
       '',
-      'En la instancia se ejecuta: git pull, build gateway/supervisor, up -d, restart y verificación de health. Si ya hiciste push de tus cambios, el pull los traerá.',
+      'On the instance it runs: git pull, build gateway/supervisor, up -d, restart, and health verification. If you already pushed your changes, the pull will bring them.',
     ].join('\n');
 
     return { content: [{ type: 'text' as const, text }] };
@@ -663,17 +663,17 @@ function instanceSshCommand(remoteCmd: string, title: string): string {
   const sshPart = keyPath ? `ssh -i "${keyPath}" ${host}` : `ssh ${host}`;
   const fullCommand = `${sshPart} "${remoteCmd.replace(/"/g, '\\"')}"`;
   return [
-    `[${title}] Ejecuta este comando en la terminal (desde la raíz del repo):`,
+    `[${title}] Run this command in your terminal (from the repo root):`,
     '',
     fullCommand,
     '',
-    `Host: ${host} | Clave: ${keyPath}`,
+    `Host: ${host} | Key: ${keyPath}`,
   ].join('\n');
 }
 
 mcpServer.tool(
   'instance_report',
-  'Devuelve el comando SSH para ver el estado de la instancia en formato Markdown: Current IP, última ejecución de instance_update, contenedores, health. Ejecuta el comando en la terminal de Cursor.',
+  'Return the SSH command to view instance status in Markdown: current IP, last instance_update run, containers, health. Run the command in the Cursor terminal.',
   {} as any,
   async () => {
     const cmd = [
@@ -689,7 +689,7 @@ mcpServer.tool(
       "echo '### Last update status'",
       "(cat .last-update-status 2>/dev/null || echo 'no state')",
       "echo ''",
-      "echo '### Contenedores'",
+      "echo '### Containers'",
       "docker compose ps",
       "echo ''",
       "echo '### Health'",
@@ -703,7 +703,7 @@ mcpServer.tool(
 
 mcpServer.tool(
   'instance_reboot',
-  'Devuelve el comando SSH listo para reiniciar todos los servicios de la instancia (docker compose restart). Ejecuta el comando en la terminal de Cursor.',
+  'Return the ready-to-run SSH command to restart all instance services (docker compose restart). Run the command in the Cursor terminal.',
   {} as any,
   async () => {
     const cmd = "cd ~/MCP-SERVER && docker compose restart";
@@ -720,87 +720,87 @@ function clickUpError(err: unknown): string {
 
 mcpServer.tool(
   'clickup_list_workspaces',
-  'Lista los workspaces (teams) de ClickUp a los que tienes acceso. Úsala para encontrar el workspace MCP-SERVER o su team_id. Requiere CLICKUP_API_TOKEN en .env.',
+  'List the ClickUp workspaces (teams) you have access to. Use this to find the MCP-SERVER workspace or its team_id. Requires CLICKUP_API_TOKEN in .env.',
   {} as any,
   async () => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido. Añade tu Personal API Token (pk_...) en .env o gateway/.env (local e instancia).' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set. Add your Personal API Token (pk_...) in .env or gateway/.env (local and instance).' }] };
     }
     try {
       const teams = await getTeams();
       const lines = teams.length === 0
-        ? ['Sin workspaces.']
-        : teams.map((t) => `- id: ${t.id}  name: ${t.name ?? '(sin nombre)'}`);
+        ? ['No workspaces found.']
+        : teams.map((t) => `- id: ${t.id}  name: ${t.name ?? '(no name)'}`);
       return { content: [{ type: 'text' as const, text: `Workspaces (${teams.length}):\n${lines.join('\n')}` }] };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_list_spaces',
-  'Lista los spaces de un workspace ClickUp. Necesitas el team_id (de clickup_list_workspaces).',
+  'List spaces in a ClickUp workspace. Requires team_id (from clickup_list_workspaces).',
   { team_id: z.string() } as any,
   async (args: { team_id: string }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const spaces = await getSpaces(String(args.team_id).trim());
       const lines = spaces.length === 0
-        ? ['Sin spaces.']
-        : spaces.map((s) => `- id: ${s.id}  name: ${s.name ?? '(sin nombre)'}`);
+        ? ['No spaces found.']
+        : spaces.map((s) => `- id: ${s.id}  name: ${s.name ?? '(no name)'}`);
       return { content: [{ type: 'text' as const, text: `Spaces (${spaces.length}):\n${lines.join('\n')}` }] };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_list_folders',
-  'Lista los folders (y listas) de un space ClickUp. Necesitas el space_id.',
+  'List folders (and lists) in a ClickUp space. Requires space_id.',
   { space_id: z.string() } as any,
   async (args: { space_id: string }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const folders = await getFolders(String(args.space_id).trim());
       const lines = folders.length === 0
-        ? ['Sin folders.']
-        : folders.map((f) => `- id: ${f.id}  name: ${f.name ?? '(sin nombre)'}`);
+        ? ['No folders found.']
+        : folders.map((f) => `- id: ${f.id}  name: ${f.name ?? '(no name)'}`);
       return { content: [{ type: 'text' as const, text: `Folders (${folders.length}):\n${lines.join('\n')}` }] };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_list_lists',
-  'Lista las listas de un folder ClickUp (donde se crean tareas). Necesitas el folder_id.',
+  'List lists in a ClickUp folder (where tasks are created). Requires folder_id.',
   { folder_id: z.string() } as any,
   async (args: { folder_id: string }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const lists = await getLists(String(args.folder_id).trim());
       const lines = lists.length === 0
-        ? ['Sin listas.']
-        : lists.map((l) => `- id: ${l.id}  name: ${l.name ?? '(sin nombre)'}`);
-      return { content: [{ type: 'text' as const, text: `Listas (${lists.length}):\n${lines.join('\n')}` }] };
+        ? ['No lists found.']
+        : lists.map((l) => `- id: ${l.id}  name: ${l.name ?? '(no name)'}`);
+      return { content: [{ type: 'text' as const, text: `Lists (${lists.length}):\n${lines.join('\n')}` }] };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_list_tasks',
-  'Lista tareas de una lista ClickUp. Úsala para ver tickets o tareas del proyecto. Parámetros: list_id (requerido), status y archived opcionales.',
+  'List tasks from a ClickUp list. Use this to view project tickets/tasks. Params: list_id (required), optional status and archived.',
   {
     list_id: z.string(),
     status: z.string().optional(),
@@ -808,7 +808,7 @@ mcpServer.tool(
   } as any,
   async (args: { list_id: string; status?: string; archived?: boolean }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const tasks = await getTasks(String(args.list_id).trim(), {
@@ -816,21 +816,21 @@ mcpServer.tool(
         archived: args.archived,
       });
       const lines = tasks.length === 0
-        ? ['Sin tareas.']
+        ? ['No tasks found.']
         : tasks.map((t) => {
             const statusStr = t.status?.status ?? '';
             return `- id: ${t.id}  name: ${(t.name ?? '').slice(0, 60)}${(t.name?.length ?? 0) > 60 ? '…' : ''}  status: ${statusStr}`;
           });
-      return { content: [{ type: 'text' as const, text: `Tareas (${tasks.length}):\n${lines.join('\n')}` }] };
+      return { content: [{ type: 'text' as const, text: `Tasks (${tasks.length}):\n${lines.join('\n')}` }] };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_create_task',
-  'Crea una tarea/ticket en una lista ClickUp. Úsala cuando el usuario pida crear un ticket o tarea. Requiere list_id y name; opcionales: description, status, priority.',
+  'Create a task/ticket in a ClickUp list. Use this when the user asks to create a ticket or task. Requires list_id and name; optional: description, status, priority.',
   {
     list_id: z.string(),
     name: z.string(),
@@ -840,7 +840,7 @@ mcpServer.tool(
   } as any,
   async (args: { list_id: string; name: string; description?: string; status?: string; priority?: number }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const body: CreateTaskBody = { name: String(args.name).trim() };
@@ -849,17 +849,17 @@ mcpServer.tool(
       if (args.priority != null) body.priority = Number(args.priority);
       const task = await createTask(String(args.list_id).trim(), body);
       return {
-        content: [{ type: 'text' as const, text: `Tarea creada: id=${task.id}  name=${task.name ?? '(sin nombre)'}` }],
+        content: [{ type: 'text' as const, text: `Task created: id=${task.id}  name=${task.name ?? '(no name)'}` }],
       };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_create_subtask',
-  'Crea una subtarea bajo una tarea padre en ClickUp. Requiere list_id (misma lista que la tarea padre), parent_task_id y name; opcionales: description, status, priority.',
+  'Create a subtask under a parent task in ClickUp. Requires list_id (same list as the parent task), parent_task_id, and name; optional: description, status, priority.',
   {
     list_id: z.string(),
     parent_task_id: z.string(),
@@ -870,7 +870,7 @@ mcpServer.tool(
   } as any,
   async (args: { list_id: string; parent_task_id: string; name: string; description?: string; status?: string; priority?: number }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const body: CreateTaskBody = { name: String(args.name).trim() };
@@ -883,41 +883,41 @@ mcpServer.tool(
         body,
       );
       return {
-        content: [{ type: 'text' as const, text: `Subtarea creada: id=${task.id}  name=${task.name ?? '(sin nombre)'}` }],
+        content: [{ type: 'text' as const, text: `Subtask created: id=${task.id}  name=${task.name ?? '(no name)'}` }],
       };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_get_task',
-  'Obtiene el detalle de una tarea ClickUp por task_id.',
+  'Get ClickUp task details by task_id.',
   { task_id: z.string() } as any,
   async (args: { task_id: string }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const task = await getTask(String(args.task_id).trim());
       const statusStr = task.status?.status ?? '';
       const text = [
         `id: ${task.id}`,
-        `name: ${task.name ?? '(sin nombre)'}`,
+        `name: ${task.name ?? '(no name)'}`,
         `status: ${statusStr}`,
         task.description ? `description: ${String(task.description).slice(0, 500)}${String(task.description).length > 500 ? '…' : ''}` : '',
       ].filter(Boolean).join('\n');
       return { content: [{ type: 'text' as const, text }] };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
 
 mcpServer.tool(
   'clickup_update_task',
-  'Actualiza una tarea ClickUp (estado, título, descripción, prioridad). Úsala para cerrar tickets, cambiar estado o editar. Requiere task_id; opcionales: name, description, status, priority.',
+  'Update a ClickUp task (status, title, description, priority). Use this to close tickets, change status, or edit. Requires task_id; optional: name, description, status, priority.',
   {
     task_id: z.string(),
     name: z.string().optional(),
@@ -927,7 +927,7 @@ mcpServer.tool(
   } as any,
   async (args: { task_id: string; name?: string; description?: string; status?: string; priority?: number }) => {
     if (!hasClickUpToken()) {
-      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN no está definido.' }] };
+      return { content: [{ type: 'text' as const, text: 'CLICKUP_API_TOKEN is not set.' }] };
     }
     try {
       const body: UpdateTaskBody = {};
@@ -937,10 +937,10 @@ mcpServer.tool(
       if (args.priority != null) body.priority = Number(args.priority);
       const task = await updateTask(String(args.task_id).trim(), body);
       return {
-        content: [{ type: 'text' as const, text: `Tarea actualizada: id=${task.id}  name=${task.name ?? '(sin nombre)'}` }],
+        content: [{ type: 'text' as const, text: `Task updated: id=${task.id}  name=${task.name ?? '(no name)'}` }],
       };
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Error ClickUp: ${clickUpError(err)}` }] };
+      return { content: [{ type: 'text' as const, text: `ClickUp error: ${clickUpError(err)}` }] };
     }
   },
 );
@@ -953,14 +953,14 @@ mcpServer.tool(
 
   mcpServer.tool(
     'azure',
-    'Alias para Azure DevOps. Primer argumento: accion (ej. "listar tareas"). Segundo argumento opcional: usuario (ej. "gustavo grisales" o "ggrisales") para ver tareas asignadas a esa persona. Sin usuario: tareas asignadas a ti. Invocar: azure con accion="listar tareas" y opcional usuario="Gustavo Grisales".',
+    'Alias for Azure DevOps. First argument: accion (e.g. "listar tareas"). Optional second argument: usuario (e.g. "gustavo grisales" or "ggrisales") to see tasks assigned to that person. Without usuario: tasks assigned to you. Invoke: azure with accion="listar tareas" and optionally usuario="Gustavo Grisales".',
     {
       accion: z.string(),
       usuario: z.string().optional(),
     } as any,
     async (args: { accion: string; usuario?: string }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       const accion = (args.accion || '').trim().toLowerCase();
       const usuario = args.usuario?.trim();
@@ -971,28 +971,28 @@ mcpServer.tool(
             assignedTo: usuario || undefined,
             assignedToMe: !usuario,
           });
-          const who = usuario ? `asignados a "${usuario}"` : 'asignados a ti';
+          const who = usuario ? `assigned to "${usuario}"` : 'assigned to you';
           const lines = items.length === 0
-            ? [`No hay work items ${who}.`]
+            ? [`No work items ${who}.`]
             : items.map((item) => {
                 const f = item.fields || {};
                 const changed = f['System.ChangedDate'] ? `  ${String(f['System.ChangedDate']).slice(0, 10)}` : '';
-                return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(sin título)'}${changed}`;
+                return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(untitled)'}${changed}`;
               });
           return { content: [{ type: 'text' as const, text: `Work Items ${who} (${items.length}):\n${lines.join('\n')}` }] };
         } catch (err) {
-          return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+          return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
         }
       }
       return {
-        content: [{ type: 'text' as const, text: `Acción "${args.accion}" no reconocida. Usa accion "listar tareas" y opcionalmente usuario "gustavo grisales".` }],
+        content: [{ type: 'text' as const, text: `Unrecognized action "${args.accion}". Use accion "listar tareas" and optionally usuario "gustavo grisales".` }],
       };
     },
   );
 
   mcpServer.tool(
     'azure_list_work_items',
-    'Lista work items (tickets/bugs/tareas) de Azure DevOps. Sin assigned_to: asignados a ti (@Me). Con assigned_to: asignados a ese usuario (ej. "Gustavo Grisales" o "ggrisales"). Filtros opcionales: type (Bug/Task), states (New,Committed,In Progress), year, top. Trae los asignados hasta la fecha. Requiere AZURE_DEVOPS_* en .env.',
+    'List Azure DevOps work items (tickets/bugs/tasks). Without assigned_to: assigned to you (@Me). With assigned_to: assigned to that user (e.g. "Gustavo Grisales" or "ggrisales"). Optional filters: type (Bug/Task), states (New,Committed,In Progress), year, top. Returns assigned items up to now. Requires AZURE_DEVOPS_* in .env.',
     {
       type: z.string().optional(),
       states: z.string().optional(),
@@ -1002,7 +1002,7 @@ mcpServer.tool(
     } as any,
     async (args: { type?: string; states?: string; year?: number; top?: number; assigned_to?: string }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT y AZURE_DEVOPS_PAT deben estar definidos en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT must be set in .env.' }] };
       }
       try {
         const type = args.type?.trim();
@@ -1017,34 +1017,34 @@ mcpServer.tool(
           assignedTo: assignedTo || undefined,
           assignedToMe: !assignedTo,
         });
-        const who = assignedTo ? `asignados a "${assignedTo}"` : 'asignados a ti';
+        const who = assignedTo ? `assigned to "${assignedTo}"` : 'assigned to you';
         const lines = items.length === 0
-          ? [`No hay work items ${who} con esos filtros.`]
+          ? [`No work items ${who} match those filters.`]
           : items.map((item) => {
               const f = item.fields || {};
               const changed = f['System.ChangedDate'] ? `  ${String(f['System.ChangedDate']).slice(0, 10)}` : '';
-              return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(sin título)'}${changed}`;
+              return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(untitled)'}${changed}`;
             });
         return { content: [{ type: 'text' as const, text: `Work Items ${who} (${items.length}):\n${lines.join('\n')}` }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_get_work_item',
-    'Obtiene el detalle de un work item de Azure DevOps por ID. Requiere config Azure DevOps en .env.',
+    'Get Azure DevOps work item details by ID. Requires Azure DevOps config in .env.',
     { work_item_id: z.number() } as any,
     async (args: { work_item_id: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const wi = await getWorkItem(args.work_item_id);
         const f = wi.fields || {};
         const lines = [
-          `#${wi.id} ${f['System.Title'] ?? '(sin título)'}`,
+          `#${wi.id} ${f['System.Title'] ?? '(untitled)'}`,
           `Type: ${f['System.WorkItemType'] ?? '?'}  State: ${f['System.State'] ?? '?'}`,
           `AssignedTo: ${(f['System.AssignedTo'] as { displayName?: string })?.displayName ?? f['System.AssignedTo'] ?? '?'}`,
           `Created: ${f['System.CreatedDate'] ?? '?'}  Changed: ${f['System.ChangedDate'] ?? '?'}`,
@@ -1052,25 +1052,25 @@ mcpServer.tool(
         ];
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_get_work_item_updates',
-    'Obtiene el historial de actualizaciones (logs) de un work item en Azure DevOps: quién cambió qué y cuándo. Requiere config Azure DevOps en .env.',
+    'Get the update history (logs) of an Azure DevOps work item: who changed what and when. Requires Azure DevOps config in .env.',
     { work_item_id: z.number(), top: z.number().optional() } as any,
     async (args: { work_item_id: number; top?: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const { value: updates } = await getWorkItemUpdates(args.work_item_id, args.top ?? 50);
         if (!updates || updates.length === 0) {
-          return { content: [{ type: 'text' as const, text: `Work item #${args.work_item_id}: sin historial de actualizaciones.` }] } as any;
+          return { content: [{ type: 'text' as const, text: `Work item #${args.work_item_id}: no update history.` }] } as any;
         }
-        const lines: string[] = [`# Historial de actualizaciones - Work Item #${args.work_item_id}`, ''];
+        const lines: string[] = [`# Update history - Work Item #${args.work_item_id}`, ''];
         for (const u of updates) {
           const by = (u.revisedBy as { displayName?: string })?.displayName ?? '?';
           const date = u.revisedDate ?? '?';
@@ -1079,7 +1079,7 @@ mcpServer.tool(
             for (const [field, change] of Object.entries(u.fields)) {
               const oldV = (change as { oldValue?: unknown }).oldValue;
               const newV = (change as { newValue?: unknown }).newValue;
-              const short = (v: unknown) => (v == null ? '(vacío)' : String(v).length > 80 ? String(v).slice(0, 77) + '...' : String(v));
+              const short = (v: unknown) => (v == null ? '(empty)' : String(v).length > 80 ? String(v).slice(0, 77) + '...' : String(v));
               lines.push(`  - ${field}: ${short(oldV)} → ${short(newV)}`);
             }
           }
@@ -1087,7 +1087,7 @@ mcpServer.tool(
         }
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] } as any;
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
@@ -1207,18 +1207,18 @@ mcpServer.tool(
 
   mcpServer.tool(
     'azure_get_bug_changesets',
-    'Lista los changesets (TFVC) vinculados a un bug/work item. Devuelve autor, fecha, comentario y archivos modificados por cada changeset. Requiere config Azure DevOps en .env.',
+    'List TFVC changesets linked to a bug/work item. Returns author, date, comment, and modified files per changeset. Requires Azure DevOps config in .env.',
     { bug_id: z.number() } as any,
     async (args: { bug_id: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const wi = await getWorkItemWithRelations(args.bug_id);
-        const title = (wi.fields || {})['System.Title'] ?? '(sin título)';
+        const title = (wi.fields || {})['System.Title'] ?? '(untitled)';
         const csIds = extractChangesetIds(wi);
         if (csIds.length === 0) {
-          return { content: [{ type: 'text' as const, text: `Bug #${args.bug_id} - ${title}\nNo hay changesets vinculados (relations).` }] };
+          return { content: [{ type: 'text' as const, text: `Bug #${args.bug_id} - ${title}\nNo linked changesets found (relations).` }] };
         }
         const blocks: string[] = [`Bug #${args.bug_id} - ${title}`, `Changesets: ${csIds.join(', ')}`, '---'];
         for (const csId of csIds) {
@@ -1244,11 +1244,11 @@ mcpServer.tool(
 
   mcpServer.tool(
     'azure_get_changeset',
-    'Obtiene un changeset TFVC de Azure DevOps: autor, fecha, comentario y lista de archivos modificados. Requiere config Azure DevOps en .env.',
+    'Get an Azure DevOps TFVC changeset: author, date, comment, and list of modified files. Requires Azure DevOps config in .env.',
     { changeset_id: z.number() } as any,
     async (args: { changeset_id: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const cs = await getChangeset(args.changeset_id);
@@ -1268,37 +1268,37 @@ mcpServer.tool(
         }
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_get_changeset_diff',
-    'Muestra el diff (código cambiado) de un archivo en un changeset. Opcional: file_index (índice del archivo en la lista del changeset, 0 = primero). Requiere config Azure DevOps en .env.',
+    'Show the diff (changed code) for a file in a changeset. Optional: file_index (index of the file in the changeset list; 0 = first). Requires Azure DevOps config in .env.',
     {
       changeset_id: z.number(),
       file_index: z.number().optional(),
     } as any,
     async (args: { changeset_id: number; file_index?: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const ch = await getChangesetChanges(args.changeset_id);
         const items = ch.value || [];
         if (items.length === 0) {
-          return { content: [{ type: 'text' as const, text: 'El changeset no tiene archivos modificados.' }] };
+          return { content: [{ type: 'text' as const, text: 'This changeset has no modified files.' }] };
         }
         const idx = Math.max(0, Math.min(args.file_index ?? 0, items.length - 1));
         const tfvcPath = items[idx].item?.path || items[idx].item?.serverItem;
         if (!tfvcPath) {
-          return { content: [{ type: 'text' as const, text: 'No se pudo obtener la ruta del archivo.' }] };
+          return { content: [{ type: 'text' as const, text: 'Could not determine the file path.' }] };
         }
         const { diff, prevCs, currentCs, isNewFile } = await getChangesetFileDiff(tfvcPath, args.changeset_id);
         const header = [
           `File: ${tfvcPath}`,
-          isNewFile ? ' (archivo nuevo en este changeset)' : ` (diff ${prevCs} → ${currentCs})`,
+          isNewFile ? ' (new file in this changeset)' : ` (diff ${prevCs} → ${currentCs})`,
           '---',
         ].join('\n');
         const diffLines = diff.map((op) => (op.t === '...' ? '...' : op.t + op.s));
@@ -1311,7 +1311,7 @@ mcpServer.tool(
 
   mcpServer.tool(
     'azure_list_changesets',
-    'Lista changesets TFVC. Filtro por proyecto: project "blueivory" o "core" (classic). Opcionales: author, from_date, to_date (ISO), top (default 100). Para indexar en Qdrant puedes usar top=1400 o más; la tool pagina internamente (API Azure limita 1000 por petición).',
+    'List TFVC changesets. Project filter: project "blueivory" or "core" (classic). Optional: author, from_date, to_date (ISO), top (default 100). For indexing into Qdrant you can use top=1400+; the tool paginates internally (Azure API limits 1000 per request).',
     {
       project: z.string().optional(),
       author: z.string().optional(),
@@ -1321,7 +1321,7 @@ mcpServer.tool(
     } as any,
     async (args: { project?: string; author?: string; from_date?: string; to_date?: string; top?: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const wanted = args.top ?? 100;
@@ -1343,25 +1343,25 @@ mcpServer.tool(
           skip += page.length;
         }
         const lines = list.length === 0
-          ? ['No hay changesets con esos filtros.']
+          ? ['No changesets match those filters.']
           : list.map((cs) => {
               const author = pickAuthor(cs);
               const date = (cs.createdDate || '').slice(0, 10);
               const comment = (cs.comment || '').trim().slice(0, 60);
               return `#${cs.changesetId}  ${author}  ${date}  ${comment}${comment.length >= 60 ? '…' : ''}`;
             });
-        const proj = args.project ? ` proyecto=${args.project}` : '';
-        const filter = args.author ? ` autor="${args.author}"` : '';
+        const proj = args.project ? ` project=${args.project}` : '';
+        const filter = args.author ? ` author="${args.author}"` : '';
         return { content: [{ type: 'text' as const, text: `Changesets${proj}${filter} (${list.length}):\n${lines.join('\n')}` }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_count_changesets',
-    'Cuántos changesets hay en TFVC. Filtro por proyecto: project "blueivory" o "core" (classic). Opcionales: author, from_date, to_date (ISO), max_count (default 100000).',
+    'Count TFVC changesets. Project filter: project "blueivory" or "core" (classic). Optional: author, from_date, to_date (ISO), max_count (default 100000).',
     {
       project: z.string().optional(),
       author: z.string().optional(),
@@ -1371,7 +1371,7 @@ mcpServer.tool(
     } as any,
     async (args: { project?: string; author?: string; from_date?: string; to_date?: string; max_count?: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const { count, truncated } = await getChangesetCount({
@@ -1381,45 +1381,45 @@ mcpServer.tool(
           toDate: args.to_date?.trim(),
           maxCount: args.max_count,
         });
-        const proj = args.project ? ` proyecto ${args.project}` : '';
-        const filter = args.author ? ` autor ${args.author}` : '';
-        const note = truncated ? ' [recorte por límite max_count]' : '';
+        const proj = args.project ? ` project ${args.project}` : '';
+        const filter = args.author ? ` author ${args.author}` : '';
+        const note = truncated ? ' [truncated by max_count]' : '';
         return { content: [{ type: 'text' as const, text: `Changesets${proj}${filter}: ${count}${note}` }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_list_changeset_authors',
-    'Lista desarrolladores con al menos un changeset en TFVC. Filtro por proyecto: project "blueivory" o "core" (classic). Opcional: max_scan (default 2000).',
+    'List developers with at least one TFVC changeset. Project filter: project "blueivory" or "core" (classic). Optional: max_scan (default 2000).',
     { project: z.string().optional(), max_scan: z.number().optional() } as any,
     async (args: { project?: string; max_scan?: number }) => {
       if (!hasAzureDevOpsConfig()) {
-        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* no configurado en .env.' }] };
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
       try {
         const authors = await listChangesetAuthors(args.max_scan ?? 2000, args.project?.trim());
-        const proj = args.project ? ` (proyecto ${args.project})` : '';
+        const proj = args.project ? ` (project ${args.project})` : '';
         const text = authors.length === 0
-          ? `No se encontraron autores${proj} (revisa max_scan o proyecto).`
-          : `Desarrolladores con changesets${proj} (${authors.length}):\n${authors.map((a) => `- ${a}`).join('\n')}`;
+          ? `No authors found${proj} (check max_scan or project).`
+          : `Developers with changesets${proj} (${authors.length}):\n${authors.map((a) => `- ${a}`).join('\n')}`;
         return { content: [{ type: 'text' as const, text }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
 
   mcpServer.tool(
     'list_tools',
-    'Lista todas las herramientas MCP disponibles con su nombre y descripción. Úsala cuando el usuario pregunte qué herramientas hay, qué puede hacer el MCP o qué hace cada tool.',
+    'List all available MCP tools with their name and description. Use this when the user asks what tools exist, what the MCP can do, or what each tool does.',
     {} as any,
     async () => {
       const tools = getMcpToolsCatalog();
       const lines = tools.map((t, i) => `${i + 1}. **${t.name}**\n   ${t.description}`);
-      const text = `## Herramientas MCP disponibles (${tools.length})\n\n${lines.join('\n\n')}`;
+      const text = `## Available MCP tools (${tools.length})\n\n${lines.join('\n\n')}`;
       return {
         content: [{ type: 'text' as const, text }],
       };
@@ -1433,7 +1433,7 @@ async function main() {
   const server = buildMcpServer({ userId: 'local' });
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // Log a stderr para no interferir con el protocolo MCP en stdout
+  // Log to stderr so we don't interfere with the MCP protocol on stdout
   console.error('MCP Knowledge Hub server running on stdio');
 }
 

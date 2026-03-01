@@ -1,6 +1,6 @@
 /**
- * Generación de solución sugerida para un bug usando OpenAI Chat.
- * System prompt: experto en MCP, protocolos, DevOps y JavaScript/Node.
+ * Suggested-solution generation for a bug using OpenAI Chat.
+ * System prompt: expert in MCP, protocols, DevOps, and JavaScript/Node.
  */
 
 import OpenAI from 'openai';
@@ -9,25 +9,26 @@ import type { CodeSnippet } from './bug-search-code';
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL?.trim() || 'gpt-4o-mini';
 const CHAT_TIMEOUT_MS = Number(process.env.OPENAI_CHAT_TIMEOUT_MS) || 60_000;
 
-const SYSTEM_PROMPT = `Eres un experto en:
-- MCP (Model Context Protocol): servidores MCP, herramientas, recursos y protocolo de comunicación (stdin/stdout, transporte, mensajes).
-- Protocolos de comunicación: APIs, integraciones y flujos entre servicios.
-- DevOps: despliegues, contenedores (Docker), pipelines, logs y resolución de fallos en producción.
-- JavaScript/Node.js: ecosistema Node, TypeScript, Express, MCP SDK, async/await.
+const SYSTEM_PROMPT = `You are an expert in:
+- MCP (Model Context Protocol): MCP servers, tools, resources, and the communication protocol (stdin/stdout, transports, messages).
+- Communication protocols: APIs, integrations, and flows between services.
+- DevOps: deployments, containers (Docker), pipelines, logs, and production incident troubleshooting.
+- JavaScript/Node.js: Node ecosystem, TypeScript, Express, MCP SDK, async/await.
 
-Tu tarea es analizar un bug reportado y el código relevante del proyecto, y redactar una **solución sugerida** en Markdown, sin modificar código tú mismo. Responde solo con el contenido Markdown (sin explicar que eres un asistente). Estructura la respuesta así:
+Your task is to analyze a reported bug and the relevant project code, then write a **suggested solution** in Markdown, without modifying code yourself.
+Respond only with Markdown content (do not mention you are an assistant). Use this structure:
 
-## Resumen del problema
-Una o dos frases.
+## Problem summary
+One or two sentences.
 
-## Causa probable
-Qué puede estar causando el bug según el código y la descripción.
+## Likely cause
+What might be causing the bug based on the code and the description.
 
-## Solución propuesta
-Qué cambiar o añadir (archivos, funciones, pasos). Sé concreto: archivo, función o línea si aplica.
+## Proposed fix
+What to change or add (files, functions, steps). Be concrete: file, function, or line if applicable.
 
-## Pasos para implementar
-Lista numerada de pasos que el desarrollador puede seguir para arreglar el bug.`;
+## Implementation steps
+Numbered steps the developer can follow to fix the bug.`;
 
 function getClient(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY?.trim();
@@ -40,7 +41,7 @@ function getClient(): OpenAI | null {
 }
 
 /**
- * Genera el texto Markdown para la sección "Solución sugerida" a partir del bug y fragmentos de código.
+ * Generates the Markdown text for the "suggested solution" section from the bug + code snippets.
  */
 export async function generateSolutionMarkdown(
   bugTitle: string,
@@ -49,7 +50,7 @@ export async function generateSolutionMarkdown(
 ): Promise<string> {
   const client = getClient();
   if (!client) {
-    throw new Error('OPENAI_API_KEY no está definido. Necesario para generar la solución.');
+    throw new Error('OPENAI_API_KEY is not set. Required to generate the solution.');
   }
 
   const codeBlock = codeSnippets.length
@@ -59,19 +60,19 @@ export async function generateSolutionMarkdown(
             `### ${s.path}\n\`\`\`\n${s.content.slice(0, 5000)}\n\`\`\``
         )
         .join('\n\n')
-    : '(No se encontró código relevante; responde según la descripción del bug.)';
+    : '(No relevant code was found; respond based on the bug description.)';
 
   const userContent = `## Bug
-**Título:** ${bugTitle}
+**Title:** ${bugTitle}
 
-**Descripción:**
+**Description:**
 ${bugDescription}
 
-## Código relevante del proyecto
+## Relevant project code
 ${codeBlock}
 
 ---
-Redacta la solución sugerida en Markdown (Resumen, Causa probable, Solución propuesta, Pasos para implementar).`;
+Write the suggested solution in Markdown (Problem summary, Likely cause, Proposed fix, Implementation steps).`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
@@ -89,7 +90,7 @@ Redacta la solución sugerida en Markdown (Resumen, Causa probable, Solución pr
     );
     clearTimeout(timeoutId);
     const text = res.choices?.[0]?.message?.content?.trim();
-    if (!text) throw new Error('Respuesta vacía del modelo');
+    if (!text) throw new Error('Empty model response');
     return text;
   } catch (err) {
     clearTimeout(timeoutId);

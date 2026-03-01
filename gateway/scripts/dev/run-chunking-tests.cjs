@@ -2,13 +2,13 @@
  * Standalone chunking tests (no Jest) to avoid OOM when Jest/ts-jest loads the full project.
  * Run after build: node scripts/run-chunking-tests.cjs
  */
-const path = require('path');
+const { distPath } = require('../_shared/script-env.cjs');
 const {
   chunkText,
   DEFAULT_CHUNK_SIZE,
   DEFAULT_CHUNK_OVERLAP,
   DEFAULT_CHUNK_THRESHOLD,
-} = require(path.join(__dirname, '..', 'dist', 'chunking.js'));
+} = require(distPath('chunking.js'));
 
 function assert(condition, message) {
   if (!condition) throw new Error(message || 'Assertion failed');

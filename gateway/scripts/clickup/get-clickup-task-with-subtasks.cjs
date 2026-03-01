@@ -7,9 +7,10 @@
  *   node scripts/get-clickup-task-with-subtasks.cjs --task-id 86afm65jy --json
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
-const { getTask, hasClickUpToken } = require('../dist/clickup-client.js');
+const { getTask, hasClickUpToken } = requireDist(['clickup-client.js', 'clickup']);
 
 function parseArgs() {
   const args = process.argv.slice(2);

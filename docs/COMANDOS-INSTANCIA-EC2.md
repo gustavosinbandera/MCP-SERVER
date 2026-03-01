@@ -1,21 +1,21 @@
-# Comandos útiles – Instancia EC2 (MCP Knowledge Hub)
+# Useful commands – EC2 instance (MCP Knowledge Hub)
 
-Comandos para conectarte a la instancia, ver logs y arrancar/parar servicios manualmente.
+Commands to connect to the instance, view logs, and start/stop services manually.
 
 ---
 
-## 1. Conectar a la instancia
+## 1. Connect to the instance
 
-**Desde tu máquina (PowerShell), en la raíz del repo:**
+**From your machine (PowerShell), at the repo root:**
 
 ```powershell
 cd C:\PROYECTOS\MCP-SERVER
 ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181
 ```
 
-La primera vez puede pedirte aceptar la huella: escribe `yes`.
+The first time it may ask you to accept the host fingerprint: type `yes`.
 
-**Desde Git Bash o WSL:**
+**From Git Bash or WSL:**
 
 ```bash
 cd /c/PROYECTOS/MCP-SERVER
@@ -24,17 +24,17 @@ ssh -i infra/mcp-server-key.pem ec2-user@52.91.217.181
 
 ---
 
-## 1b. Conectar Cursor IDE al servidor remoto (Remote SSH)
+## 1b. Connect Cursor IDE to the remote server (Remote SSH)
 
-Para abrir el proyecto de la instancia en Cursor y trabajar como si fuera local (terminal, archivos, extensiones en el remoto):
+To open the instance project in Cursor and work as if it were local (terminal, files, extensions running remotely):
 
-**1. Configurar SSH en tu máquina**
+**1. Configure SSH on your machine**
 
-En Windows, crea o edita el archivo de configuración SSH. Suele estar en:
+On Windows, create or edit the SSH config file. It’s usually located at:
 
-- `C:\Users\<tu_usuario>\.ssh\config`
+- `C:\Users\<your_user>\.ssh\config`
 
-Añade un bloque como este (ajusta la ruta de la clave si no es la misma):
+Add a block like this (adjust the key path if it’s different):
 
 ```
 Host mcp-ec2
@@ -45,61 +45,61 @@ Host mcp-ec2
   ServerAliveCountMax 3
 ```
 
-`ServerAliveInterval 60` envía un keepalive cada 60 segundos para que la sesión no se cierre por inactividad. `ServerAliveCountMax 3` permite 3 respuestas perdidas antes de dar la conexión por cerrada.
+`ServerAliveInterval 60` sends a keepalive every 60 seconds so the session doesn’t close due to inactivity. `ServerAliveCountMax 3` allows 3 missed responses before considering the connection dead.
 
-**2. Conectar desde Cursor**
+**2. Connect from Cursor**
 
-- Pulsa `Ctrl+Shift+P` (o `F1`) y escribe **Remote-SSH: Connect to Host**.
-- Elige el host **mcp-ec2** (o el nombre que hayas puesto en `Host`).
-- La primera vez Cursor instalará su servidor en la instancia (descarga por HTTPS); hace falta que la instancia tenga salida a internet.
-- Cuando termine, se abrirá una ventana conectada al remoto. Abre la carpeta del proyecto: `/home/ec2-user/MCP-SERVER` (o `~/MCP-SERVER`).
+- Press `Ctrl+Shift+P` (or `F1`) and type **Remote-SSH: Connect to Host**.
+- Choose host **mcp-ec2** (or whatever name you used in `Host`).
+- The first time, Cursor will install its server on the instance (download over HTTPS); the instance needs outbound internet access.
+- When done, a remote-connected window opens. Open the project folder: `/home/ec2-user/MCP-SERVER` (or `~/MCP-SERVER`).
 
-**3. Qué tienes al conectar**
+**3. What you get when connected**
 
-- Explorador de archivos del remoto, terminal integrado en la instancia, extensiones que se ejecuten en el remoto.
-- El código y los contenedores (Docker) están en la instancia; puedes editar y ejecutar `docker compose` desde la terminal de Cursor.
+- Remote file explorer, a terminal on the instance, and extensions running on the remote.
+- The code and containers (Docker) live on the instance; you can edit and run `docker compose` from Cursor’s terminal.
 
-**4. Si algo falla**
+**4. If something fails**
 
-- Comprueba que desde PowerShell puedes conectar: `ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181`.
-- Si la clave está en una ruta con espacios, en `config` usa comillas: `IdentityFile "C:\ruta con espacios\mcp-server-key.pem"`.
-- En EC2, el security group debe permitir SSH (22) desde tu IP.
+- Verify you can connect from PowerShell: `ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181`.
+- If your key is in a path with spaces, use quotes in `config`: `IdentityFile "C:\path with spaces\mcp-server-key.pem"`.
+- On EC2, the security group must allow SSH (22) from your IP.
 
 ---
 
-## 1c. Ventana de inicio y búsqueda (webapp)
+## 1c. Home/search page (webapp)
 
-La **ventana de inicio / búsqueda** del MCP Knowledge Hub se abre en el navegador con esta URL (importante: **http**, sin **s**):
+The MCP Knowledge Hub **home/search** page opens in a browser at this URL (important: **http**, no **s**):
 
 **http://mcp.domoticore.co**
 
-El servidor solo expone HTTP (puerto 80), no HTTPS. Si pones `https://` el navegador no podrá conectar y no verás la pantalla.
+The server only exposes HTTP (port 80), not HTTPS. If you use `https://`, the browser won’t connect and you won’t see the page.
 
-- Escribe en la barra de direcciones: `http://mcp.domoticore.co` y pulsa Intro.
-- Deberías ver la página con el título "MCP Knowledge Hub" y el cuadro de búsqueda.
-- Si la página queda en blanco o no carga, comprueba que usas **http** y no https, y que en la instancia estén en marcha webapp y nginx: `docker compose ps webapp nginx`.
+- Type in the address bar: `http://mcp.domoticore.co` and press Enter.
+- You should see the page titled “MCP Knowledge Hub” and the search box.
+- If the page is blank or doesn’t load, confirm you’re using **http** (not https) and that `webapp` and `nginx` are running on the instance: `docker compose ps webapp nginx`.
 
-## 1d. Comprobar el gateway desde tu máquina
+## 1d. Check the gateway from your machine
 
-Health del gateway (ruta bajo `/api/`):
+Gateway health (path under `/api/`):
 
 ```powershell
 Invoke-WebRequest -Uri "http://mcp.domoticore.co/api/health" -UseBasicParsing
 ```
 
-En Git Bash o con curl: `curl http://mcp.domoticore.co/api/health`
+In Git Bash or with curl: `curl http://mcp.domoticore.co/api/health`
 
-Si obtienes **502 Bad Gateway**, en la instancia revisa logs del gateway y reinicia nginx: `docker compose logs gateway --tail=50` y `docker compose restart nginx`.
+If you get **502 Bad Gateway**, on the instance check gateway logs and restart nginx: `docker compose logs gateway --tail=50` and `docker compose restart nginx`.
 
 ---
 
-## 1d2. Conectar MCP local a Qdrant en la instancia (túnel SSH)
+## 1d2. Connect local MCP to Qdrant on the instance (SSH tunnel)
 
-Para que tu **MCP local** (magaya, usar-mcp o el gateway en tu PC) use el **Qdrant que corre en Docker en la instancia**:
+So your **local MCP** (magaya, usar-mcp, or the gateway on your PC) can use the **Qdrant running in Docker on the instance**:
 
-1. **Abre un túnel SSH** (deja la terminal abierta mientras uses el MCP local). Para que la sesión no se cierre por inactividad, usa **keepalives** (`ServerAliveInterval`):
+1. **Open an SSH tunnel** (keep the terminal open while using local MCP). To prevent the session from closing due to inactivity, use **keepalives** (`ServerAliveInterval`):
 
-   **PowerShell (en la raíz del repo):**
+   **PowerShell (at the repo root):**
    ```powershell
    ssh -i "infra\mcp-server-key.pem" -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@52.91.217.181
    ```
@@ -109,113 +109,113 @@ Para que tu **MCP local** (magaya, usar-mcp o el gateway en tu PC) use el **Qdra
    ssh -i infra/mcp-server-key.pem -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@52.91.217.181
    ```
 
-   **Si tienes el host `mcp-ec2` en `~/.ssh/config`**, añade ahí `ServerAliveInterval 60` y `ServerAliveCountMax 3` (ver abajo); luego basta con:
+   **If you have the `mcp-ec2` host in `~/.ssh/config`**, add `ServerAliveInterval 60` and `ServerAliveCountMax 3` there (see above); then you can simply run:
    ```powershell
    ssh -L 6333:localhost:6333 mcp-ec2
    ```
 
-   Con esto, en tu máquina **localhost:6333** se reenvía al puerto 6333 de la instancia (donde escucha Qdrant en Docker). Los keepalives evitan que la conexión se corte por inactividad.
+   With this, your machine’s **localhost:6333** forwards to port 6333 on the instance (where Qdrant listens in Docker). Keepalives prevent disconnections due to inactivity.
 
-2. **Configura el MCP con Qdrant en localhost**  
-   En `.cursor/mcp.json` el servidor (magaya / usar-mcp) ya tiene `"QDRANT_URL": "http://localhost:6333"`. Con el túnel activo, ese `localhost:6333` es el Qdrant de la instancia.
+2. **Configure MCP to use Qdrant on localhost**  
+   In `.cursor/mcp.json`, the server (magaya / usar-mcp) already has `"QDRANT_URL": "http://localhost:6333"`. With the tunnel active, that `localhost:6333` points to the instance’s Qdrant.
 
-3. **Arranca el MCP local** (Cursor usará magaya o usar-mcp). Las tools que usan Qdrant (search_docs, etc.) hablarán con el Qdrant remoto a través del túnel.
+3. **Start the local MCP** (Cursor will use magaya or usar-mcp). Tools that use Qdrant (`search_docs`, etc.) will talk to the remote Qdrant through the tunnel.
 
-**Si corres el gateway en local** (no solo stdio): en `gateway/.env` pon `QDRANT_URL=http://localhost:6333` y ten el túnel abierto; el gateway usará el Qdrant de la instancia.
+**If you run the gateway locally** (not just stdio): set `QDRANT_URL=http://localhost:6333` in `gateway/.env` and keep the tunnel open; the gateway will use the instance’s Qdrant.
 
-**Nota:** En la instancia, Qdrant está en Docker con `ports: "6333:6333"`, así que en la EC2 escucha en localhost:6333. El túnel -L 6333:localhost:6333 hace que tu PC vea ese puerto como su propio localhost:6333.
-
----
-
-## 1d3. search_docs devuelve "Search failed: fetch failed"
-
-La tool **search_docs** necesita que el gateway pueda conectar con **Qdrant**. El error "fetch failed" suele significar que no llega a Qdrant.
-
-- **Si usas MCP local (magaya/usar-mcp) en tu PC:** el gateway corre en tu máquina y usa `QDRANT_URL` de `gateway/.env` (por defecto `http://localhost:6333`). Para que search_docs funcione:
-  1. **Opción A:** Túnel SSH a la instancia (ver 1d2) y deja el túnel abierto. Con `QDRANT_URL=http://localhost:6333`, el gateway usará el Qdrant de la instancia.
-  2. **Opción B:** Tener Qdrant corriendo en tu PC (por ejemplo con Docker) y apuntar `QDRANT_URL` a ese servicio.
-- **Si usas MCP remoto (gateway en la instancia):** el gateway ya está en la EC2; `QDRANT_URL` suele ser `http://localhost:6333` o el nombre del contenedor. Comprueba que el contenedor `mcp-qdrant` esté Up y healthy (`docker compose ps`).
-
-Tras cambiar `.env` o abrir el túnel, reinicia el proceso del MCP (reiniciar Cursor o recargar la ventana) para que cargue de nuevo las variables.
+**Note:** On the instance, Qdrant runs in Docker with `ports: "6333:6333"`, so it listens on EC2 localhost:6333. The `-L 6333:localhost:6333` tunnel makes your PC see that port as its own localhost:6333.
 
 ---
 
-## 1d4. La webapp muestra "Azure DevOps no está configurado"
+## 1d3. `search_docs` returns "Search failed: fetch failed"
 
-Si la herramienta MCP de Azure funciona pero la página `/azure-tasks` muestra ese error, normalmente es porque:
+The **search_docs** tool needs the gateway to connect to **Qdrant**. The "fetch failed" error usually means it can’t reach Qdrant.
 
-- El **MCP** (tools `azure_*`) carga variables desde **`gateway/.env`**.
-- El **gateway en Docker** (llamado por la webapp vía `/api/azure/*`) carga variables desde **`.env`** (raíz del repo) y, en este proyecto, también desde **`gateway/.env`**.
+- **If you use local MCP (magaya/usar-mcp) on your PC:** the gateway runs on your machine and uses `QDRANT_URL` from `gateway/.env` (default `http://localhost:6333`). To make `search_docs` work:
+  1. **Option A:** SSH tunnel to the instance (see 1d2) and keep it open. With `QDRANT_URL=http://localhost:6333`, the gateway will use the instance’s Qdrant.
+  2. **Option B:** Run Qdrant on your PC (e.g. with Docker) and point `QDRANT_URL` to that service.
+- **If you use remote MCP (gateway on the instance):** the gateway is already on EC2; `QDRANT_URL` is typically `http://localhost:6333` or a container name. Check that the `mcp-qdrant` container is Up and healthy (`docker compose ps`).
 
-**Solución (local):**
+After changing `.env` or opening the tunnel, restart MCP (restart Cursor or reload the window) so it reloads variables.
 
-1. Asegúrate de tener en `gateway/.env`:
+---
+
+## 1d4. The webapp shows "Azure DevOps is not configured"
+
+If the Azure MCP tools work but `/azure-tasks` shows that error, it’s usually because:
+
+- **MCP** (the `azure_*` tools) loads variables from **`gateway/.env`**.
+- **The Docker gateway** (called by the webapp via `/api/azure/*`) loads variables from **`.env`** (repo root) and, in this project, also from **`gateway/.env`**.
+
+**Fix (local):**
+
+1. Make sure `gateway/.env` contains:
    - `AZURE_DEVOPS_BASE_URL`
    - `AZURE_DEVOPS_PROJECT`
    - `AZURE_DEVOPS_PAT`
-2. Reinicia `gateway` y `nginx`:
+2. Restart `gateway` and `nginx`:
    - `docker compose restart gateway nginx`
 
-**Verificación rápida:**
+**Quick verification:**
 
 - `http://localhost/api/azure/work-items?from=2026-02-01&to=2026-02-28`
 
-Si devuelve JSON con `items`, la webapp ya podrá listar tareas.
+If it returns JSON with `items`, the webapp should be able to list tasks.
 
-## 1e. Cursor no conecta: "Maximum sessions per user (3) reached"
+## 1e. Cursor can’t connect: "Maximum sessions per user (3) reached"
 
-Si en Cursor el MCP remoto falla con ese mensaje, en la **EC2** haz una de estas dos cosas:
+If Cursor remote MCP fails with that message, on **EC2** do one of these:
 
-**Opción A – Subir el límite y reiniciar (recomendado)**
+**Option A – Increase the limit and restart (recommended)**
 
-En la instancia:
+On the instance:
 
 ```bash
 cd ~/MCP-SERVER
-# Añadir al .env del gateway (o al .env que use docker compose)
+# Add to the gateway .env (or the .env used by docker compose)
 echo "MAX_SESSIONS_PER_USER=10" >> .env
 docker compose restart gateway
 ```
 
-**Opción B – Solo reiniciar (vacía sesiones en memoria)**
+**Option B – Restart only (clears in-memory sessions)**
 
 ```bash
 cd ~/MCP-SERVER
 docker compose restart gateway
 ```
 
-Tras el reinicio, en Cursor recarga el MCP o reconecta el servidor "knowledge-hub-remote".
+After restarting, in Cursor reload MCP or reconnect the "knowledge-hub-remote" server.
 
 ---
 
-## 2. Logs de servicios
+## 2. Service logs
 
-**Todos los servicios (últimas líneas):**
+**All services (latest lines):**
 
 ```bash
 cd ~/MCP-SERVER
 docker compose logs --tail=100
 ```
 
-**Seguir logs en vivo (todos):**
+**Follow logs live (all):**
 
 ```bash
 docker compose logs -f
 ```
 
-**Logs de un servicio concreto:**
+**Logs for a specific service:**
 
 ```bash
-# Gateway (API MCP, búsqueda, health)
+# Gateway (MCP API, search, health)
 docker compose logs -f gateway
 
-# Supervisor (indexación inbox + SHARED_DIRS)
+# Supervisor (indexing inbox + SHARED_DIRS)
 docker compose logs -f supervisor
 
-# Qdrant (base vectorial)
+# Qdrant (vector DB)
 docker compose logs -f qdrant
 
-# Nginx (proxy HTTP)
+# Nginx (HTTP proxy)
 docker compose logs -f nginx
 
 # Postgres, Redis, InfluxDB, Grafana, Webapp
@@ -226,14 +226,14 @@ docker compose logs -f grafana
 docker compose logs -f webapp
 ```
 
-**Últimas N líneas de un servicio:**
+**Last N lines for a service:**
 
 ```bash
 docker compose logs --tail=200 gateway
 docker compose logs --tail=200 supervisor
 ```
 
-**Log del ciclo de indexación one-shot (si lo lanzaste con nohup):**
+**One-shot indexing cycle log (if started with nohup):**
 
 ```bash
 tail -f ~/index-cycle.log
@@ -241,28 +241,28 @@ tail -f ~/index-cycle.log
 
 ---
 
-## 3. Arrancar y parar servicios
+## 3. Start and stop services
 
-**Arrancar todo (en segundo plano):**
+**Start everything (in background):**
 
 ```bash
 cd ~/MCP-SERVER
 docker compose up -d
 ```
 
-**Parar todo:**
+**Stop everything:**
 
 ```bash
 docker compose down
 ```
 
-**Parar todo y borrar volúmenes (¡cuidado!: borra datos de Qdrant, Postgres, etc.):**
+**Stop everything and delete volumes (warning: deletes Qdrant/Postgres/etc data):**
 
 ```bash
 docker compose down -v
 ```
 
-**Reiniciar un servicio:**
+**Restart a service:**
 
 ```bash
 docker compose restart gateway
@@ -270,78 +270,78 @@ docker compose restart supervisor
 docker compose restart nginx
 ```
 
-**Arrancar solo algunos servicios:**
+**Start only some services:**
 
 ```bash
 docker compose up -d qdrant influxdb gateway nginx
 ```
 
-**Parar un servicio concreto:**
+**Stop a specific service:**
 
 ```bash
 docker compose stop supervisor
 docker compose stop gateway
 ```
 
-**Volver a arrancar un servicio parado:**
+**Start a stopped service again:**
 
 ```bash
 docker compose start supervisor
 docker compose start gateway
 ```
 
-**Estado de los contenedores:**
+**Container status:**
 
 ```bash
 docker compose ps
-# o más detalle
+# or more details
 docker ps -a
 ```
 
 ---
 
-## 4. Indexación y Qdrant
+## 4. Indexing and Qdrant
 
-**Pruebas repetibles:** Ver [docs/PRUEBAS-INDEXACION-ONE-TIME.md](PRUEBAS-INDEXACION-ONE-TIME.md) para testear que classic/blueivory no se reindexan y comandos desde instancia o desde la máquina local.
+**Repeatable tests:** See [docs/PRUEBAS-INDEXACION-ONE-TIME.md](PRUEBAS-INDEXACION-ONE-TIME.md) to verify classic/blueivory are not re-indexed, with commands from the instance or the local machine.
 
-**Contar documentos (puntos) indexados en Qdrant**
+**Count indexed documents (points) in Qdrant**
 
-*Desde la instancia (SSH):*
+*From the instance (SSH):*
 
 ```bash
-# Respuesta completa (incluye points_count)
+# Full response (includes points_count)
 curl -s http://localhost:6333/collections/mcp_docs | grep points_count
 
-# Solo el número (points_count)
+# Only the number (points_count)
 curl -s http://localhost:6333/collections/mcp_docs | grep -o '"points_count":[0-9]*'
 ```
 
-*Desde Cursor / MCP (herramienta del gateway):*
+*From Cursor / MCP (gateway tool):*
 
-Con el servidor MCP del gateway configurado en Cursor, puedes pedir que cuente documentos y se usará la herramienta `count_docs`:
+With the gateway MCP server configured in Cursor, you can ask it to count documents and it will use the `count_docs` tool:
 
-- Escribe en el chat: **"cuenta los documentos indexados"** o **"¿cuántos documentos hay en Qdrant?"**
-- O invoca la herramienta por nombre: **count_docs** (sin argumentos).
+- Type in chat: **"count indexed documents"** or **"how many documents are in Qdrant?"**
+- Or invoke the tool by name: **count_docs** (no arguments).
 
-El gateway devuelve: colección (`mcp_docs`) y total de documentos indexados.
+The gateway returns: collection (`mcp_docs`) and total indexed documents.
 
-**Qué significa la salida de `curl ... | grep points_count`**
+**What the output of `curl ... | grep points_count` means**
 
-- **points_count:** Número de puntos (chunks) en la colección. Cada archivo puede generar varios puntos si se parte en trozos. Ese es el “total de registros” en Qdrant.
-- **vectors_count / indexed_vectors_count:** Vectores indexados (similar a points_count; puede haber un pequeño retraso mientras se indexan).
-- **status: green:** La colección está operativa.
+- **points_count:** number of points (chunks) in the collection. Each file can generate multiple points if chunked. This is the “total records” in Qdrant.
+- **vectors_count / indexed_vectors_count:** indexed vectors (similar to points_count; there can be a small delay while indexing catches up).
+- **status: green:** the collection is healthy.
 
-Si el número **sube** (ej. de 65k a 93k), suele ser porque se están **añadiendo archivos nuevos** (p. ej. el primer ciclo completo de blueivory), no porque se esté reindexando lo mismo. El indexador **no vuelve a enviar a la API** archivos que ya están en el índice.
+If the number **goes up** (e.g. from 65k to 93k), it’s usually because **new files are being added** (e.g. the first full blueivory cycle), not because the same files are being re-indexed. The indexer **does not re-send** files that are already in the index.
 
-**Por qué no reindexamos lo mismo (y no gastamos de más en la API)**
+**Why we don’t re-index the same content (and don’t waste API spend)**
 
-1. **Claves ya indexadas:** Al empezar cada ciclo se cargan de Qdrant (o del SQLite persistente) todas las claves `(proyecto, ruta)` ya indexadas. Solo se envían a embeddings los archivos cuya clave **no** está en ese conjunto (archivos nuevos).
-2. **One-time (classic / blueivory):** Si un proyecto está en `SHARED_DIRS_ONCE` y ya está en la tabla SQLite `data/one_time_indexed.db`, ese proyecto **no se procesa** en ciclos siguientes: no se lee la carpeta ni se llama a la API.
-3. **Reindexar solo si cambió:** Solo si activas `INDEX_SHARED_REINDEX_CHANGED=true` se reindexan archivos cuyo **contenido** cambió (por hash). Por defecto no está activado.
+1. **Already-indexed keys:** At the start of each cycle, all indexed `(project, path)` keys are loaded from Qdrant (or persistent SQLite). Only files whose key is **not** in that set are sent for embeddings (new files).
+2. **One-time (classic / blueivory):** If a project is in `SHARED_DIRS_ONCE` and already exists in `data/one_time_indexed.db`, it is **not processed** in later cycles: the folder isn’t scanned and the API isn’t called.
+3. **Reindex only if changed:** Only if you enable `INDEX_SHARED_REINDEX_CHANGED=true` will files be re-indexed when their **content** changes (by hash). Off by default.
 
-Así, el crecimiento del consumo de la API coincide con **contenido nuevo** (p. ej. blueivory la primera vez), no con repetir los mismos archivos una y otra vez.
+So API spend growth corresponds to **new content** (e.g. blueivory the first time), not repeatedly processing the same files.
 
-**Lanzar un ciclo de indexación one-shot (inbox + SHARED_DIRS) y seguir el log:**
+**Run a one-shot indexing cycle (inbox + SHARED_DIRS) and follow the log:**
 
 ```bash
 cd ~/MCP-SERVER
@@ -349,34 +349,34 @@ nohup docker compose run --rm supervisor node dist/supervisor.js --once > ~/inde
 tail -f ~/index-cycle.log
 ```
 
-**Matar un ciclo de indexación en curso (por proceso):**
+**Kill a running indexing cycle (by process):**
 
 ```bash
 pkill -f "supervisor.js"
 ```
 
-**Saber si el ciclo de indexación terminó bien:**
+**Determine if the indexing cycle finished successfully:**
 
-- **Terminó bien:** en el log debe aparecer `indexSharedDirs completed` y, si indexaste classic y blueivory en one-shot, también `indexSharedDirs one-time complete` para ambos proyectos.
-- **Terminó mal:** si aparece `Error fatal` en el log, el proceso se detuvo por error (p. ej. límite de tokens o rate limit tras todos los reintentos).
+- **Finished successfully:** the log should include `indexSharedDirs completed` and, if you indexed classic and blueivory in one-shot mode, also `indexSharedDirs one-time complete` for both projects.
+- **Finished with failure:** if `Fatal error` appears in the log, the process stopped due to an error (e.g. token limit or rate limit after all retries).
 
-Comandos para comprobarlo (desde la instancia):
+Commands to check it (from the instance):
 
 ```bash
-# ¿Terminó bien? (debe mostrar líneas con "indexSharedDirs completed" y "one-time complete")
+# Finished OK? (should show lines with "indexSharedDirs completed" and "one-time complete")
 grep -E "indexSharedDirs completed|one-time complete" ~/index-cycle.log
 
-# ¿Hubo error fatal?
-grep "Error fatal" ~/index-cycle.log
+# Any fatal error?
+grep "Fatal error" ~/index-cycle.log
 ```
 
-Si **no** ves `indexSharedDirs completed` y el contenedor del ciclo ya no está en ejecución, revisa si hubo error:
+If you **don’t** see `indexSharedDirs completed` and the cycle container is no longer running, check whether there was an error:
 
 ```bash
-grep -E "Error fatal|Embedding batch failed" ~/index-cycle.log
+grep -E "Fatal error|Embedding batch failed" ~/index-cycle.log
 ```
 
-Si solo ves muchos `Embedding batch retry` (429 rate limit), el proceso **sigue en curso** o está esperando 90 s entre reintentos; no ha terminado ni fallado aún. Cuando termine bien, al final del log verás algo como:
+If you only see many `Embedding batch retry` lines (429 rate limit), the process is **still running** or waiting 90s between retries; it hasn’t finished or failed yet. When it succeeds, near the end of the log you’ll see something like:
 
 ```text
 {"ts":"...","level":"info","message":"indexSharedDirs one-time complete","project":"blueivory"}
@@ -385,25 +385,25 @@ Si solo ves muchos `Embedding batch retry` (429 rate limit), el proceso **sigue 
 
 ---
 
-## 5. Servicios y puertos
+## 5. Services and ports
 
-| Servicio   | Contenedor    | Puerto (host) | Uso                    |
+| Service   | Container    | Port (host) | Usage                    |
 |-----------|----------------|---------------|------------------------|
 | nginx     | mcp-nginx      | 80            | HTTP (API, webapp)     |
-| gateway   | mcp-gateway    | (interno 3001)| API MCP, búsqueda      |
-| webapp    | mcp-webapp     | (interno 3000)| App Next.js            |
-| qdrant    | mcp-qdrant     | 6333          | Base vectorial         |
-| postgres  | mcp-postgres   | 5432          | Base de datos          |
-| redis     | mcp-redis      | 6379          | Cola (worker)          |
-| influxdb   | mcp-influxdb   | 8086          | Métricas               |
+| gateway   | mcp-gateway    | (internal 3001)| MCP API, search      |
+| webapp    | mcp-webapp     | (internal 3000)| Next.js app            |
+| qdrant    | mcp-qdrant     | 6333          | Vector DB              |
+| postgres  | mcp-postgres   | 5432          | Database               |
+| redis     | mcp-redis      | 6379          | Queue (worker)         |
+| influxdb   | mcp-influxdb   | 8086          | Metrics                |
 | grafana   | mcp-grafana    | 3002          | Dashboards             |
-| supervisor| mcp-supervisor | —             | Indexación periódica   |
+| supervisor| mcp-supervisor | —             | Periodic indexing      |
 
 ---
 
-## 6. Rebuild y despliegue de código
+## 6. Rebuild and deploy code
 
-**Reconstruir imágenes y arrancar (tras subir cambios al repo en la instancia):**
+**Rebuild images and start (after pulling changes on the instance):**
 
 ```bash
 cd ~/MCP-SERVER
@@ -411,75 +411,101 @@ docker compose build gateway supervisor
 docker compose up -d gateway supervisor
 ```
 
-**Ver variables de entorno (ej. SHARED_DIRS, OPENAI):**
+**View environment variables (e.g. SHARED_DIRS, OPENAI):**
 
 ```bash
 cat ~/MCP-SERVER/.env
+cat ~/MCP-SERVER/gateway/.env
 ```
 
-Editar `.env` en la instancia y luego reiniciar los servicios que lo usen (gateway, supervisor).
+Edit `.env` on the instance and then restart the services that use it (gateway, supervisor).
 
-**Herramientas ClickUp (MCP):** Para usar las herramientas ClickUp desde el MCP en la instancia, añade en `~/MCP-SERVER/.env` (o donde se cargue el env del gateway): `CLICKUP_API_TOKEN=pk_...` (Personal API Token de ClickUp: Settings → Apps → API Token). Luego reinicia el gateway: `docker compose restart gateway`.
+### 6a. Required files/vars on the instance (so Docker Compose “works like before”)
+
+On the **EC2 instance**, before deploying, make sure you have these files (not committed to Git):
+
+- `~/MCP-SERVER/.env` (use `./.env.example` as a base)
+- `~/MCP-SERVER/gateway/.env` (use `./gateway/.env.example` as a base)
+
+**Important:** in production, do not leave values like `change-me` / `change-me-in-env` or default tokens.
+
+If critical secrets are missing (Postgres/Influx/Grafana), the `scripts/ec2/instance_update_with_verify.sh` script now detects it and aborts to prevent starting the instance with unsafe defaults.
+
+Create the files from the examples:
+
+```bash
+cd ~/MCP-SERVER
+cp .env.example .env
+cp gateway/.env.example gateway/.env
+```
+
+Then edit `.env` and `gateway/.env` (with `nano` or `vim`) and restart:
+
+```bash
+docker compose restart gateway supervisor nginx
+```
+
+**ClickUp tools (MCP):** To use ClickUp tools via MCP on the instance, add `CLICKUP_API_TOKEN=pk_...` to `~/MCP-SERVER/.env` (or wherever the gateway loads env). Then restart the gateway: `docker compose restart gateway`.
 
 ---
 
 ## 7. Util scripts (update-repo, etc.)
 
-Scripts de utilidad instalados **fuera del proyecto** en `/opt/mcp-tools`, disponibles como comandos del sistema (sin `source` ni rutas).
+Utility scripts installed **outside the project** in `/opt/mcp-tools`, available as system commands (no `source`, no paths needed).
 
-**Comandos disponibles tras instalar:**
+**Commands available after install:**
 
-| Comando | Descripción |
+| Command | Description |
 |---------|-------------|
-| `util_update_repo` | Pull del repo, build gateway/supervisor, reinicio de servicios |
-| `update-repo` / `actualizar-repo` | Igual (vía symlink) |
-| `update repo` / `actualizar repo` | Igual (vía alias; requiere sesión con profile cargado) |
-| `util_health_check_restart` | Comprueba `/api/health`; si devuelve 502, reinicia nginx (uso: producción) |
+| `util_update_repo` | Pull repo, build gateway/supervisor, restart services |
+| `update-repo` / `actualizar-repo` | Same (via symlink) |
+| `update repo` / `actualizar repo` | Same (via alias; requires a session with profile loaded) |
+| `util_health_check_restart` | Checks `/api/health`; if it returns 502, restarts nginx (production use) |
 
-**Instalación (una vez en la instancia):**
+**Installation (once on the instance):**
 
-Tras un clone o pull del repo, ejecutar:
+After cloning/pulling the repo, run:
 
 ```bash
 cd ~/MCP-SERVER
 sudo bash scripts/ec2/install-tools.sh
 ```
 
-Luego cerrar y reabrir la sesión SSH (o `source /etc/profile.d/mcp-tools.sh`) para que el PATH y los aliases con espacio estén disponibles.
+Then close and reopen the SSH session (or `source /etc/profile.d/mcp-tools.sh`) so PATH and the space-containing aliases are available.
 
-**Qué hace el instalador:**
+**What the installer does:**
 
-- Crea `/opt/mcp-tools` y copia los scripts desde `~/MCP-SERVER/scripts/ec2/`.
-- Añade `/opt/mcp-tools` al PATH vía `/etc/profile.d/mcp-tools.sh`.
-- Crea los symlinks `update-repo` y `actualizar-repo` y los aliases `"update repo"` y `"actualizar repo"`.
+- Creates `/opt/mcp-tools` and copies scripts from `~/MCP-SERVER/scripts/ec2/`.
+- Adds `/opt/mcp-tools` to PATH via `/etc/profile.d/mcp-tools.sh`.
+- Creates the `update-repo` / `actualizar-repo` symlinks and the `"update repo"` / `"actualizar repo"` aliases.
 
-**Tools de instancia desde Cursor:**  
-- **`instance_update`:** hace add/commit/push local y devuelve el comando SSH que ejecuta `scripts/ec2/instance_update_with_verify.sh`: pull, build, restart, verifica health (hasta 3 intentos); si falla, revierte (`git reset --hard`) y guarda estado en `.last-update-status` (archivo de texto).
-- **`instance_report`:** devuelve el comando SSH para ver estado en Markdown: Current IP, última actualización, estado (archivo `.last-update-status`), contenedores, health.
-- **`instance_reboot`:** devuelve el comando SSH para reiniciar todos los servicios (`docker compose restart`).
+**Instance tools from Cursor:**  
+- **`instance_update`**: returns the SSH command that runs `scripts/ec2/instance_update_with_verify.sh` on the server: pull, build, restart, health verification (up to 3 attempts). If it fails, it rolls back (`git reset --hard`) and writes status to `.last-update-status` (text file).
+- **`instance_report`**: returns the SSH command to print a Markdown status report: current IP, last update, status (`.last-update-status`), containers, health.
+- **`instance_reboot`**: returns the SSH command to restart all services (`docker compose restart`).
 
-Host y clave por defecto: `ec2-user@52.91.217.181`, `infra/mcp-server-key.pem`. Ejecuta el comando en la terminal de Cursor (o pide a Cursor que lo ejecute). **Si usas el MCP remoto:** ejecuta en la terminal de tu PC (desde la raíz del repo) o en una terminal ya conectada por SSH. Si las tools no aparecen, actualiza la instancia y reconecta Cursor al MCP.
+Default host and key: `ec2-user@52.91.217.181`, `infra/mcp-server-key.pem`. Run the command in Cursor’s terminal (or ask Cursor to run it). **If you use remote MCP:** run it in a terminal on your PC (from the repo root) or in a terminal already connected via SSH. If tools don’t show up, update the instance and reconnect Cursor to MCP.
 
 ---
 
-## 8. Producción: mitigar 502 cuando nginx pierde conexión con el gateway
+## 8. Production: mitigate 502 when nginx loses connection to gateway
 
-Si Cursor deja de conectar (502 Bad Gateway) tras reinicios del gateway o cortes de red entre contenedores:
+If Cursor stops connecting (502 Bad Gateway) after gateway restarts or network hiccups between containers:
 
-**A) Cambios ya en el repo (nginx + docker-compose):**
+**A) Changes already in the repo (nginx + docker-compose):**
 
-- Nginx re-resuelve `gateway` con el DNS de Docker (`resolver 127.0.0.11`) para evitar IP obsoletas tras reinicios.
-- `restart: always` en gateway y nginx.
-- Nginx espera a que el gateway esté healthy antes de arrancar (`depends_on` con `condition: service_healthy`).
+- Nginx re-resolves `gateway` via Docker DNS (`resolver 127.0.0.11`) to avoid stale IPs after restarts.
+- `restart: always` on gateway and nginx.
+- Nginx waits for the gateway to be healthy before starting (`depends_on` with `condition: service_healthy`).
 
-**B) Health check automático (cron cada 5 min):**
+**B) Automatic health check (cron every 5 min):**
 
 ```bash
-# En la instancia, tras instalar util scripts:
+# On the instance, after installing util scripts:
 (crontab -l 2>/dev/null | grep -v util_health_check_restart; echo "*/5 * * * * /opt/mcp-tools/util_health_check_restart >> /var/log/mcp-health.log 2>&1") | crontab -
 ```
 
-Si `/api/health` devuelve 502 o falla, el script reinicia nginx. Opción `--gateway` para reiniciar también el gateway:
+If `/api/health` returns 502 or fails, the script restarts nginx. Use `--gateway` to restart the gateway too:
 
 ```bash
 /opt/mcp-tools/util_health_check_restart --gateway

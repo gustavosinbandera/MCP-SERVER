@@ -1,74 +1,74 @@
-# Verificar credenciales en la instancia EC2 (Docker)
+# Verify credentials on the EC2 instance (Docker)
 
-Comandos para comprobar si `INDEX_URL_USER` e `INDEX_URL_PASSWORD` están definidos en el contenedor del gateway **sin mostrar la contraseña**.
+Commands to verify whether `INDEX_URL_USER` and `INDEX_URL_PASSWORD` are defined in the gateway container **without showing the password**.
 
 ---
 
-## 1. Conectar a la instancia
+## 1. Connect to the instance
 
 ```bash
 ssh -i infra/mcp-server-key.pem ec2-user@52.91.217.181
 ```
 
-(O desde PowerShell: `ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181`)
+(Or from PowerShell: `ssh -i "infra\\mcp-server-key.pem" ec2-user@52.91.217.181`)
 
 ---
 
-## 2. Comprobar variables en el archivo .env (en el host)
+## 2. Check variables in the .env file (on the host)
 
-El gateway usa el `.env` de la **raíz del proyecto** en la instancia (`~/MCP-SERVER/.env`), porque `docker-compose.yml` tiene `env_file: .env`.
+The gateway uses the `.env` at the **project root** on the instance (`~/MCP-SERVER/.env`) because `docker-compose.yml` has `env_file: .env`.
 
-**Solo ver si existen las claves (no muestra el valor de la contraseña):**
+**Only check whether the keys exist (does not show the password value):**
 
 ```bash
 cd ~/MCP-SERVER
 grep -E '^INDEX_URL_USER=|^INDEX_URL_PASSWORD=' .env | sed 's/=.*/=***/'
 ```
 
-- Si ves `INDEX_URL_USER=***` y `INDEX_URL_PASSWORD=***` → están definidas (el valor está oculto).
-- Si no sale ninguna línea → faltan; hay que añadirlas al `.env`.
+- If you see `INDEX_URL_USER=***` and `INDEX_URL_PASSWORD=***` → they are defined (value is masked).
+- If nothing prints → they’re missing; add them to `.env`.
 
-**Ver si están vacías (solo nombre, sin valor):**
+**Check if they are empty (key name, no value):**
 
 ```bash
 grep -E '^INDEX_URL_USER=|^INDEX_URL_PASSWORD=' .env
 ```
 
-Si ves `INDEX_URL_USER=` o `INDEX_URL_PASSWORD=` sin nada después del `=`, están vacías.
+If you see `INDEX_URL_USER=` or `INDEX_URL_PASSWORD=` with nothing after `=`, they’re empty.
 
 ---
 
-## 3. Comprobar qué ve el contenedor del gateway
+## 3. Check what the gateway container sees
 
-Variables que realmente carga el proceso del gateway:
+Variables actually loaded by the gateway process:
 
 ```bash
 cd ~/MCP-SERVER
 docker compose exec gateway env | grep -E '^INDEX_URL_USER=|^INDEX_URL_PASSWORD=' | sed 's/=.*/=***/'
 ```
 
-- Si sale `INDEX_URL_USER=***` y `INDEX_URL_PASSWORD=***` → el contenedor tiene ambas.
-- Si no sale nada → el `.env` no tiene esas variables o el gateway no se ha reiniciado tras añadirlas.
+- If you see `INDEX_URL_USER=***` and `INDEX_URL_PASSWORD=***` → the container has both.
+- If nothing prints → either `.env` doesn’t contain them, or the gateway wasn’t restarted after adding them.
 
 ---
 
-## 4. Añadir o corregir credenciales
+## 4. Add or fix credentials
 
-Editar el `.env` en la instancia:
+Edit `.env` on the instance:
 
 ```bash
 cd ~/MCP-SERVER
 nano .env
 ```
 
-Añadir o modificar (sustituir por tu usuario y contraseña de dev.magaya.com):
+Add/modify (replace with your dev.magaya.com username/password):
 
 ```
 INDEX_URL_USER=tu_usuario_wiki
-INDEX_URL_PASSWORD=tu_contraseña
+INDEX_URL_PASSWORD=your_password
 ```
 
-Guardar (en nano: `Ctrl+O`, Enter, `Ctrl+X`) y reiniciar el gateway:
+Save (in nano: `Ctrl+O`, Enter, `Ctrl+X`) and restart the gateway:
 
 ```bash
 docker compose restart gateway
@@ -76,6 +76,6 @@ docker compose restart gateway
 
 ---
 
-## 5. Probar de nuevo mediawiki_login
+## 5. Re-test mediawiki_login
 
-Desde Cursor (con el MCP apuntando al gateway en la instancia), invoca de nuevo **mediawiki_login** con `url: "https://dev.magaya.com/index.php/Main_Page"`.
+From Cursor (with MCP pointing to the gateway on the instance), invoke **mediawiki_login** again with `url: "https://dev.magaya.com/index.php/Main_Page"`.

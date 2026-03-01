@@ -4,7 +4,8 @@
  * Requiere CLICKUP_API_TOKEN y LIST_ID (o --list-id).
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
 const taskId = process.argv.find((a, i) => process.argv[i - 1] === '--task-id');
 const listIdArg = process.argv.find((a, i) => process.argv[i - 1] === '--list-id');
@@ -14,7 +15,7 @@ if (!taskId) {
   process.exit(1);
 }
 
-const { getTask, getList, updateTask, hasClickUpToken } = require('../dist/clickup-client.js');
+const { getTask, getList, updateTask, hasClickUpToken } = requireDist(['clickup-client.js', 'clickup']);
 
 function findCompleteStatus(list) {
   const statuses = list.statuses || [];

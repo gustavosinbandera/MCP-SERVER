@@ -1,10 +1,10 @@
-# Lista de changesets – Blue Ivory (excl. Classic/Core)
+# Changesets list – Blue Ivory (excluding Classic/Core)
 
-Proyecto: **blueivory** únicamente (ruta TFVC BLUE-IVORY-MAIN). Excluidos Classic y Core.
-Total en Azure DevOps: **1413**. Esta exportación: **1000** changesets (todos los desarrolladores).  
-Para obtener los 1413: recompila el gateway (`npm run build`), reinicia el MCP y ejecuta `azure_list_changesets` con `{ "project": "blueivory", "top": 1413 }`; luego vuelve a pasar la salida por `gateway/scripts/export-blueivory-changesets-to-md.cjs`.
+Project: **blueivory** only (TFVC path BLUE-IVORY-MAIN). Classic and Core excluded.
+Total in Azure DevOps: **1413**. This export: **1000** changesets (all developers).  
+To obtain all 1413: rebuild the gateway (`npm run build`), restart MCP, and run `azure_list_changesets` with `{ "project": "blueivory", "top": 1413 }`; then pass the output again through `gateway/scripts/export-blueivory-changesets-to-md.cjs`.
 
-Formato: `#ID  Autor  Fecha  Comentario`
+Format: `#ID  Author  Date  Comment`
 
 ---
 

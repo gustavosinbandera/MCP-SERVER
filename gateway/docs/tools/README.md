@@ -7,7 +7,7 @@ Este directorio documenta cada **tool** expuesta por el servidor MCP y los **scr
 Desde la raíz del **gateway**:
 
 ```bash
-node scripts/mcp-tools-menu.cjs
+node scripts/mcp/mcp-tools-menu.cjs
 ```
 
 Se abre un menú numerado (1-9 = herramientas, 0 = índice, S = salir). Para ver la ayuda de una herramienta escribe su **número** o **número --help**, por ejemplo:
@@ -19,8 +19,8 @@ Se abre un menú numerado (1-9 = herramientas, 0 = índice, S = salir). Para ver
 También puedes pedir ayuda directa por nombre:
 
 ```bash
-node scripts/mcp-tools-menu.cjs search_docs --help
-node scripts/mcp-tools-menu.cjs index_url --help
+node scripts/mcp/mcp-tools-menu.cjs search_docs --help
+node scripts/mcp/mcp-tools-menu.cjs index_url --help
 ```
 
 (Se muestra el contenido del documento correspondiente.)
@@ -101,7 +101,7 @@ En el menú (`npm run tools`) puedes referirte a una herramienta de forma amigab
 - **Por alias:** cada tool tiene alias (ej. `buscar`, `search` para search_docs; `flow doc`, `flujo` para write_flow_doc). Escribe el alias en lugar del nombre técnico.
 - **Por frase:** si escribes algo como "buscar en la documentación" o "indexar una url", el menú sugiere la tool que mejor coincide y muestra su ayuda.
 
-La configuración de alias y palabras clave para sugerencias está en **`gateway/scripts/tools-config.cjs`**.
+La configuración de alias y palabras clave para sugerencias está en **`gateway/scripts/internal/tools-config.cjs`**.
 
 Las herramientas **list_url_links** y **view_url** (y otras que devuelvan texto largo) presentan la salida en **Markdown** (tablas, listas, títulos) para que se vea bien en la consola o en clientes que rendericen Markdown (p. ej. Cursor). Al agregar una nueva tool al MCP, añade allí una entrada con `name`, `aliases` y `keywords` para que el menú y la IA puedan referirse a ella de forma amigable.
 
@@ -111,7 +111,7 @@ Las herramientas **list_url_links** y **view_url** (y otras que devuelvan texto 
 
 | Script | Uso |
 |--------|-----|
-| `node scripts/index-example-doc.cjs` | Indexa `docs_repo/docs/ejemplo.txt` en Qdrant. |
-| `node scripts/migrate-collection-size.cjs` | Borra la colección `mcp_docs` para recrearla con el tamaño de vector correcto (p. ej. 1536). |
+| `node scripts/dev/index-example-doc.cjs` | Indexa `docs_repo/docs/ejemplo.txt` en Qdrant. |
+| `node scripts/internal/migrate-collection-size.cjs` | Borra la colección `mcp_docs` para recrearla con el tamaño de vector correcto (p. ej. 1536). |
 
 Documentación general del gateway: [../README.md](../) (si existe) o [MIGRACION-COLECCION.md](../MIGRACION-COLECCION.md), [TESTING.md](../TESTING.md).

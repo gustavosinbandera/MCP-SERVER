@@ -14,20 +14,20 @@ import {
 } from './indexed-keys-db';
 
 /**
- * Filtros de búsqueda (alineados con el payload indexado en mcp_docs).
- * Payload: project, branch, source_type, domain, file_name, class_names[], property_names[], referenced_types[], title, content, source_path, url (si aplica).
- * branch y source_type se normalizan a minúsculas al filtrar.
+ * Search filters (aligned with the payload indexed in mcp_docs).
+ * Payload: project, branch, source_type, domain, file_name, class_names[], property_names[], referenced_types[], title, content, source_path, url (if applicable).
+ * branch and source_type are normalized to lowercase when filtering.
  */
 export type SearchOptions = {
   project?: string;
   branch?: string;
   source_type?: string;
   domain?: string;
-  /** Filtrar por clase (documentos cuyo class_names contiene este valor). */
+  /** Filter by class (documents whose class_names contains this value). */
   class_name?: string;
-  /** Filtrar por tipo referenciado (documentos cuyo referenced_types contiene este valor). */
+  /** Filter by referenced type (documents whose referenced_types contains this value). */
   referenced_type?: string;
-  /** Filtrar por nombre de archivo (coincidencia exacta en file_name). */
+  /** Filter by file name (exact match on file_name). */
   file_name?: string;
 };
 
@@ -269,7 +269,7 @@ export async function searchDocs(
 }
 
 /**
- * Comprueba si ya existe un documento con el título dado en la colección mcp_docs.
+ * Check whether a document with the given title already exists in the mcp_docs collection.
  */
 export async function existsDocWithTitle(title: string): Promise<boolean> {
   const client = getQdrantClient();
@@ -292,7 +292,7 @@ export async function existsDocWithTitle(title: string): Promise<boolean> {
 }
 
 /**
- * Comprueba si ya existe un documento con (project, source_path) en mcp_docs.
+ * Check whether a document with (project, source_path) already exists in mcp_docs.
  * Permite tener el mismo path en distintos proyectos (ej. branch vs legacy).
  */
 export async function existsDocByProjectAndPath(project: string, sourcePath: string): Promise<boolean> {
@@ -321,7 +321,7 @@ export async function existsDocByProjectAndPath(project: string, sourcePath: str
 }
 
 /**
- * Cuenta cuántos puntos (documentos) hay en la colección mcp_docs de Qdrant.
+ * Count how many points (documents) exist in the Qdrant mcp_docs collection.
  */
 export async function countDocs(): Promise<{ count: number; collection: string }> {
   const client = getQdrantClient();

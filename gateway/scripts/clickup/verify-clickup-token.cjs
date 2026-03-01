@@ -3,9 +3,10 @@
  * Llama a GET /user (el endpoint más simple). Si falla 401, el token está revocado o es inválido.
  * Uso: desde gateway/ → node scripts/verify-clickup-token.cjs
  */
-require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
-const { getAuthorizedUser, hasClickUpToken } = require('../dist/clickup-client.js');
+const { getAuthorizedUser, hasClickUpToken } = requireDist(['clickup-client.js', 'clickup']);
 
 async function main() {
   if (!hasClickUpToken()) {

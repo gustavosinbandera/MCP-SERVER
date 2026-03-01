@@ -1,7 +1,7 @@
 /**
- * Transport adapter para MCP sobre HTTP: un request (POST body) = un mensaje JSON-RPC,
- * la respuesta se devuelve en el cuerpo de la respuesta HTTP.
- * Compatible con la interfaz que usa Protocol.connect(transport).
+ * MCP transport adapter over HTTP: one request (POST body) = one JSON-RPC message,
+ * and the response is returned as the HTTP response body.
+ * Compatible with the interface used by Protocol.connect(transport).
  */
 
 import { info as logInfo } from '../logger';
@@ -13,7 +13,7 @@ export interface HttpStreamableTransport {
   onmessage?: (message: unknown, extra?: { sessionId?: string; requestInfo?: { headers?: Record<string, string> } }) => void;
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  /** Maneja un mensaje entrante (cuerpo POST) y devuelve la respuesta JSON-RPC cuando el servidor llama send(). */
+  /** Handle an incoming message (POST body) and return the JSON-RPC response when the server calls send(). */
   handleRequest(body: unknown, extra?: { sessionId?: string }): Promise<unknown>;
 }
 
@@ -22,18 +22,18 @@ const SESSION_ID_HEADER = 'mcp-session-id';
 type Pending = { requestId?: string | number; resolve: (value: unknown) => void; reject: (reason: Error) => void };
 
 /**
- * Crea un transport que adapta HTTP request/response al contrato del Protocol.
- * - start(): resuelve de inmediato.
- * - send(msg, options): resuelve la promesa correspondiente: por message.id o options.relatedRequestId si existe; si no, la más antigua (FIFO) para no colgar.
- * - handleRequest(body): añade una promesa a la cola, invoca onmessage(body), espera send() y devuelve el mensaje.
- * Soporta varias tools/call en paralelo: si la respuesta trae id, se empareja; si no, se responde en orden (FIFO).
+ * Create a transport that adapts HTTP request/response to the Protocol contract.
+ * - start(): resolves immediately.
+ * - send(msg, options): resolves the matching promise: by message.id or options.relatedRequestId when present; otherwise the oldest (FIFO) to avoid hanging.
+ * - handleRequest(body): adds a promise to the queue, calls onmessage(body), waits for send(), and returns the message.
+ * Supports multiple parallel tool calls: if the response has an id it is matched; otherwise responses are returned in FIFO order.
  */
 export function createHttpStreamableTransport(): HttpStreamableTransport {
   const pendingQueue: Pending[] = [];
 
   const transport: HttpStreamableTransport = {
     async start() {
-      // No-op para HTTP; el "inicio" es la primera petición.
+      // No-op for HTTP; "start" is effectively the first request.
     },
 
     async send(message: unknown, options?: { relatedRequestId?: string; sessionId?: string }) {

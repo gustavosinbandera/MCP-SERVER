@@ -1,7 +1,7 @@
 /**
- * Búsqueda de repositorios en GitHub por tema.
- * Usa la GitHub Search API. Con GITHUB_TOKEN (opcional) se aumenta el límite de peticiones.
- * Para "actualidad tech" se ordena por updated; opcionalmente por stars (mejor puntuación).
+ * Search GitHub repositories by topic.
+ * Uses the GitHub Search API. With GITHUB_TOKEN (optional) you get higher rate limits.
+ * For "what's current" sort by updated; optionally by stars (highest score).
  */
 
 const GITHUB_API = 'https://api.github.com/search/repositories';
@@ -28,7 +28,7 @@ export interface SearchGitHubReposResult {
   error?: string;
 }
 
-/** Topics de GitHub que podemos forzar (topic:xxx) para filtrar por ecosistema. */
+/** GitHub topics we can force (topic:xxx) to filter by ecosystem. */
 const KNOWN_TOPICS = new Set([
   'esp32', 'esp8266', 'arduino', 'raspberry-pi', 'mcp', 'embedded', 'iot', 'micropython',
   'react', 'vue', 'nextjs', 'node', 'docker', 'kubernetes', 'machine-learning', 'llm',
@@ -39,7 +39,7 @@ const KNOWN_TOPICS = new Set([
   'webapp', 'backend', 'frontend', 'fullstack', 'serverless', 'microservices',
 ]);
 
-/** Palabras que mapean a language: de la API de GitHub (nombre exacto del lenguaje). */
+/** Words that map to GitHub API language: (exact language name). */
 const LANGUAGE_MAP: Record<string, string> = {
   'c++': 'C++', 'cpp': 'C++', 'c plus plus': 'C++',
   'c': 'C',
@@ -64,24 +64,30 @@ const LANGUAGE_MAP: Record<string, string> = {
   'powershell': 'PowerShell',
 };
 
-/** Palabras que indican orden: actualidad (updated) o mejor valorados (stars). */
+/** Words that hint sort: recent (updated) or top-rated (stars). */
 const SORT_HINT_WORDS: Record<string, GitHubReposSort> = {
-  recent: 'updated', actualidad: 'updated', ultimo: 'updated', último: 'updated',
-  updated: 'updated', nuevo: 'updated', nuevos: 'updated', active: 'updated',
-  stars: 'stars', mejor: 'stars', mejores: 'stars', top: 'stars', popular: 'stars',
+  recent: 'updated',
+  latest: 'updated',
+  updated: 'updated',
+  new: 'updated',
+  active: 'updated',
+  stars: 'stars',
+  best: 'stars',
+  top: 'stars',
+  popular: 'stars',
   forks: 'forks',
 };
 
-/** Resultado de buildQuery: query y opcionalmente sort/filtros inferidos. */
+/** buildQuery output: query and optionally inferred sort/filters. */
 interface BuiltQuery {
   q: string;
   sort?: GitHubReposSort;
 }
 
 /**
- * Construye una query de GitHub con topic:, language:, y filtros según el texto.
- * Infiere sort (recent/actualidad → updated; stars/mejor/top → stars).
- * Acepta min-stars N, stars>N, pushed 2024, activo (archived:false).
+ * Build a GitHub query with topic:, language:, and filters inferred from text.
+ * Infers sort (recent/latest → updated; stars/best/top → stars).
+ * Supports min-stars N, stars>N, pushed 2024, active (archived:false).
  */
 function buildQuery(topic: string): BuiltQuery {
   const raw = topic.trim();
@@ -93,7 +99,7 @@ function buildQuery(topic: string): BuiltQuery {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Filtros explícitos: min-stars 500, stars>100, stars:>500
+  // Explicit filters: min-stars 500, stars>100, stars:>500
   let starsMin = 0;
   working = working.replace(/\b(?:min[- ]?stars?|stars?[- ]?>\s*|stars?:\s*>\s*)(\d+)\b/gi, (_, n) => {
     starsMin = Math.max(starsMin, parseInt(n, 10));
@@ -105,24 +111,26 @@ function buildQuery(topic: string): BuiltQuery {
     working = working.replace(/\bstars?[>\s]*\d+\b/, ' ');
   }
 
-  // Año / pushed: 2024, last year, pushed 2023
+  // Year / pushed: 2024, last year, this year, pushed 2023
   let pushedAfter = '';
   const yearMatch = working.match(/\b(20\d{2})\b/);
   if (yearMatch) {
     pushedAfter = `${yearMatch[1]}-01-01`;
     working = working.replace(/\b20\d{2}\b/, ' ');
   }
-  if (/\b(?:last\s+year|último\s+año|este\s+año)\b/i.test(working)) {
-    const y = new Date().getFullYear() - 1;
+  const relYear = working.match(/\b(?:last\s+year|this\s+year)\b/i)?.[0]?.toLowerCase();
+  if (relYear) {
+    const nowYear = new Date().getFullYear();
+    const y = relYear.includes('last') ? nowYear - 1 : nowYear;
     pushedAfter = `${y}-01-01`;
-    working = working.replace(/\b(?:last\s+year|último\s+año|este\s+año)\b/gi, ' ');
+    working = working.replace(/\b(?:last\s+year|this\s+year)\b/gi, ' ');
   }
 
-  // Activo / no archivados
+  // Active / not archived
   let excludeArchived = false;
-  if (/\b(?:active|activo|no\s+archived|activos)\b/i.test(working)) {
+  if (/\b(?:active|no\s+archived)\b/i.test(working)) {
     excludeArchived = true;
-    working = working.replace(/\b(?:active|activo|no\s+archived|activos)\b/gi, ' ');
+    working = working.replace(/\b(?:active|no\s+archived)\b/gi, ' ');
   }
 
   const words = working.replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -169,8 +177,8 @@ function buildQuery(topic: string): BuiltQuery {
 }
 
 /**
- * Busca repositorios en GitHub por tema. Orden por defecto: actualidad (updated).
- * Opción sort=stars para mejor puntuación. buildQuery puede inferir sort y filtros del texto.
+ * Search GitHub repositories by topic. Default sort: updated (recent activity).
+ * sort=stars returns top-rated results. buildQuery can infer sort and filters from text.
  */
 export async function searchGitHubRepos(
   topic: string,

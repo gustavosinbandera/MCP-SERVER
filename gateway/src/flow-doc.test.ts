@@ -43,7 +43,7 @@ describe('flow-doc', () => {
       expect(content).toContain('---');
       expect(content).toContain('title: "Test Flow"');
       expect(content).toContain('type: "flow_doc"');
-      expect(content).toContain('## Descripción');
+      expect(content).toContain('## Description');
       expect(content).toContain('A test description');
     });
 
@@ -56,9 +56,9 @@ describe('flow-doc', () => {
       });
       expect(result.error).toBeUndefined();
       const content = fs.readFileSync(result.path, 'utf-8');
-      expect(content).toContain('## Archivos relacionados');
+      expect(content).toContain('## Related files');
       expect(content).toContain('- src/a.ts');
-      expect(content).toContain('## Funciones');
+      expect(content).toContain('## Functions');
       expect(content).toContain('- foo()');
     });
 
@@ -87,7 +87,7 @@ describe('flow-doc', () => {
     it('returns result with path and message on success', () => {
       const result = writeFlowDocToInbox({ title: 'Success', description: 'D' });
       expect(result.path).toBeTruthy();
-      expect(result.message).toContain('guardado');
+      expect(result.message).toContain('saved');
       expect(result.error).toBeUndefined();
     });
   });

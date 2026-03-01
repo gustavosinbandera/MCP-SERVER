@@ -1,7 +1,7 @@
 /**
- * Inbox indexer: escanea una carpeta temporal (INDEX_INBOX_DIR), indexa cada
- * archivo/carpeta en Qdrant y elimina el elemento tras indexar correctamente.
- * Pensado para ser invocado por el supervisor de forma periódica.
+ * Inbox indexer: scans a temp folder (INDEX_INBOX_DIR), indexes each
+ * file/folder into Qdrant, and deletes the item after successful indexing.
+ * Intended to be invoked periodically by the supervisor.
  * Uses controlled parallelism (INDEX_CONCURRENCY) to avoid overloading OpenAI/Qdrant.
  */
 import * as fs from 'fs';
@@ -57,7 +57,7 @@ const BLOCKED_EXT = new Set([
   '.jar', '.war', '.class', '.o', '.obj', '.a', '.lib',
 ]);
 
-/** Directorios que no se indexan por defecto. Evita node_modules, .git, etc. */
+/** Directories that are not indexed by default. Avoids node_modules, .git, etc. */
 const DEFAULT_IGNORE_DIRS = new Set([
   '.git', '.svn', '.hg', '.idea', '.vscode', '.cursor',
   'node_modules', 'bower_components', 'jspm_packages',
@@ -82,7 +82,7 @@ function isBlockedFile(filePath: string): boolean {
   return BLOCKED_EXT.has(ext);
 }
 
-/** Parsea frontmatter mínimo (title, created_at, tags) de un md User KB. */
+/** Parse minimal frontmatter (title, created_at, tags) from a User KB markdown. */
 function parseUserKbFrontmatter(content: string): { title?: string; created_at?: string; tags?: string[] } {
   const out: { title?: string; created_at?: string; tags?: string[] } = {};
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -366,7 +366,7 @@ function removeItemSync(absPath: string): void {
 }
 
 /**
- * @param optionalInboxProject - Si está definido (ej. INDEX_INBOX_PROJECT), se usa como proyecto para no colisionar con otros árboles (branch/legacy).
+ * @param optionalInboxProject - If set (e.g. INDEX_INBOX_PROJECT), it's used as the project name to avoid collisions with other trees (branch/legacy).
  * @param existingKeys - Set pre-cargado de (project, source_path) ya indexados; si se pasa, se usa en lugar de existsDocByProjectAndPath y se actualiza al indexar.
  */
 export async function processInboxItem(
@@ -513,7 +513,7 @@ export function getInboxPathOrNull(): string | null {
 /**
  * Indexa en Qdrant el contenido de los directorios en SHARED_DIRS.
  * Identidad por (proyecto + ruta): mismo path en otro proyecto no colisiona.
- * Con INDEX_SHARED_REINDEX_CHANGED reindexa archivos cuyo contenido cambió (hash).
+ * With INDEX_SHARED_REINDEX_CHANGED it re-indexes files whose content changed (hash).
  * Con INDEX_SHARED_SYNC_DELETED borra de Qdrant los (project, title) que ya no existen en disco.
  */
 export async function indexSharedDirs(): Promise<{ indexed: number; newCount: number; reindexedCount: number; errors: string[] }> {

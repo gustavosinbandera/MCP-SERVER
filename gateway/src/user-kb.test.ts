@@ -27,23 +27,23 @@ describe('user-kb', () => {
   it('writes a document to USER_KB_ROOT_DIR/<userId>/<yyyy>/<mm>/<id>__<slug>.md', () => {
     const result = writeUserExperienceDoc({
       userId: 'user-1',
-      title: 'Hallazgo bug login',
-      content: 'El botón no responde en Safari.',
+      title: 'Login bug finding',
+      content: 'The button does not respond in Safari.',
     });
     expect(result.error).toBeUndefined();
-    expect(result.relativePath).toMatch(/^user-1\/\d{4}\/\d{2}\/[a-f0-9]+__hallazgo-bug-login\.md$/);
+    expect(result.relativePath).toMatch(/^user-1\/\d{4}\/\d{2}\/[a-f0-9]+__login-bug-finding\.md$/);
     expect(fs.existsSync(result.path)).toBe(true);
     const content = fs.readFileSync(result.path, 'utf-8');
-    expect(content).toContain('title: "Hallazgo bug login"');
+    expect(content).toContain('title: "Login bug finding"');
     expect(content).toContain('doc_kind: "experience"');
-    expect(content).toContain('El botón no responde en Safari.');
+    expect(content).toContain('The button does not respond in Safari.');
   });
 
   it('includes bugOrFeatureId and tags in frontmatter when provided', () => {
     const result = writeUserExperienceDoc({
       userId: 'user-2',
       title: 'Feature X',
-      content: 'Descripción.',
+      content: 'Description.',
       bugOrFeatureId: 'BUG-123',
       tags: ['frontend', 'safari'],
     });

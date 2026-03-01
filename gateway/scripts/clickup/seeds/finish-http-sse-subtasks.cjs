@@ -4,12 +4,12 @@
  * Requiere CLICKUP_API_TOKEN en gateway/.env
  *
  * Uso (desde gateway/):
- *   node scripts/finish-http-sse-subtasks.cjs --task-id 86afm65jy
+ *   node scripts/clickup/seeds/finish-http-sse-subtasks.cjs --task-id 86afm65jy
  */
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../../_shared/script-env.cjs');
+loadGatewayEnv();
 
-const { getTask, getList, updateTask, hasClickUpToken } = require('../dist/clickup-client.js');
+const { getTask, getList, updateTask, hasClickUpToken } = requireDist(['clickup-client.js', 'clickup']);
 const { SUBTASKS } = require('./seed-subtasks-http-streamable.cjs');
 
 function findCompleteStatus(list) {

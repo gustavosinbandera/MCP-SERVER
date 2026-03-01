@@ -1,13 +1,13 @@
 /**
- * Escribe un documento markdown de flujo (nodo del mapa de flujos) en INDEX_INBOX_DIR
- * para que el supervisor lo indexe en Qdrant. Sirve para ir armando un mapa del flujo
- * del proyecto a medida que se investigan bugs o funcionalidades (ej. accounting, shipment).
+ * Write a flow Markdown document (flow-map node) into INDEX_INBOX_DIR so the supervisor
+ * can index it into Qdrant. This helps build a project flow map as bugs/features are
+ * investigated (e.g. accounting, shipment).
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { getInboxPath } from './config';
 
-/** Convierte título a slug seguro para nombre de archivo (minúsculas, guiones, sin caracteres raros). */
+/** Convert title to a safe filename slug (lowercase, dashes, no weird chars). */
 function slugify(title: string): string {
   return title
     .toLowerCase()
@@ -22,21 +22,21 @@ function slugify(title: string): string {
 export type WriteFlowDocOptions = {
   title: string;
   description: string;
-  /** Archivos relacionados (uno por línea o lista). */
+  /** Related files (one per line or list). */
   files?: string;
-  /** Funciones relacionadas (una por línea o lista). */
+  /** Related functions (one per line or list). */
   functions?: string;
-  /** Resumen del flujo o pasos (texto libre). */
+  /** Flow summary or steps (free text). */
   flow_summary?: string;
-  /** ID del bug asociado (opcional). */
+  /** Associated bug ID (optional). */
   bug_id?: string;
-  /** Proyecto/área (opcional, ej. accounting, shipment). */
+  /** Project/area (optional, e.g. accounting, shipment). */
   project?: string;
 };
 
 /**
- * Escribe un markdown de flujo en INDEX_INBOX_DIR. El supervisor lo indexará en el próximo ciclo.
- * El documento es un nodo del mapa de flujos del proyecto (archivos, funciones, descripción).
+ * Write a flow Markdown doc into INDEX_INBOX_DIR. The supervisor will index it on the next cycle.
+ * The document is a node in the project flow map (files, functions, description).
  */
 export function writeFlowDocToInbox(options: WriteFlowDocOptions): { path: string; message: string; error?: string } {
   const { title, description, files, functions, flow_summary, bug_id, project } = options;
@@ -53,7 +53,7 @@ export function writeFlowDocToInbox(options: WriteFlowDocOptions): { path: strin
     const filePath = path.join(inboxDir, filename);
 
     const frontmatter: Record<string, string | boolean> = {
-      title: title || 'Flujo',
+      title: title || 'Flow',
       type: 'flow_doc',
       date,
       generated_by_ia: true,
@@ -68,8 +68,8 @@ export function writeFlowDocToInbox(options: WriteFlowDocOptions): { path: strin
     const frontmatterBlock = ['---', ...yamlLines, '---', ''].join('\n');
 
     const sections: string[] = [];
-    sections.push('*Documento generado por IA (generated_by_ia: true, source: ai_generated).*\n');
-    sections.push('## Descripción\n\n' + (description || '').trim());
+    sections.push('*AI-generated document (generated_by_ia: true, source: ai_generated).*');
+    sections.push('## Description\n\n' + (description || '').trim());
 
     if (files?.trim()) {
       const fileList = files
@@ -79,7 +79,7 @@ export function writeFlowDocToInbox(options: WriteFlowDocOptions): { path: strin
         .filter(Boolean)
         .map((f) => `- ${f}`)
         .join('\n');
-      sections.push('## Archivos relacionados\n\n' + fileList);
+      sections.push('## Related files\n\n' + fileList);
     }
 
     if (functions?.trim()) {
@@ -90,11 +90,11 @@ export function writeFlowDocToInbox(options: WriteFlowDocOptions): { path: strin
         .filter(Boolean)
         .map((f) => `- ${f}`)
         .join('\n');
-      sections.push('## Funciones\n\n' + funcList);
+      sections.push('## Functions\n\n' + funcList);
     }
 
     if (flow_summary?.trim()) {
-      sections.push('## Resumen del flujo\n\n' + flow_summary.trim());
+      sections.push('## Flow summary\n\n' + flow_summary.trim());
     }
 
     const content = frontmatterBlock + sections.join('\n\n');
@@ -103,13 +103,13 @@ export function writeFlowDocToInbox(options: WriteFlowDocOptions): { path: strin
 
     return {
       path: filePath,
-      message: `Documento de flujo guardado en ${filePath}. El supervisor lo indexará en el próximo ciclo (inbox). Así este nodo pasará a formar parte del mapa de flujos en el Knowledge Hub.`,
+      message: `Flow document saved to ${filePath}. The supervisor will index it on the next cycle (inbox). This node will become part of the Knowledge Hub flow map.`,
     };
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     return {
       path: '',
-      message: `Error al escribir el documento de flujo en ${inboxDir}: ${err}`,
+      message: `Failed to write flow document to ${inboxDir}: ${err}`,
       error: err,
     };
   }

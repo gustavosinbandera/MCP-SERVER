@@ -1,24 +1,24 @@
-# Infraestructura MCP Knowledge Hub
+# MCP Knowledge Hub Infrastructure
 
-Documento de referencia de la infraestructura actual del proyecto para presentación al equipo.
-
----
-
-## Vista general
-
-- **Entrada pública:** Nginx (puerto 80) en instancia EC2.
-- **URL producción:** `http://mcp.domoticore.co` (solo HTTP).
-- **Stack:** Docker Compose con PostgreSQL, Redis, Qdrant, InfluxDB, Grafana, Gateway (Node.js/TS), Supervisor, Webapp (Next.js), Nginx. Worker (Python) opcional con profile `jobs`.
+Reference document for the current project infrastructure (team-facing).
 
 ---
 
-## Diagrama de infraestructura (Mermaid)
+## Overview
+
+- **Public entrypoint**: Nginx (port 80) on an EC2 instance.
+- **Production URL**: `http://mcp.domoticore.co` (HTTP only).
+- **Stack**: Docker Compose with PostgreSQL, Redis, Qdrant, InfluxDB, Grafana, Gateway (Node.js/TS), Supervisor, Webapp (Next.js), Nginx. Optional Worker (Python) under the `jobs` profile.
+
+---
+
+## Infrastructure diagram (Mermaid)
 
 ```mermaid
 flowchart TB
-    subgraph usuarios["👥 Usuarios"]
+    subgraph usuarios["👥 Users"]
         IDE["Cursor / IDE"]
-        Browser["Navegador"]
+        Browser["Browser"]
     end
 
     subgraph ec2["🖥️ EC2 (52.91.217.181)"]
@@ -26,10 +26,10 @@ flowchart TB
             Nginx["Nginx :80"]
         end
 
-        subgraph aplicaciones["Aplicaciones"]
+        subgraph aplicaciones["Apps"]
             Webapp["Webapp (Next.js)\n:3000"]
             Gateway["Gateway MCP\n(Node.js + TS)\n:3001"]
-            Supervisor["Supervisor\n(indexación cada 2 min)"]
+            Supervisor["Supervisor\n(indexing every 2 min)"]
             Worker["Worker (Python)\nprofile: jobs"]
         end
 
@@ -40,7 +40,7 @@ flowchart TB
             InfluxDB["InfluxDB 2\n:8086"]
         end
 
-        subgraph monitoreo["Monitoreo"]
+        subgraph monitoreo["Monitoring"]
             Grafana["Grafana\n:3002"]
         end
     end
@@ -64,11 +64,11 @@ flowchart TB
 
 ---
 
-## Diagrama por capas (contenedores y puertos)
+## Layered diagram (containers and ports)
 
 ```mermaid
 flowchart LR
-    subgraph entrada["Entrada"]
+    subgraph entrada["Entry"]
         Nginx80["Nginx\n80"]
     end
 
@@ -105,63 +105,66 @@ flowchart LR
 
 ---
 
-## Servicios Docker Compose
+## Docker Compose services
 
-| Servicio     | Imagen / build     | Puerto host | Descripción |
+| Service     | Image / build     | Host port | Description |
 |-------------|--------------------|-------------|-------------|
-| **postgres** | postgres:15-alpine | 5432        | Base de datos relacional (metadata, trazabilidad, esquema `mcp_hub`). |
-| **redis**   | redis:7-alpine     | 6379        | Cola de mensajes y cache. |
-| **qdrant**  | qdrant/qdrant:v1.7.4 | 6333     | Base de datos vectorial (búsqueda semántica, colección `mcp_docs`). |
-| **influxdb** | influxdb:2.7      | 8086        | Métricas (org/bucket configurables vía env). |
-| **grafana** | grafana/grafana:11.1.4 | 3002   | Dashboards; fuente de datos InfluxDB. |
-| **gateway** | build ./gateway    | — (3001 interno) | MCP Gateway: health, logs, upload, búsqueda, APIs. Depende de Postgres e InfluxDB. |
-| **supervisor** | build ./gateway | —          | Indexa INDEX_INBOX y SHARED_DIRS cada 2 min. Depende de Qdrant e InfluxDB. |
-| **worker**  | build ./worker     | —          | Jobs en background (Python, Celery/Redis). Perfil `jobs`. |
-| **webapp**  | build ./webapp     | — (3000 interno) | Next.js: home, /upload, /files. |
+| **postgres** | postgres:15-alpine | 5432        | Relational DB (metadata, traceability, `mcp_hub` schema). |
+| **redis**   | redis:7-alpine     | 6379        | Queue/cache. |
+| **qdrant**  | qdrant/qdrant:v1.7.4 | 6333     | Vector DB (semantic search, `mcp_docs` collection). |
+| **influxdb** | influxdb:2.7      | 8086        | Metrics (org/bucket configurable via env). |
+| **grafana** | grafana/grafana:11.1.4 | 3002   | Dashboards; InfluxDB datasource. |
+| **gateway** | build ./gateway    | — (internal 3001) | MCP Gateway: health, logs, upload, search, APIs. Depends on Postgres and InfluxDB. |
+| **supervisor** | build ./gateway | —          | Indexes INDEX_INBOX and SHARED_DIRS every 2 min. Depends on Qdrant and InfluxDB. |
+| **worker**  | build ./worker     | —          | Background jobs (Python, Celery/Redis). `jobs` profile. |
+| **webapp**  | build ./webapp     | — (internal 3000) | Next.js: home, /upload, /files, /azure-tasks, /mcp-tools. |
 | **nginx**   | build ./nginx      | 80          | Reverse proxy: `/` → webapp, `/api/` → gateway. |
 
 ---
 
-## Rutas públicas (tras Nginx)
+## Public routes (behind Nginx)
 
-| Ruta           | Servicio | Descripción |
+| Route          | Service | Description |
 |----------------|----------|-------------|
-| `/`            | Webapp   | Página principal, búsqueda. |
-| `/upload`      | Webapp   | Subida a inbox/KB. |
-| `/files`       | Webapp   | Explorador de archivos (raíz = FILES_EXPLORER_ROOT). |
+| `/`            | Webapp   | Home page (search). |
+| `/upload`      | Webapp   | Upload to inbox/KB. |
+| `/files`       | Webapp   | File explorer (root = FILES_EXPLORER_ROOT). |
+| `/azure-tasks` | Webapp   | Azure work items UI. |
+| `/mcp-tools`   | Webapp   | MCP tools catalog UI. |
 | `/api/health`  | Gateway  | Health check. |
-| `/api/search`  | Gateway  | Búsqueda (ej. `?q=docs`). |
-| `/api/*`       | Gateway  | Resto de APIs (logs, upload, files/list, etc.). |
+| `/api/search`  | Gateway  | Search (e.g. `?q=docs`). |
+| `/api/*`       | Gateway  | Other APIs (logs, upload, files/list, etc.). |
 
 ---
 
-## Despliegue (EC2)
+## Deployment (EC2)
 
-- **Host:** 52.91.217.181 (ec2-user).
-- **Acceso:** SSH con clave `infra/mcp-server-key.pem`.
-- **Proyecto en servidor:** `~/MCP-SERVER` (o `/home/ec2-user/MCP-SERVER`).
-- **URL pública:** http://mcp.domoticore.co (solo HTTP).
-- **Comandos típicos:** ver `docs/COMANDOS-INSTANCIA-EC2.md` (conexión, logs, docker compose, etc.).
+- **Host**: 52.91.217.181 (ec2-user).
+- **Access**: SSH with key `infra/mcp-server-key.pem`.
+- **Project on server**: `~/MCP-SERVER` (or `/home/ec2-user/MCP-SERVER`).
+- **Public URL**: http://mcp.domoticore.co (HTTP only).
+- **Public URL**: http://mcp.domoticore.co (HTTP only).
+- **Common commands**: see `docs/COMANDOS-INSTANCIA-EC2.md` (connect, logs, docker compose, etc.).
 
 ---
 
-## Volúmenes y datos persistentes
+## Volumes and persistent data
 
 - **postgres_data**, **redis_data**, **qdrant_data**, **influxdb_data**, **grafana_data**, **gateway_data**.
-- Carpetas montadas en gateway/supervisor: `INDEX_INBOX`, `USER_KB`, `classic`, `blueivory` (según compose).
-- Worker monta `docs_repo` para documentación versionada.
+- Folders mounted into gateway/supervisor: `INDEX_INBOX`, `USER_KB`, `classic`, `blueivory` (per compose).
+- Worker mounts `docs_repo` for versioned documentation.
 
 ---
 
-## Desarrollo local (sin Docker completo)
+## Local development (without full Docker)
 
-- **Qdrant:** `docker run -d -p 6333:6333 qdrant/qdrant:v1.7.4`
-- **Gateway:** `cd gateway && npm run build`; Cursor arranca MCP según `.cursor/mcp.json`.
-- **Webapp:** `cd webapp && npm run dev` (puerto 3000 por defecto).
-- **Supervisor (opcional):** `cd gateway && node dist/supervisor.js` o `--once`.
+- **Qdrant**: `docker run -d -p 6333:6333 qdrant/qdrant:v1.7.4`
+- **Gateway**: `cd gateway && npm run build`; Cursor starts MCP based on `.cursor/mcp.json`.
+- **Webapp**: `cd webapp && npm run dev` (port 3000 by default).
+- **Supervisor (optional)**: `cd gateway && node dist/supervisor.js` or `--once`.
 
-Variables relevantes en `gateway/.env`: `QDRANT_URL`, `INDEX_INBOX_DIR`, `SHARED_DIRS`, `FILES_EXPLORER_ROOT`. Para webapp: `NEXT_PUBLIC_GATEWAY_URL=http://localhost:3001`.
+Relevant variables in `gateway/.env`: `QDRANT_URL`, `INDEX_INBOX_DIR`, `SHARED_DIRS`, `FILES_EXPLORER_ROOT`. For the webapp: `NEXT_PUBLIC_GATEWAY_URL=http://localhost:3001` (local dev).
 
 ---
 
-*Documento generado para presentación al equipo. Actualizado según README, docker-compose.yml, nginx.conf y docs del proyecto.*
+*Team-facing document. Updated based on README, docker-compose.yml, nginx.conf, and project docs.*

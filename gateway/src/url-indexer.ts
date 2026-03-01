@@ -1,6 +1,6 @@
 /**
- * Indexador de URLs: obtiene el contenido de una URL (HTML → texto) y lo indexa en Qdrant.
- * Permite indexar "información de URLs con contenido importante" en la misma colección mcp_docs.
+ * URL indexer: fetches URL content (HTML → text) and indexes it in Qdrant.
+ * Allows indexing "information from important URLs" into the same mcp_docs collection.
  */
 import { createHash } from 'crypto';
 import { QdrantClient } from '@qdrant/js-client-rest';
@@ -13,8 +13,8 @@ import { recordUrl } from './indexing-stats';
 import { recordIndexingEventMetric } from './metrics';
 
 const FETCH_TIMEOUT_MS = 15000;
-const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB (indexación)
-/** Límite para view_url: documento completo. Env VIEW_URL_MAX_LENGTH en bytes (default 10 MB, máx 50 MB). 0 = 50 MB. */
+const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB (indexing)
+/** Limit for view_url: full document. Env VIEW_URL_MAX_LENGTH in bytes (default 10 MB, max 50 MB). 0 = 50 MB. */
 const VIEW_URL_MAX_LENGTH = (() => {
   const n = process.env.VIEW_URL_MAX_LENGTH;
   if (n == null || n === '') return 10 * 1024 * 1024;
@@ -129,18 +129,18 @@ async function ensureSessionForUrl(url: string): Promise<void> {
   const origin = `${new URL(url).protocol}//${host}`;
   try {
     const ok = await mediaWikiLogin(origin);
-    if (ok) logProgress(`[Login] Sesión iniciada en ${host}`);
+    if (ok) logProgress(`[Login] Signed in on ${host}`);
   } catch {
-    // ignorar
+    // ignore
   }
 }
 
 export type LoginMediaWikiResult = { success: boolean; message: string };
 
 /**
- * Inicia sesión en un sitio MediaWiki (obtiene token de login vía API y establece cookies).
- * Usa INDEX_URL_USER e INDEX_URL_PASSWORD de gateway/.env.
- * Tras un login correcto, view_url/index_url/list_url_links usarán la sesión para ese host.
+ * Log into a MediaWiki site (fetches a login token via API and sets cookies).
+ * Uses INDEX_URL_USER and INDEX_URL_PASSWORD from gateway/.env.
+ * After a successful login, view_url/index_url/list_url_links will use the session for that host.
  */
 export async function loginMediaWiki(urlOrOrigin: string): Promise<LoginMediaWikiResult> {
   const user = process.env.INDEX_URL_USER;
@@ -148,7 +148,7 @@ export async function loginMediaWiki(urlOrOrigin: string): Promise<LoginMediaWik
   if (!user || !pass) {
     return {
       success: false,
-      message: 'Faltan INDEX_URL_USER o INDEX_URL_PASSWORD en gateway/.env. Configúralos para poder iniciar sesión.',
+      message: 'INDEX_URL_USER or INDEX_URL_PASSWORD is missing in gateway/.env. Set them to sign in.',
     };
   }
   let origin: string;
@@ -156,25 +156,25 @@ export async function loginMediaWiki(urlOrOrigin: string): Promise<LoginMediaWik
     const u = new URL(urlOrOrigin.trim());
     origin = `${u.protocol}//${u.host}`;
   } catch {
-    return { success: false, message: `URL u origen inválido: ${urlOrOrigin}` };
+    return { success: false, message: `Invalid URL/origin: ${urlOrOrigin}` };
   }
   const host = getHost(origin);
-  if (!host) return { success: false, message: `No se pudo obtener el host de: ${origin}` };
+  if (!host) return { success: false, message: `Could not extract host from: ${origin}` };
   try {
     const ok = await mediaWikiLogin(origin);
     if (ok) {
       return {
         success: true,
-        message: `Sesión iniciada en **${host}**. Las herramientas view_url, index_url y list_url_links usarán esta sesión para este sitio.`,
+        message: `Signed in on **${host}**. The tools view_url, index_url, and list_url_links will use this session for this site.`,
       };
     }
     return {
       success: false,
-      message: `No se pudo iniciar sesión en ${host}. Comprueba usuario/contraseña en gateway/.env y que el sitio sea MediaWiki con API de login.`,
+      message: `Could not sign in on ${host}. Check username/password in gateway/.env and ensure the site is MediaWiki with a login API.`,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { success: false, message: `Error al iniciar sesión: ${msg}` };
+    return { success: false, message: `Login error: ${msg}` };
   }
 }
 
@@ -183,7 +183,7 @@ function extractTitleFromHtml(html: string): string | null {
   return match ? match[1].replace(/\s+/g, ' ').trim().slice(0, 500) || null : null;
 }
 
-/** Obtiene el texto de un nodo DOM (domhandler: type, data, children). Para que view_url devuelva código en bloques ```. */
+/** Get the text of a DOM node (domhandler: type, data, children). Used by view_url to return code in ``` blocks. */
 function getTextContentFromNode(node: { type?: string; data?: string; children?: unknown[] } | null | undefined): string {
   if (!node) return '';
   if (node.type === 'text' && typeof node.data === 'string') return node.data.replace(/\r\n/g, '\n');
@@ -195,7 +195,7 @@ function getTextContentFromNode(node: { type?: string; data?: string; children?:
   return '';
 }
 
-/** Detecta idioma de código por clase (language-js, mw-highlight-source-javascript, etc.). */
+/** Detect code language from class (language-js, mw-highlight-source-javascript, etc.). */
 function getCodeLanguageFromElem(elem: { attribs?: Record<string, string>; parent?: { attribs?: Record<string, string> } }): string {
   const cls = elem.attribs?.class ?? elem.parent?.attribs?.class ?? '';
   const m = cls.match(/\b(?:language-|mw-highlight-source-)(\w+)/i) ?? cls.match(/\bsource-(\w+)/i);
@@ -213,8 +213,8 @@ function getCodeLanguageFromElem(elem: { attribs?: Record<string, string>; paren
 }
 
 /**
- * Opciones para html-to-text. Si preserveCodeBlocks es true (view_url), se conservan pre/code y bloques MediaWiki (.mw-highlight),
- * se usa solo .mw-parser-output y los bloques de código se envuelven en ``` para que la salida sea markdown listo para mostrar.
+ * Options for html-to-text. If preserveCodeBlocks is true (view_url), we preserve pre/code and MediaWiki blocks (.mw-highlight),
+ * use only .mw-parser-output, and wrap code blocks in ``` so output is ready-to-render Markdown.
  */
 function getHtmlToTextOptions(preserveCodeBlocks: boolean): {
   wordwrap: number;
@@ -262,11 +262,11 @@ function getHtmlToTextOptions(preserveCodeBlocks: boolean): {
   };
 }
 
-/** Extensiones consideradas "archivo" (no página HTML) para list_url_links. */
+/** Extensions considered a "file" (not an HTML page) for list_url_links. */
 const FILE_EXT = /\.(pdf|zip|tar|gz|rar|7z|doc|docx|xls|xlsx|ppt|pptx|png|jpg|jpeg|gif|svg|webp|mp4|mp3|wav|exe|dll|msi)(\?|#|$)/i;
 
 /**
- * Obtiene el HTML crudo de una URL (para extraer enlaces). Respeta sesión y auth.
+ * Fetch raw HTML for a URL (to extract links). Respects session and auth.
  */
 async function fetchUrlHtml(url: string): Promise<string> {
   await ensureSessionForUrl(url);
@@ -284,7 +284,7 @@ async function fetchUrlHtml(url: string): Promise<string> {
     clearTimeout(timeout);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const raw = await res.text();
-    if (raw.length > MAX_CONTENT_LENGTH) throw new Error(`Contenido mayor a ${MAX_CONTENT_LENGTH / 1024 / 1024} MB`);
+    if (raw.length > MAX_CONTENT_LENGTH) throw new Error(`Content larger than ${MAX_CONTENT_LENGTH / 1024 / 1024} MB`);
     return raw;
   } finally {
     clearTimeout(timeout);
@@ -292,8 +292,8 @@ async function fetchUrlHtml(url: string): Promise<string> {
 }
 
 /**
- * Extrae enlaces (href) del HTML y los resuelve a URLs absolutas.
- * Separa en "enlaces" (páginas/sublinks) y "archivos" (por extensión).
+ * Extract links (href) from HTML and resolve them to absolute URLs.
+ * Splits into "links" (pages/sublinks) and "files" (by extension).
  */
 export function extractLinksFromHtml(html: string, baseUrl: string): { links: string[]; fileLinks: string[] } {
   const links: string[] = [];
@@ -321,7 +321,7 @@ export function extractLinksFromHtml(html: string, baseUrl: string): { links: st
       }
     }
   } catch {
-    // baseUrl inválida
+    // invalid baseUrl
   }
   return { links, fileLinks };
 }
@@ -336,12 +336,12 @@ export type ListUrlLinksResult = {
 };
 
 /**
- * Lista todos los subenlaces y archivos encontrados en una URL.
- * Devuelve conteos y listas; la tool MCP formatea la salida en Markdown.
+ * List all sub-links and files found in a URL.
+ * Returns counts and lists; the MCP tool formats the output as Markdown.
  */
 export async function listUrlLinks(url: string): Promise<ListUrlLinksResult> {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return { url, linkCount: 0, fileCount: 0, links: [], fileLinks: [], error: 'URL debe comenzar con http:// o https://' };
+    return { url, linkCount: 0, fileCount: 0, links: [], fileLinks: [], error: 'URL must start with http:// or https://' };
   }
   try {
     const html = await fetchUrlHtml(url);
@@ -360,35 +360,35 @@ export async function listUrlLinks(url: string): Promise<ListUrlLinksResult> {
 }
 
 /**
- * Formatea el resultado de listUrlLinks en Markdown para la consola/cliente.
+ * Format listUrlLinks result as Markdown for console/client.
  */
 export function formatListUrlLinksMarkdown(r: ListUrlLinksResult): string {
   if (r.error) {
-    return `## Error\n\nNo se pudo analizar la URL: **${r.url}**\n\n${r.error}`;
+    return `## Error\n\nCould not analyze URL: **${r.url}**\n\n${r.error}`;
   }
   const lines: string[] = [
-    `## Enlaces en la URL`,
+    `## Links on the URL`,
     '',
     `**URL:** ${r.url}`,
     '',
-    `| Tipo | Cantidad |`,
+    `| Type | Count |`,
     `|------|----------|`,
-    `| Sublinks / páginas | ${r.linkCount} |`,
-    `| Archivos | ${r.fileCount} |`,
+    `| Sublinks / pages | ${r.linkCount} |`,
+    `| Files | ${r.fileCount} |`,
     '',
-    `**Total:** ${r.linkCount + r.fileCount} elementos`,
+    `**Total:** ${r.linkCount + r.fileCount} items`,
     '',
   ];
   if (r.links.length > 0) {
-    lines.push('### Sublinks (páginas)', '');
+    lines.push('### Sublinks (pages)', '');
     r.links.slice(0, 200).forEach((u) => lines.push(`- ${u}`));
-    if (r.links.length > 200) lines.push('', `_… y ${r.links.length - 200} enlaces más._`, '');
+    if (r.links.length > 200) lines.push('', `_… and ${r.links.length - 200} more links._`, '');
     lines.push('');
   }
   if (r.fileLinks.length > 0) {
-    lines.push('### Archivos', '');
+    lines.push('### Files', '');
     r.fileLinks.slice(0, 100).forEach((u) => lines.push(`- ${u}`));
-    if (r.fileLinks.length > 100) lines.push('', `_… y ${r.fileLinks.length - 100} archivos más._`, '');
+    if (r.fileLinks.length > 100) lines.push('', `_… and ${r.fileLinks.length - 100} more files._`, '');
   }
   return lines.join('\n');
 }
@@ -396,16 +396,16 @@ export function formatListUrlLinksMarkdown(r: ListUrlLinksResult): string {
 export type ViewUrlContentOptions = { renderJs?: boolean };
 
 /**
- * Devuelve el contenido de una URL en formato Markdown (título + texto) para mostrar en consola.
- * Usa VIEW_URL_MAX_LENGTH para devolver el documento completo (sin recortar a 2 MB).
- * renderJs: si true, usa navegador headless (Puppeteer) para páginas que cargan contenido por JavaScript (SPA).
+ * Return URL content as Markdown (title + text) to display in console.
+ * Uses VIEW_URL_MAX_LENGTH to return the full document (without the 2 MB indexing cap).
+ * renderJs: if true, uses a headless browser (Puppeteer) for pages that load content via JavaScript (SPA).
  */
 export async function viewUrlContent(
   url: string,
   options?: ViewUrlContentOptions,
 ): Promise<{ url: string; title: string; content: string; error?: string }> {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return { url, title: '', content: '', error: 'URL debe comenzar con http:// o https://' };
+    return { url, title: '', content: '', error: 'URL must start with http:// or https://' };
   }
   try {
     const { title, content } = await fetchUrlContent(url, {
@@ -419,7 +419,7 @@ export async function viewUrlContent(
       '',
       '---',
       '',
-      content || '_Sin contenido de texto._',
+      content || '_No text content._',
     ].join('\n');
     return { url, title, content: md, error: undefined };
   } catch (e) {
@@ -431,9 +431,9 @@ export async function viewUrlContent(
 export type FetchUrlContentOptions = { maxContentLength?: number; renderJs?: boolean };
 
 /**
- * Obtiene título y contenido de texto de una URL (HTML convertido a texto).
- * Para indexación usa MAX_CONTENT_LENGTH (2 MB). Para view_url usa maxContentLength (ej. VIEW_URL_MAX_LENGTH).
- * Si renderJs es true o INDEX_URL_USE_BROWSER=true, usa Puppeteer para obtener el HTML (SPAs que cargan por JS).
+ * Fetch title and text content from a URL (HTML converted to text).
+ * For indexing it uses MAX_CONTENT_LENGTH (2 MB). For view_url it uses maxContentLength (e.g. VIEW_URL_MAX_LENGTH).
+ * If renderJs is true or INDEX_URL_USE_BROWSER=true, it uses Puppeteer to fetch HTML (SPAs that load via JS).
  */
 export async function fetchUrlContent(
   url: string,
@@ -495,7 +495,7 @@ async function ensureCollection(client: QdrantClient): Promise<void> {
   }
 }
 
-/** Comprueba si la URL ya tiene al menos un punto en la colección (payload.url). */
+/** Check whether the URL already has at least one point in the collection (payload.url). */
 export async function isUrlIndexed(url: string): Promise<boolean> {
   const client = getQdrantClient({ checkCompatibility: false });
   const collections = await client.getCollections();
@@ -656,14 +656,14 @@ export async function indexUrlWithLinks(
     options?.onProgress?.(current, total, message);
   };
   const indexOpts = options?.renderJs != null ? { renderJs: options.renderJs } : undefined;
-  report(1, 1, `Descargando e indexando: ${url}`);
+  report(1, 1, `Downloading and indexing: ${url}`);
   const r = await indexUrl(url, indexOpts);
   if (r.indexed) {
     result.indexed++;
     report(1, 1, `OK: ${r.title}`);
   } else {
     if (r.error) result.errors.push(`${url}: ${r.error}`);
-    report(1, 1, `Error: ${r.error ?? 'desconocido'}`);
+    report(1, 1, `Error: ${r.error ?? 'unknown'}`);
   }
   result.total++;
   let html: string;
@@ -671,16 +671,16 @@ export async function indexUrlWithLinks(
     html = await getPageHtml(url, options?.renderJs);
   } catch (e) {
     result.errors.push(`${url} (links): ${e instanceof Error ? e.message : String(e)}`);
-    logProgress('No se pudieron obtener enlaces de la página.');
+    logProgress('Could not fetch links from the page.');
     return result;
   }
   const links = extractSameOriginLinks(html, url).slice(0, maxLinks);
   const total = 1 + links.length;
-  logProgress(`Encontrados ${links.length} enlaces del mismo dominio. Indexando hasta ${maxLinks}...`);
+  logProgress(`Found ${links.length} same-domain links. Indexing up to ${maxLinks}...`);
   for (let i = 0; i < links.length; i++) {
     const link = links[i];
     const current = i + 2;
-    report(current, total, `Indexando: ${link}`);
+    report(current, total, `Indexing: ${link}`);
     const r = await indexUrl(link, indexOpts);
     if (r.indexed) {
       result.indexed++;
@@ -688,11 +688,11 @@ export async function indexUrlWithLinks(
       report(current, total, `OK: ${r.title}`);
     } else {
       if (r.error) result.errors.push(`${link}: ${r.error}`);
-      report(current, total, `Error: ${r.error ?? 'desconocido'}`);
+      report(current, total, `Error: ${r.error ?? 'unknown'}`);
     }
     result.total++;
   }
-  logProgress(`Terminado: ${result.indexed}/${result.total} páginas indexadas, ${result.errors.length} error(es).`);
+  logProgress(`Done: ${result.indexed}/${result.total} pages indexed, ${result.errors.length} error(s).`);
   return result;
 }
 
@@ -747,7 +747,7 @@ export async function indexSite(
         logProgress(`[SITE] (${result.indexed}/${maxPages}) OK: ${urlNorm} — ${r.title}`);
       } else {
         if (r.error) result.errors.push(`${urlNorm}: ${r.error}`);
-        logProgress(`[SITE] (${n}/${maxPages}) Error: ${urlNorm} — ${r.error ?? 'desconocido'}`);
+        logProgress(`[SITE] (${n}/${maxPages}) Error: ${urlNorm} — ${r.error ?? 'unknown'}`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -768,7 +768,7 @@ export async function indexSite(
     }
   }
   logProgress(
-    `[SITE] Terminado: ${result.indexed} páginas indexadas, ${result.skipped} saltadas (ya en índice), ${result.errors.length} error(es).`
+    `[SITE] Done: ${result.indexed} pages indexed, ${result.skipped} skipped (already indexed), ${result.errors.length} error(s).`
   );
   return result;
 }

@@ -1,57 +1,57 @@
-# Formato de comentarios en Azure DevOps (Discussion)
+# Azure DevOps comment formatting (Discussion)
 
-Referencia para que los comentarios enviados con `azure_add_work_item_comment` (o el script `azure-add-comment.cjs`) se vean con formato en la Discussion del work item.
-
----
-
-## Comportamiento en nuestra instancia (Azure DevOps Server)
-
-**Confirmado:** en esta instancia, la zona de comentarios (Discussion) **no interpreta Markdown**:
-
-- Si enviamos **Markdown crudo** por la API (tool o script), se muestra tal cual (`##`, `**`, etc.) sin formato.
-- Si **pegas Markdown crudo a mano** en la caja de comentarios, tampoco se renderiza.
-- La **única** forma de ver formato es pegar contenido que ya esté “renderizado”: por ejemplo, abrir el documento en **modo preview** (Markdown preview), copiar desde ahí y pegar en el ticket. Eso pega HTML/contenido rico, y Azure sí lo muestra con títulos, negritas, listas, etc.
-
-Por tanto, la herramienta **no** debe enviar Markdown crudo. Debe convertir el Markdown a **HTML** y enviar ese HTML en `System.History`, de modo que el resultado sea equivalente a “copiar desde el preview”.
+Reference so comments sent via `azure_add_work_item_comment` (or the `gateway/scripts/azure/azure-add-comment.cjs` script) render with formatting in the work item Discussion.
 
 ---
 
-## Comportamiento del código (tras el ajuste)
+## Behavior in our instance (Azure DevOps Server)
 
-En `gateway/src/azure-devops-client.ts`, `addWorkItemCommentAsMarkdown`:
+**Confirmed:** in this instance, the comments area (Discussion) **does not render Markdown**:
 
-- Recibe el texto en **Markdown** (como hasta ahora).
-- **Siempre** lo convierte a HTML con `commentMarkdownToHtmlForHistory()`.
-- Envía **solo HTML** en `System.History` (sin intentar `multilineFieldsFormat` ni Markdown crudo).
+- If we send **raw Markdown** via the API (tool or script), it shows up literally (`##`, `**`, etc.) with no formatting.
+- If you **paste raw Markdown manually** into the comment box, it also won’t render.
+- The **only** way to see formatting is to paste content that is already “rendered”: for example, open the document in **preview mode** (Markdown preview), copy from there, and paste into the ticket. That pastes HTML/rich content, and Azure will display headings, bold, lists, etc.
 
-Así, tanto la tool MCP como el script `azure-add-comment.cjs` se comportan como “pegar desde preview”.
+Therefore, the tool must **not** send raw Markdown. It must convert Markdown to **HTML** and send that HTML in `System.History`, so the outcome matches “copy from preview”.
 
 ---
 
-## Conversión Markdown → HTML
+## Code behavior (after the fix)
 
-`commentMarkdownToHtmlForHistory()` genera:
+In `gateway/src/azure/client.ts`, `addWorkItemCommentAsMarkdown`:
+
+- Receives the text in **Markdown** (as before).
+- **Always** converts it to HTML via `commentMarkdownToHtmlForHistory()`.
+- Sends **only HTML** in `System.History` (no `multilineFieldsFormat`, no raw Markdown).
+
+This makes both the MCP tool and the `gateway/scripts/azure/azure-add-comment.cjs` script behave like “paste from preview”.
+
+---
+
+## Markdown → HTML conversion
+
+`commentMarkdownToHtmlForHistory()` generates:
 
 - `##` / `###` → `<h2>` / `<h3>`
-- Bloques ` ``` ` → `<pre><code>`
-- Listas `-` / `*` / `1.` → `<ul>` / `<li>`
-- Párrafos con `**bold**`, `*italic*`, `` `code` `` → `<p>` con `<strong>`, `<em>`, `<code>`
+- Code blocks ` ``` ` → `<pre><code>`
+- Lists `-` / `*` / `1.` → `<ul>` / `<li>`
+- Paragraphs with `**bold**`, `*italic*`, `` `code` `` → `<p>` with `<strong>`, `<em>`, `<code>`
 
-Para que el HTML se vea bien, conviene que el Markdown de entrada use:
+For best-looking HTML output, the input Markdown should use:
 
-- Encabezados (`##`, `###`) para secciones.
-- Línea en blanco entre secciones.
-- Listas con `-` o `*` (y `1.` si se usa).
-- Código en bloques con ` ``` `.
+- Headings (`##`, `###`) for sections.
+- Blank line between sections.
+- Lists with `-` or `*` (and `1.` if needed).
+- Code blocks with ` ``` `.
 
 ---
 
-## Buenas prácticas al redactar el comentario (Markdown de entrada)
+## Best practices when writing the comment (input Markdown)
 
-1. **Encabezados** para secciones: `## Investigation summary`, `### Root cause`, `### Changes made`.
-2. **Línea en blanco** entre título y párrafo o lista.
-3. **Listas** con `-` o `*`.
-4. **Código** en bloques ` ``` `.
+1. **Headings** for sections: `## Investigation summary`, `### Root cause`, `### Changes made`.
+2. **Blank line** between heading and paragraph/list.
+3. **Lists** with `-` or `*`.
+4. **Code** in ` ``` ` blocks.
 
 Ejemplo:
 
@@ -59,7 +59,7 @@ Ejemplo:
 ## Investigation summary (Blue Ivory codebase)
 
 ### Root cause
-El texto aquí...
+Text goes here...
 
 ### Where it manifests
 - (1) Actions > Mode of Transportation > Add: ...
@@ -72,8 +72,8 @@ Override `GetAssociatedDBTreeItem()`...
 - ExpExpl\ModeOfTranspUI.h: declared virtual ref<CDBTreeItem>
 ```
 
-Ese Markdown se convierte a HTML y es lo que Azure muestra con formato.
+That Markdown is converted to HTML, and that’s what Azure displays with formatting.
 
 ---
 
-*Documento de referencia. Actualizado según el comportamiento real de la instancia: Markdown crudo no se interpreta; solo se ve formato al enviar HTML (equivalente a copiar desde el preview).*
+*Reference document. Updated based on observed instance behavior: raw Markdown is not rendered; formatting only appears when sending HTML (equivalent to copying from preview).*

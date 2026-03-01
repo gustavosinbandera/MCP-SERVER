@@ -1,6 +1,6 @@
 /**
- * Repo Git - Operaciones seguras sobre el repositorio Git del workspace.
- * Usado por la herramienta MCP repo_git (alias: hacer push, commit, subir cambios, etc.).
+ * Repo Git - Safe operations on the workspace Git repository.
+ * Used by the MCP tool repo_git (aliases: push, commit, upload changes, etc.).
  */
 
 import path from 'path';
@@ -11,13 +11,13 @@ const ALLOWED_ACTIONS = ['status', 'add', 'commit', 'push', 'pull'] as const;
 export type GitAction = (typeof ALLOWED_ACTIONS)[number];
 
 export interface RepoGitOptions {
-  /** Acción: status | add | commit | push | pull */
+  /** Action: status | add | commit | push | pull */
   action: GitAction;
-  /** Directorio del repo (por defecto process.cwd()) */
+  /** Repo directory (defaults to process.cwd()) */
   directory?: string;
-  /** Mensaje de commit (requerido si action === 'commit') */
+  /** Commit message (required if action === 'commit') */
   message?: string;
-  /** Rutas para git add (solo si action === 'add'). Por defecto '.' */
+  /** Paths for git add (only if action === 'add'). Defaults to '.' */
   paths?: string;
 }
 
@@ -40,18 +40,18 @@ function runGit(args: string[], cwd: string): SpawnSyncReturns<string> {
 }
 
 /**
- * Ejecuta una acción git permitida sobre el repositorio.
- * Devuelve { ok, output, error }.
+ * Run an allowed git action on the repository.
+ * Returns { ok, output, error }.
  */
 export function runRepoGit(options: RepoGitOptions): { ok: boolean; output: string; error?: string } {
   const dir = options.directory ? path.resolve(options.directory) : process.cwd();
 
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-    return { ok: false, output: '', error: `El directorio no existe o no es una carpeta: ${dir}` };
+    return { ok: false, output: '', error: `Directory does not exist or is not a folder: ${dir}` };
   }
 
   if (!isGitRepo(dir)) {
-    return { ok: false, output: '', error: `No es un repositorio Git (no hay .git): ${dir}` };
+    return { ok: false, output: '', error: `Not a Git repository (.git not found): ${dir}` };
   }
 
   const { action, message, paths } = options;
@@ -60,7 +60,7 @@ export function runRepoGit(options: RepoGitOptions): { ok: boolean; output: stri
     return {
       ok: false,
       output: '',
-      error: `Acción no permitida: "${action}". Permitidas: ${ALLOWED_ACTIONS.join(', ')}`,
+      error: `Action not allowed: "${action}". Allowed: ${ALLOWED_ACTIONS.join(', ')}`,
     };
   }
 
@@ -71,7 +71,7 @@ export function runRepoGit(options: RepoGitOptions): { ok: boolean; output: stri
       const err = (r.stderr ?? '').trim();
       return {
         ok: r.status === 0,
-        output: out || '(sin cambios)',
+        output: out || '(no changes)',
         error: r.status !== 0 ? err || `exit ${r.status}` : undefined,
       };
     }
@@ -82,21 +82,21 @@ export function runRepoGit(options: RepoGitOptions): { ok: boolean; output: stri
       const err = (r.stderr ?? '').trim();
       return {
         ok: r.status === 0,
-        output: out || `Añadido: ${pathsToAdd}`,
+        output: out || `Added: ${pathsToAdd}`,
         error: r.status !== 0 ? err || `exit ${r.status}` : undefined,
       };
     }
     case 'commit': {
       const msg = (message ?? '').trim();
       if (!msg) {
-        return { ok: false, output: '', error: 'Se requiere "message" para la acción commit.' };
+        return { ok: false, output: '', error: '"message" is required for the commit action.' };
       }
       const r = runGit(['commit', '-m', msg], dir);
       const out = (r.stdout ?? '').trim();
       const err = (r.stderr ?? '').trim();
       return {
         ok: r.status === 0,
-        output: out || 'Commit creado.',
+        output: out || 'Commit created.',
         error: r.status !== 0 ? err || `exit ${r.status}` : undefined,
       };
     }
@@ -106,7 +106,7 @@ export function runRepoGit(options: RepoGitOptions): { ok: boolean; output: stri
       const err = (r.stderr ?? '').trim();
       return {
         ok: r.status === 0,
-        output: out || 'Push completado.',
+        output: out || 'Push completed.',
         error: r.status !== 0 ? err || `exit ${r.status}` : undefined,
       };
     }
@@ -116,11 +116,11 @@ export function runRepoGit(options: RepoGitOptions): { ok: boolean; output: stri
       const err = (r.stderr ?? '').trim();
       return {
         ok: r.status === 0,
-        output: out || 'Pull completado.',
+        output: out || 'Pull completed.',
         error: r.status !== 0 ? err || `exit ${r.status}` : undefined,
       };
     }
     default:
-      return { ok: false, output: '', error: `Acción no implementada: ${action}` };
+      return { ok: false, output: '', error: `Action not implemented: ${action}` };
   }
 }

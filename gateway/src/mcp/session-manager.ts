@@ -1,6 +1,6 @@
 /**
- * Session Manager para MCP sobre HTTP: una sesión por usuario/sessionId,
- * con límite por usuario y TTL de inactividad.
+ * Session Manager for MCP over HTTP: one session per user/sessionId,
+ * with per-user limits and idle TTL.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
@@ -39,7 +39,7 @@ function ensureCleanupTimer(): void {
 }
 
 /**
- * Cierra sesiones que llevan más de SESSION_TTL_MS sin uso.
+ * Close sessions that have been idle for more than SESSION_TTL_MS.
  */
 export function cleanupIdleSessions(): void {
   const now = Date.now();
@@ -56,10 +56,10 @@ export function cleanupIdleSessions(): void {
 }
 
 /**
- * Obtiene o crea una sesión para el usuario.
- * - Si sessionId se proporciona y existe, se reutiliza y se actualiza lastUsedAt.
- * - Si no, se crea una nueva sesión (nuevo McpServer + transport) si no se supera MAX_SESSIONS_PER_USER.
- * @returns { sessionId, runtime } o error si se supera el límite.
+ * Get or create a session for the user.
+ * - If sessionId is provided and exists, it is reused and lastUsedAt is updated.
+ * - Otherwise, a new session (new McpServer + transport) is created if MAX_SESSIONS_PER_USER is not exceeded.
+ * @returns { sessionId, runtime } or an error if the limit is exceeded.
  */
 export async function getOrCreateSession(
   userId: string,
@@ -79,8 +79,8 @@ export async function getOrCreateSession(
     return { sessionId, runtime };
   }
 
-  // Sin sessionId: reutilizar la sesión más reciente del usuario si existe (evita que
-  // Cursor, al reintentar o abrir varias conexiones sin enviar mcp-session-id, llene el límite).
+  // Without sessionId: reuse the user's most recently used session if it exists (prevents Cursor
+  // retrying/opening connections without sending mcp-session-id from filling the session limit).
   if (!sessionId?.trim() && userMap.size > 0) {
     let latest: { sessionId: string; runtime: SessionRuntime } | null = null;
     for (const [sid, runtime] of userMap.entries()) {
@@ -120,7 +120,7 @@ export async function getOrCreateSession(
 }
 
 /**
- * Cierra una sesión explícitamente.
+ * Close a session explicitly.
  */
 export async function closeSession(userId: string, sessionId: string): Promise<boolean> {
   const userMap = sessionsByUser.get(userId);

@@ -26,7 +26,8 @@
  */
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../_shared/script-env.cjs');
+loadGatewayEnv();
 
 const {
   getTeams,
@@ -37,7 +38,7 @@ const {
   createSubtask,
   getAuthorizedUser,
   hasClickUpToken,
-} = require('../dist/clickup-client.js');
+} = requireDist(['clickup-client.js', 'clickup']);
 
 function parseArgs() {
   const args = process.argv.slice(2);

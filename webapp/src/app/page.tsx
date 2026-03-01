@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
 
@@ -25,40 +24,50 @@ export default function Home() {
   }
 
   return (
-    <main style={{ fontFamily: 'system-ui', maxWidth: 800, margin: '2rem auto', padding: '0 1rem' }}>
-      <h1>MCP Knowledge Hub</h1>
-      <p>Búsqueda en documentación indexada</p>
-      <p style={{ marginBottom: 16 }}>
-        <Link href="/upload" style={{ color: '#0066cc' }}>Subir al índice / KB</Link>
-        {' · '}
-        <Link href="/files" style={{ color: '#0066cc' }}>Explorador de archivos</Link>
-        {' · '}
-        <Link href="/azure-tasks" style={{ color: '#0066cc' }}>Tareas Azure</Link>
-        {' · '}
-        <Link href="/mcp-tools" style={{ color: '#0066cc' }}>MCP Tools</Link>
-      </p>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar..."
-          style={{ flex: 1, padding: 8, fontSize: 16 }}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-        />
-        <button onClick={handleSearch} disabled={loading} style={{ padding: '8px 16px' }}>
-          {loading ? 'Buscando...' : 'Buscar'}
-        </button>
+    <main>
+      <h1 className="pageTitle">Search</h1>
+      <p className="pageSubtitle">Search indexed documentation and knowledge base content.</p>
+
+      <div className="panel">
+        <div className="panelInner">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 420px' }}>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search…"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                aria-label="Search query"
+              />
+            </div>
+            <button onClick={handleSearch} disabled={loading}>
+              {loading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            {results.length === 0 && !loading && <p className="muted">No results. Try a different query.</p>}
+            {results.map((r) => (
+              <article
+                key={String(r.id)}
+                style={{
+                  marginTop: 12,
+                  padding: 14,
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  background: 'var(--panel-2)',
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>{(r.payload?.title as string) || 'Untitled'}</div>
+                <div className="muted2" style={{ marginTop: 6, fontSize: 14, whiteSpace: 'pre-wrap' }}>
+                  {(r.payload?.content as string) || ''}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
       </div>
-      <section>
-        {results.length === 0 && !loading && <p>Sin resultados. Prueba con otra búsqueda.</p>}
-        {results.map((r) => (
-          <article key={String(r.id)} style={{ marginBottom: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8 }}>
-            <strong>{(r.payload?.title as string) || 'Sin título'}</strong>
-            <p style={{ margin: '8px 0 0', fontSize: 14 }}>{(r.payload?.content as string) || ''}</p>
-          </article>
-        ))}
-      </section>
     </main>
   );
 }

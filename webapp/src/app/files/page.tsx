@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL;
 
@@ -70,23 +69,17 @@ export default function FilesPage() {
   };
 
   return (
-    <main style={{ fontFamily: 'system-ui', maxWidth: 960, margin: '0 auto', padding: '1rem', minHeight: '100vh' }}>
-      <h1 style={{ marginBottom: 8 }}>Explorador de archivos</h1>
-      <p style={{ marginBottom: 16, color: '#555' }}>
-        Sistema de archivos de la instancia (raíz configurada en el gateway).
-      </p>
-      <p style={{ marginBottom: 16 }}>
-        <Link href="/" style={{ color: '#0066cc' }}>Inicio</Link>
-        {' · '}
-        <Link href="/upload" style={{ color: '#0066cc' }}>Subir al índice / KB</Link>
-      </p>
+    <main>
+      <h1 className="pageTitle">Files</h1>
+      <p className="pageSubtitle">Browse and manage the instance filesystem (root configured in the gateway).</p>
 
       {/* Breadcrumb */}
       <nav
         style={{
-          padding: '8px 12px',
-          background: '#f0f0f0',
-          borderRadius: 6,
+          padding: '10px 12px',
+          background: 'var(--panel)',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
           marginBottom: 16,
           fontSize: 14,
         }}
@@ -99,11 +92,11 @@ export default function FilesPage() {
             background: 'none',
             cursor: 'pointer',
             padding: '0 4px',
-            color: '#0066cc',
+            color: 'var(--brand)',
             fontWeight: segments.length === 0 ? 600 : 400,
           }}
         >
-          📁 Raíz
+          📁 Root
         </button>
         {segments.map((seg, i) => (
           <span key={i}>
@@ -116,7 +109,7 @@ export default function FilesPage() {
                 background: 'none',
                 cursor: 'pointer',
                 padding: '0 4px',
-                color: '#0066cc',
+                color: 'var(--brand)',
                 fontWeight: i === segments.length - 1 ? 600 : 400,
               }}
             >
@@ -133,15 +126,15 @@ export default function FilesPage() {
           gap: 12,
           alignItems: 'center',
           flexWrap: 'wrap',
-          padding: '10px 12px',
-          background: '#f7f7f7',
-          border: '1px solid #e3e3e3',
-          borderRadius: 6,
+          padding: '12px',
+          background: 'var(--panel)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
           marginBottom: 16,
         }}
       >
-        <div style={{ fontSize: 14, color: '#333' }}>
-          Subir a: <b>{path || 'Raíz'}</b>
+        <div style={{ fontSize: 14, color: 'var(--text)' }}>
+          Upload to: <b>{path || 'Root'}</b>
         </div>
         <input
           type="file"
@@ -172,47 +165,40 @@ export default function FilesPage() {
               setUploading(false);
             }
           }}
-          style={{
-            padding: '8px 10px',
-            borderRadius: 6,
-            border: '1px solid #ccc',
-            background: uploading ? '#eee' : '#fff',
-            cursor: uploading ? 'not-allowed' : 'pointer',
-          }}
         >
-          {uploading ? 'Subiendo…' : 'Subir'}
+          {uploading ? 'Uploading…' : 'Upload'}
         </button>
       </div>
 
       {/* Content */}
-      {loading && <p>Cargando…</p>}
+      {loading && <p className="muted">Loading…</p>}
       {error && (
-        <p style={{ color: '#c00', padding: 12, background: '#fee', borderRadius: 6 }}>{error}</p>
+        <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>{error}</p>
       )}
       {!loading && !error && (
         <div
           style={{
-            border: '1px solid #ccc',
-            borderRadius: 6,
+            border: '1px solid var(--border)',
+            borderRadius: 12,
             overflow: 'hidden',
-            background: '#fff',
+            background: 'var(--panel)',
           }}
         >
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
-              <tr style={{ background: '#f5f5f5', textAlign: 'left' }}>
+              <tr style={{ background: 'rgba(255,255,255,0.06)', textAlign: 'left' }}>
                 <th style={{ padding: '10px 12px', width: 40 }}></th>
-                <th style={{ padding: '10px 12px' }}>Nombre</th>
-                <th style={{ padding: '10px 12px', width: 100 }}>Tamaño</th>
-                <th style={{ padding: '10px 12px', width: 160 }}>Modificado</th>
-                <th style={{ padding: '10px 12px', width: 170 }}>Acciones</th>
+                <th style={{ padding: '10px 12px' }}>Name</th>
+                <th style={{ padding: '10px 12px', width: 100 }}>Size</th>
+                <th style={{ padding: '10px 12px', width: 160 }}>Modified</th>
+                <th style={{ padding: '10px 12px', width: 170 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: 24, color: '#666' }}>
-                    Esta carpeta está vacía.
+                  <td colSpan={5} style={{ padding: 24, color: 'var(--muted)' }}>
+                    This folder is empty.
                   </td>
                 </tr>
               )}
@@ -220,7 +206,7 @@ export default function FilesPage() {
                 <tr
                   key={e.path}
                   style={{
-                    borderTop: '1px solid #eee',
+                    borderTop: '1px solid rgba(255,255,255,0.08)',
                     cursor: e.isDir ? 'pointer' : 'default',
                   }}
                   onClick={() => e.isDir && setPath(e.path)}
@@ -250,7 +236,7 @@ export default function FilesPage() {
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         <button
                           type="button"
-                          title={`Descargar ${e.name}`}
+                          title={`Download ${e.name}`}
                           onClick={async (ev) => {
                             ev.stopPropagation();
                             setError(null);
@@ -274,22 +260,14 @@ export default function FilesPage() {
                               setError(err instanceof Error ? err.message : String(err));
                             }
                           }}
-                          style={{
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            border: '1px solid #bcd7ff',
-                            background: '#f3f8ff',
-                            color: '#0645ad',
-                            cursor: 'pointer',
-                          }}
                         >
-                          Descargar
+                          Download
                         </button>
                         <button
                           type="button"
                           onClick={async (ev) => {
                             ev.stopPropagation();
-                            const ok = confirm(`¿Eliminar "${e.name}"? Esta acción no se puede deshacer.`);
+                            const ok = confirm(`Delete "${e.name}"? This action cannot be undone.`);
                             if (!ok) return;
                             setError(null);
                             try {
@@ -302,20 +280,12 @@ export default function FilesPage() {
                               setError(err instanceof Error ? err.message : String(err));
                             }
                           }}
-                          style={{
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            border: '1px solid #f3b1b1',
-                            background: '#fff5f5',
-                            color: '#a00',
-                            cursor: 'pointer',
-                          }}
                         >
-                          Eliminar
+                          Delete
                         </button>
                       </div>
                     ) : (
-                      <span style={{ color: '#888' }}>—</span>
+                      <span style={{ color: 'var(--muted-2)' }}>—</span>
                     )}
                   </td>
                 </tr>

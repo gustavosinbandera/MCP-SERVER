@@ -3,16 +3,15 @@
  * Requiere CLICKUP_API_TOKEN en gateway/.env (mismo patrón que create-clickup-task.cjs).
  *
  * Uso (desde gateway/):
- *   node scripts/seed-subtasks-http-streamable.cjs
+ *   node scripts/clickup/seeds/seed-subtasks-http-streamable.cjs
  *     → Crea la tarea padre "Módulo HTTP SSE" y las 24 subtareas en la lista por defecto.
- *   node scripts/seed-subtasks-http-streamable.cjs --parent-id <task_id>
+ *   node scripts/clickup/seeds/seed-subtasks-http-streamable.cjs --parent-id <task_id>
  *     → Añade las 24 subtareas a la tarea existente.
- *   node scripts/seed-subtasks-http-streamable.cjs --list-id <list_id>
+ *   node scripts/clickup/seeds/seed-subtasks-http-streamable.cjs --list-id <list_id>
  *     → Crea la tarea padre y subtareas en esa lista.
  */
-const path = require('path');
-// Mismo patrón que create-clickup-task.cjs y create-clickup-subtask.cjs (no tocar)
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../../_shared/script-env.cjs');
+loadGatewayEnv();
 
 const {
   getTeams,
@@ -25,7 +24,7 @@ const {
   updateTask,
   getAuthorizedUser,
   hasClickUpToken,
-} = require('../dist/clickup-client.js');
+} = requireDist(['clickup-client.js', 'clickup']);
 
 const PARENT_TASK_NAME = 'Desarrollo: Módulo HTTP SSE';
 const PARENT_TASK_DESCRIPTION = `## Objetivo

@@ -25,13 +25,13 @@ Como ClickUp no tiene un tipo "Bug" obligatorio:
 Desde el directorio `gateway/`:
 
 ```bash
-node scripts/supervisor-bugs.cjs
+node scripts/supervisor/supervisor-bugs.cjs
 ```
 
 Solo se procesan tareas BUG-* que **aún no tienen** la sección "Solución sugerida". Para re-procesar todas (reemplazar la sección):
 
 ```bash
-node scripts/supervisor-bugs.cjs --all
+node scripts/supervisor/supervisor-bugs.cjs --all
 ```
 
 **Variables de entorno necesarias:**
@@ -45,6 +45,6 @@ node scripts/supervisor-bugs.cjs --all
 
 Para mantener las soluciones al día, ejecuta el supervisor de forma periódica:
 
-- **Linux/mac (cron):** `0 */6 * * * cd /ruta/MCP-SERVER/gateway && node scripts/supervisor-bugs.cjs` (cada 6 h).
-- **Windows (Task Scheduler):** Crear tarea que ejecute `node scripts/supervisor-bugs.cjs` en la carpeta gateway, con la frecuencia deseada.
+- **Linux/mac (cron):** `0 */6 * * * cd /ruta/MCP-SERVER/gateway && node scripts/supervisor/supervisor-bugs.cjs` (cada 6 h).
+- **Windows (Task Scheduler):** Crear tarea que ejecute `node scripts/supervisor/supervisor-bugs.cjs` en la carpeta gateway, con la frecuencia deseada.
 - **Integrado:** Llamar al script desde un proceso existente (ej. timer en el supervisor de indexación) o desde CI.

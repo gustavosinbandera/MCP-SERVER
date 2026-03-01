@@ -44,8 +44,8 @@ describe('embedding', () => {
       expect(EMBEDDING_DIMENSION).toBe(1536);
     });
 
-    it('MAX_INPUT_CHARS is 32000', () => {
-      expect(MAX_INPUT_CHARS).toBe(32_000);
+    it('MAX_INPUT_CHARS is 8000', () => {
+      expect(MAX_INPUT_CHARS).toBe(8_000);
     });
   });
 

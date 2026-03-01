@@ -18,7 +18,7 @@ import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
-import { hasAzureDevOpsConfig, listWorkItemsByDateRange, getWorkItemWithRelations, extractChangesetIds } from './azure-devops-client';
+import { hasAzureDevOpsConfig, listWorkItemsByDateRange, getWorkItemWithRelations, extractChangesetIds } from './azure';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
 import { enqueueAndWait, clearSessionQueue } from './mcp/session-queue';
 import { getMcpToolByName, getMcpToolsCatalog } from './mcp/tools-catalog';
@@ -52,7 +52,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'mcp-gateway', timestamp: new Date().toISOString() });
 });
 
-// ----- Logs MCP (diagnóstico búsquedas pegadas). Protegido por JWT. -----
+// ----- MCP logs (debugging stuck searches). Protected by JWT. -----
 const MAX_TAIL = 2000;
 function readLogEntries(options: { tail?: number; userId?: string; message?: string }): { entries: Record<string, unknown>[]; path: string } {
   const path = getLogFilePath();
@@ -136,8 +136,9 @@ app.get('/logs/stream', requireJwt, (req, res) => {
   req.on('close', () => unsub());
 });
 
-// Página HTML sin auth: el token se pide en el cliente al usar Cargar/Stream (GET /logs y /logs/stream sí exigen JWT).
-// base '' = local (sin proxy). En producción con nginx bajo /api, definir MCP_LOGS_VIEW_BASE=/api (p. ej. en docker-compose).
+// Unauthenticated HTML page: token is requested client-side when using Fetch/Stream
+// (GET /logs and /logs/stream require JWT).
+// base '' = local (no proxy). In production behind nginx under /api, set MCP_LOGS_VIEW_BASE=/api (e.g. in docker-compose).
 app.get('/logs/view', (_req, res) => {
   const base = process.env.MCP_LOGS_VIEW_BASE ?? '';
   res.set('Content-Type', 'text/html; charset=utf-8');
@@ -164,22 +165,22 @@ app.get('/logs/view', (_req, res) => {
 <body>
   <h1>MCP Logs</h1>
   <div class="toolbar">
-    <label>Tipo de log
+    <label>Log type
       <select id="filter">
-        <option value="">Todos</option>
+        <option value="">All</option>
         <option value="searchDocs">searchDocs</option>
         <option value="tool_search_docs">tool search_docs</option>
         <option value="mcp_post">mcp POST</option>
-        <option value="error">Solo errores</option>
+        <option value="error">Errors only</option>
       </select>
     </label>
-    <label>userId <input type="text" id="userId" placeholder="opcional" style="width:10rem"></label>
-    <button type="button" id="btnFetch">Cargar (últimas 200)</button>
-    <button type="button" id="btnStream">Stream en vivo (SSE)</button>
-    <button type="button" id="btnStop" disabled>Parar stream</button>
+    <label>userId <input type="text" id="userId" placeholder="optional" style="width:10rem"></label>
+    <button type="button" id="btnFetch">Fetch (last 200)</button>
+    <button type="button" id="btnStream">Live stream (SSE)</button>
+    <button type="button" id="btnStop" disabled>Stop stream</button>
   </div>
   <p id="meta"></p>
-  <table><thead><tr><th>ts</th><th>level</th><th>userId</th><th>message</th><th>detalle</th></tr></thead><tbody id="t"></tbody></table>
+  <table><thead><tr><th>ts</th><th>level</th><th>userId</th><th>message</th><th>details</th></tr></thead><tbody id="t"></tbody></table>
   <script>
     const base = ${JSON.stringify(base)};
     let streamAbort = null;
@@ -195,7 +196,7 @@ app.get('/logs/view', (_req, res) => {
     })();
     function getToken() {
       let t = localStorage.getItem('mcp_id_token') || '';
-      if (!t) t = prompt('Pega tu IdToken (Bearer) para ver logs') || '';
+      if (!t) t = prompt('Paste your IdToken (Bearer) to view logs') || '';
       if (t) localStorage.setItem('mcp_id_token', t);
       return t;
     }
@@ -222,7 +223,7 @@ app.get('/logs/view', (_req, res) => {
       const r = await fetchLogs(base + '/logs?' + q, { headers: { Authorization: 'Bearer ' + token } });
       if (!r.ok) { document.getElementById('meta').textContent = 'Error ' + r.status; return; }
       const d = await r.json();
-      document.getElementById('meta').textContent = d.path + ' — ' + d.count + ' entradas (carga única)';
+      document.getElementById('meta').textContent = d.path + ' — ' + d.count + ' entries (one-time fetch)';
       render(d.entries);
     };
     document.getElementById('btnStream').onclick = async () => {
@@ -232,13 +233,13 @@ app.get('/logs/view', (_req, res) => {
       streamAbort = new AbortController();
       document.getElementById('btnStream').disabled = true;
       document.getElementById('btnStop').disabled = false;
-      document.getElementById('meta').textContent = 'Conectando stream SSE…';
+      document.getElementById('meta').textContent = 'Connecting SSE stream…';
       try {
         const q = new URLSearchParams({ tail: '50' });
         if (filter) q.set('filter', filter);
         const r = await fetchLogs(base + '/logs/stream?' + q, { headers: { Authorization: 'Bearer ' + token }, signal: streamAbort.signal });
         if (!r.ok) { document.getElementById('meta').textContent = 'Error ' + r.status; document.getElementById('btnStream').disabled = false; document.getElementById('btnStop').disabled = true; return; }
-        document.getElementById('meta').textContent = 'Stream en vivo (filtro: ' + (filter || 'todos') + ')';
+        document.getElementById('meta').textContent = 'Live stream (filter: ' + (filter || 'all') + ')';
         const reader = r.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -324,7 +325,7 @@ function parseDateOnly(dateOnly: string): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateOnly).trim());
   if (!m) return null;
   // Devolvemos exactamente YYYY-MM-DD porque Azure DevOps Server (WIQL) puede fallar
-  // si se suministra hora cuando el campo usa precisión de día.
+  // if a time is supplied when the field uses day precision.
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
@@ -339,7 +340,7 @@ function getAzureWorkItemWebUrl(id: number): string | undefined {
 app.get('/azure/work-items', async (req, res) => {
   try {
     if (!hasAzureDevOpsConfig()) {
-      res.status(400).json({ error: 'Azure DevOps no está configurado (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      res.status(400).json({ error: 'Azure DevOps is not configured (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
       return;
     }
     const from = typeof req.query.from === 'string' ? req.query.from : '';
@@ -351,7 +352,7 @@ app.get('/azure/work-items', async (req, res) => {
     const fromDate = parseDateOnly(from);
     const toDate = parseDateOnly(to);
     if (!fromDate || !toDate) {
-      res.status(400).json({ error: 'Parámetros inválidos. Usa from/to como YYYY-MM-DD.' });
+      res.status(400).json({ error: 'Invalid parameters. Use from/to as YYYY-MM-DD.' });
       return;
     }
     const items = await listWorkItemsByDateRange({
@@ -388,12 +389,12 @@ app.get('/azure/work-items', async (req, res) => {
 app.get('/azure/work-items/:id', async (req, res) => {
   try {
     if (!hasAzureDevOpsConfig()) {
-      res.status(400).json({ error: 'Azure DevOps no está configurado (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
+      res.status(400).json({ error: 'Azure DevOps is not configured (AZURE_DEVOPS_BASE_URL/PROJECT/PAT).' });
       return;
     }
     const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id) || id <= 0) {
-      res.status(400).json({ error: 'ID inválido' });
+      res.status(400).json({ error: 'Invalid ID' });
       return;
     }
     const wi = await getWorkItemWithRelations(id);
@@ -800,7 +801,7 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`MCP Gateway listening on port ${PORT}`);
     logInfo('Gateway started', { port: PORT, path: getLogFilePath() });
-    // Warmup: una sesión de prueba para que la primera petición real no pague cold start (JIT, connect).
+    // Warmup: a test session so the first real request doesn't pay cold start (JIT, connect).
     getOrCreateSession('_warmup', null)
       .then((r) => {
         if (!('error' in r)) return closeSession('_warmup', r.sessionId);

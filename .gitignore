@@ -50,6 +50,10 @@ Thumbs.db
 *.log
 logs/
 
+# Qdrant snapshots / backups (large binaries)
+gateway/snapshots/
+*.snapshot
+
 # Local project source trees (ignored for now)
 classic/
 blueivory/

@@ -22,13 +22,18 @@ Cuando activas embeddings de OpenAI por primera vez, la colección `mcp_docs` pu
 En la raíz del gateway puedes usar el script que borra la colección y opcionalmente verifica que se pueda crear de nuevo:
 
 ```bash
-node scripts/migrate-collection-size.cjs
+node scripts/internal/migrate-collection-size.cjs --help
 ```
 
 El script:
 - Lee `QDRANT_URL` del entorno (o `.env` si existe).
-- Borra la colección `mcp_docs` si existe.
-- Opcionalmente crea la colección con el tamaño actual (1536 con embeddings, 1 sin ellos) para comprobar que el gateway puede trabajar después.
+- Es **seguro por defecto** (dry-run). No borra nada a menos que pases `--delete` y confirmes explícitamente con `--confirm`.
+
+Para borrar de forma explícita:
+
+```bash
+node scripts/internal/migrate-collection-size.cjs --delete --confirm "DELETE mcp_docs on http://localhost:6333"
+```
 
 **Variables de entorno:** `QDRANT_URL` (opcional). Si usas `dotenv`, carga el `.env` antes de ejecutar el script.
 

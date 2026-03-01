@@ -1,7 +1,7 @@
 /**
- * Auth JWT (Cognito) simple para v1: verificación con JWKS, sin grupos/scopes.
- * Middleware requireJwt valida Authorization: Bearer <JWT> y adjunta req.auth = { userId }.
- * ADMIN_SUBS: allowlist opcional de subs considerados admin.
+ * Simple JWT auth (Cognito) for v1: JWKS verification, no groups/scopes.
+ * Middleware requireJwt validates Authorization: Bearer <JWT> and attaches req.auth = { userId }.
+ * ADMIN_SUBS: optional allowlist of subs considered admin.
  */
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
@@ -10,7 +10,7 @@ const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
 const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || '').trim();
 const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || '').trim();
 
-/** Issuer base para Cognito User Pool (id tokens). */
+/** Issuer base for Cognito User Pool (ID tokens). */
 function getIssuer(): string {
   if (COGNITO_REGION && COGNITO_USER_POOL_ID) {
     return `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}`;
@@ -19,7 +19,7 @@ function getIssuer(): string {
   return issuer || '';
 }
 
-/** JWKS URL para el User Pool (para verificar firma). */
+/** JWKS URL for the User Pool (to verify signature). */
 function getJwksUrl(): string {
   if (COGNITO_REGION && COGNITO_USER_POOL_ID) {
     return `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}/.well-known/jwks.json`;
@@ -48,8 +48,8 @@ declare global {
 }
 
 /**
- * Verifica el JWT y devuelve el payload (sub como userId).
- * Lanza si token inválido o faltante.
+ * Verify the JWT and return the payload (sub as userId).
+ * Throws if the token is missing or invalid.
  */
 export async function verifyJwtAndGetUserId(token: string): Promise<string> {
   const issuer = getIssuer();
@@ -65,15 +65,15 @@ export async function verifyJwtAndGetUserId(token: string): Promise<string> {
   return sub;
 }
 
-/** API key opcional: si MCP_API_KEY está definido, Bearer <MCP_API_KEY> se acepta como auth de larga duración (no caduca cada hora). */
+/** Optional API key: if MCP_API_KEY is set, Bearer <MCP_API_KEY> is accepted as long-lived auth (does not expire hourly). */
 const MCP_API_KEY = (process.env.MCP_API_KEY || '').trim();
-/** userId a usar cuando se autentica con MCP_API_KEY (p. ej. sub del usuario de prueba para mismo límite de sesiones). */
+/** userId used when authenticating with MCP_API_KEY (e.g. a test user's sub for the same session limit). */
 const MCP_API_KEY_USER_ID = (process.env.MCP_API_KEY_USER_ID || '').trim() || 'api-key-user';
 
 /**
- * Middleware: exige Authorization: Bearer <JWT> o Bearer <MCP_API_KEY>.
- * Si el token coincide con MCP_API_KEY, se acepta como userId MCP_API_KEY_USER_ID (no caduca).
- * Si no, se valida como JWT de Cognito. 401 si falta o es inválido.
+ * Middleware: requires Authorization: Bearer <JWT> or Bearer <MCP_API_KEY>.
+ * If the token matches MCP_API_KEY, it's accepted as userId MCP_API_KEY_USER_ID (does not expire).
+ * Otherwise, it's validated as a Cognito JWT. Returns 401 if missing or invalid.
  */
 export function requireJwt(req: Request, res: Response, next: NextFunction): void {
   const raw = req.headers.authorization;
@@ -105,7 +105,7 @@ export function requireJwt(req: Request, res: Response, next: NextFunction): voi
     });
 }
 
-/** Allowlist de subs considerados admin (ADMIN_SUBS=uuid1,uuid2,...). */
+/** Allowlist of subs considered admin (ADMIN_SUBS=uuid1,uuid2,...). */
 function getAdminSubs(): Set<string> {
   const raw = (process.env.ADMIN_SUBS || '').trim();
   if (!raw) return new Set();
@@ -119,7 +119,7 @@ export function isAdmin(userId: string): boolean {
   return adminSubsCache.has(userId);
 }
 
-/** Para tests: resetea cache JWKS y admin subs. */
+/** For tests: reset JWKS and admin-subs caches. */
 export function resetAuthCaches(): void {
   cachedJwks = null;
   adminSubsCache = null;

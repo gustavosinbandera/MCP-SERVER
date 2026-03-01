@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 
 type AzureWorkItemRow = {
   id: number;
@@ -102,7 +101,7 @@ export default function AzureTasksPage() {
 
   const summary = useMemo(() => {
     if (!data) return '';
-    return `${data.count} tarea(s) (${data.from} → ${data.to})`;
+    return `${data.count} item(s) (${data.from} → ${data.to})`;
   }, [data]);
 
   const fetchList = async () => {
@@ -158,17 +157,10 @@ export default function AzureTasksPage() {
   const description = stripHtml(safeStr(f['System.Description']));
 
   return (
-    <main style={{ fontFamily: 'system-ui', maxWidth: 1100, margin: '0 auto', padding: '1rem', minHeight: '100vh' }}>
-      <h1 style={{ marginBottom: 8 }}>Tareas Azure (Work Items)</h1>
-      <p style={{ marginBottom: 16, color: '#555' }}>
-        Lista work items creados o modificados en un rango de fechas, con filtro por asignado.
-      </p>
-      <p style={{ marginBottom: 16 }}>
-        <Link href="/" style={{ color: '#0066cc' }}>Inicio</Link>
-        {' · '}
-        <Link href="/upload" style={{ color: '#0066cc' }}>Subir al índice / KB</Link>
-        {' · '}
-        <Link href="/files" style={{ color: '#0066cc' }}>Explorador de archivos</Link>
+    <main>
+      <h1 className="pageTitle">Azure (Work Items)</h1>
+      <p className="pageSubtitle">
+        List work items created or changed in a date range, with an optional assignee filter.
       </p>
 
       <div
@@ -178,31 +170,31 @@ export default function AzureTasksPage() {
           alignItems: 'flex-end',
           flexWrap: 'wrap',
           padding: '12px',
-          border: '1px solid #e3e3e3',
-          borderRadius: 8,
-          background: '#fafafa',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          background: 'var(--panel)',
           marginBottom: 16,
         }}
       >
         <label style={{ display: 'grid', gap: 6, fontSize: 14 }}>
-          Desde
+          From
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label style={{ display: 'grid', gap: 6, fontSize: 14 }}>
-          Hasta
+          To
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
         <label style={{ display: 'grid', gap: 6, fontSize: 14, minWidth: 220 }}>
-          Asignado a (opcional)
+          Assigned to (optional)
           <input
             type="text"
             value={assignedTo}
-            placeholder="ej. gustavo grisales"
+            placeholder="e.g. John Smith"
             onChange={(e) => setAssignedTo(e.target.value)}
           />
         </label>
         <label style={{ display: 'grid', gap: 6, fontSize: 14 }}>
-          Campo fecha
+          Date field
           <select value={dateField} onChange={(e) => setDateField(e.target.value === 'changed' ? 'changed' : 'created')}>
             <option value="created">CreatedDate</option>
             <option value="changed">ChangedDate</option>
@@ -212,54 +204,54 @@ export default function AzureTasksPage() {
           type="button"
           onClick={fetchList}
           disabled={loading}
-          style={{
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid #ccc',
-            background: loading ? '#eee' : '#fff',
-            cursor: loading ? 'not-allowed' : 'pointer',
-          }}
         >
-          {loading ? 'Buscando…' : 'Buscar'}
+          {loading ? 'Searching…' : 'Search'}
         </button>
-        {summary && <div style={{ fontSize: 13, color: '#444', paddingBottom: 6 }}>{summary}</div>}
+        {summary && <div className="muted2" style={{ fontSize: 13, paddingBottom: 6 }}>{summary}</div>}
       </div>
 
-      {error && <p style={{ color: '#c00', padding: 12, background: '#fee', borderRadius: 6 }}>{error}</p>}
+      {error && (
+        <p
+          className="dangerText"
+          style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}
+        >
+          {error}
+        </p>
+      )}
 
       {!loading && !error && (
-        <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--panel)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
-              <tr style={{ background: '#f5f5f5', textAlign: 'left' }}>
+              <tr style={{ background: 'rgba(255,255,255,0.06)', textAlign: 'left' }}>
                 <th style={{ padding: '10px 12px', width: 90 }}>ID</th>
-                <th style={{ padding: '10px 12px' }}>Título</th>
-                <th style={{ padding: '10px 12px', width: 120 }}>Tipo</th>
-                <th style={{ padding: '10px 12px', width: 120 }}>Estado</th>
-                <th style={{ padding: '10px 12px', width: 210 }}>Asignado</th>
-                <th style={{ padding: '10px 12px', width: 180 }}>Creado</th>
-                <th style={{ padding: '10px 12px', width: 180 }}>Modificado</th>
+                <th style={{ padding: '10px 12px' }}>Title</th>
+                <th style={{ padding: '10px 12px', width: 120 }}>Type</th>
+                <th style={{ padding: '10px 12px', width: 120 }}>State</th>
+                <th style={{ padding: '10px 12px', width: 210 }}>Assigned to</th>
+                <th style={{ padding: '10px 12px', width: 180 }}>Created</th>
+                <th style={{ padding: '10px 12px', width: 180 }}>Changed</th>
               </tr>
             </thead>
             <tbody>
               {!data && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 20, color: '#666' }}>
-                    Ingresa un rango de fechas y presiona “Buscar”.
+                  <td colSpan={7} style={{ padding: 20, color: 'var(--muted)' }}>
+                    Enter a date range and click “Search”.
                   </td>
                 </tr>
               )}
               {data && !hasRows && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 20, color: '#666' }}>
-                    Sin resultados.
+                  <td colSpan={7} style={{ padding: 20, color: 'var(--muted)' }}>
+                    No results.
                   </td>
                 </tr>
               )}
               {rows.map((r) => (
                 <tr
                   key={r.id}
-                  style={{ borderTop: '1px solid #eee', cursor: 'pointer' }}
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}
                   onClick={() => openDetail(r.id)}
                   role="button"
                   tabIndex={0}
@@ -269,17 +261,17 @@ export default function AzureTasksPage() {
                       openDetail(r.id);
                     }
                   }}
-                  title="Click para ver detalles"
+                  title="Click to view details"
                 >
                   <td style={{ padding: '8px 12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
                     {r.id}
                   </td>
                   <td style={{ padding: '8px 12px' }}>{r.title}</td>
-                  <td style={{ padding: '8px 12px', color: '#555' }}>{r.type}</td>
-                  <td style={{ padding: '8px 12px', color: '#555' }}>{r.state}</td>
-                  <td style={{ padding: '8px 12px', color: '#555' }}>{r.assignedTo || '—'}</td>
-                  <td style={{ padding: '8px 12px', color: '#555' }}>{formatDate(r.createdDate)}</td>
-                  <td style={{ padding: '8px 12px', color: '#555' }}>{formatDate(r.changedDate)}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.type}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.state}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{r.assignedTo || '—'}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(r.createdDate)}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatDate(r.changedDate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -292,78 +284,65 @@ export default function AzureTasksPage() {
           role="dialog"
           aria-modal="true"
           onClick={() => setDetailOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.35)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
+          className="modalOverlay"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 'min(920px, 100%)',
-              maxHeight: '85vh',
-              overflow: 'auto',
-              background: '#fff',
-              borderRadius: 10,
-              border: '1px solid #ddd',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
-            }}
+            className="modalCard"
           >
-            <div style={{ padding: '12px 14px', borderBottom: '1px solid #eee', display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div className="modalHeader">
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, color: '#666' }}>Work Item</div>
+                <div style={{ fontSize: 14, color: 'var(--muted)' }}>Work Item</div>
                 <div style={{ fontSize: 18, fontWeight: 650 }}>
-                  {detail ? `#${detail.id} ${title}` : 'Cargando…'}
+                  {detail ? `#${detail.id} ${title}` : 'Loading…'}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setDetailOpen(false)}
-                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}
               >
-                Cerrar
+                Close
               </button>
             </div>
 
-            <div style={{ padding: 14 }}>
-              {detailLoading && <p>Cargando detalle…</p>}
-              {detailError && <p style={{ color: '#c00', padding: 12, background: '#fee', borderRadius: 6 }}>{detailError}</p>}
+            <div className="modalBody">
+              {detailLoading && <p>Loading details…</p>}
+              {detailError && (
+                <p className="dangerText" style={{ padding: 12, background: 'rgba(255, 107, 107, 0.14)', borderRadius: 12, border: '1px solid var(--border)' }}>
+                  {detailError}
+                </p>
+              )}
               {!detailLoading && detail && (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, marginBottom: 12 }}>
-                    <div><b>Tipo</b>: {wiType || '—'}</div>
-                    <div><b>Estado</b>: {state || '—'}</div>
-                    <div><b>Asignado</b>: {assigned || '—'}</div>
-                    <div><b>Creado por</b>: {createdBy || '—'}</div>
-                    <div><b>Creado</b>: {createdDate ? formatDate(createdDate) : '—'}</div>
-                    <div><b>Modificado</b>: {changedDate ? formatDate(changedDate) : '—'}</div>
-                    <div><b>Área</b>: {areaPath || '—'}</div>
+                    <div><b>Type</b>: {wiType || '—'}</div>
+                    <div><b>State</b>: {state || '—'}</div>
+                    <div><b>Assigned to</b>: {assigned || '—'}</div>
+                    <div><b>Created by</b>: {createdBy || '—'}</div>
+                    <div><b>Created</b>: {createdDate ? formatDate(createdDate) : '—'}</div>
+                    <div><b>Changed</b>: {changedDate ? formatDate(changedDate) : '—'}</div>
+                    <div><b>Area</b>: {areaPath || '—'}</div>
                     <div><b>Tags</b>: {tags || '—'}</div>
                   </div>
 
                   {detail.webUrl && (
                     <p style={{ marginBottom: 12 }}>
-                      <a href={detail.webUrl} target="_blank" rel="noreferrer" style={{ color: '#0066cc' }}>
-                        Abrir en Azure DevOps
+                      <a href={detail.webUrl} target="_blank" rel="noreferrer">
+                        Open in Azure DevOps
                       </a>
                     </p>
                   )}
 
                   {detail.changesetIds?.length > 0 && (
-                    <p style={{ marginBottom: 12, color: '#444' }}>
-                      <b>Changesets vinculados</b>: {detail.changesetIds.join(', ')}
+                    <p style={{ marginBottom: 12, color: 'var(--muted)' }}>
+                      <b>Linked changesets</b>: {detail.changesetIds.join(', ')}
                     </p>
                   )}
 
                   {description && (
                     <div style={{ marginTop: 8 }}>
-                      <div style={{ fontWeight: 650, marginBottom: 6 }}>Descripción</div>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f7f7f7', padding: 12, borderRadius: 8, border: '1px solid #eee' }}>
+                      <div style={{ fontWeight: 650, marginBottom: 6 }}>Description</div>
+                      <pre style={{ whiteSpace: 'pre-wrap' }}>
                         {description}
                       </pre>
                     </div>

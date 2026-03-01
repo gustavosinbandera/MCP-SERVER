@@ -1,531 +1,531 @@
-# Tareas ClickUp – Entregables MCP-SERVER (trabajo realizado)
+# ClickUp tasks – MCP-SERVER deliverables (work completed)
 
-Listado de tareas para registrar en ClickUp el trabajo ya realizado. Todas asignadas al único desarrollador. Flujo por tarea: **Crear** → **Poner en EN CURSO** → **Documentar en la tarea** (rellenar descripción/subtareas) → **Mover a COMPLETADAS**.
+Task list to register already completed work in ClickUp. All tasks are assigned to the single developer. Per-task workflow: **Create** → **Move to IN PROGRESS** → **Document in the task** (fill description/subtasks) → **Move to COMPLETED**.
 
 ---
 
-## 1. Infraestructura (CloudFormation y EC2)
+## 1. Infrastructure (CloudFormation and EC2)
 
-### 1.1 CloudFormation: stack EC2 y Security Group
+### 1.1 CloudFormation: EC2 stack and Security Group
 
-**Descripción (plantilla Markdown para rellenar en la tarea):**
+**Description (Markdown template to paste into the task):**
 
 ```markdown
-## Qué se hizo
-Stack CloudFormation para instancia EC2 y Security Group (SSH, HTTP, HTTPS).
+## What was done
+CloudFormation stack for an EC2 instance and Security Group (SSH, HTTP, HTTPS).
 
-## Código / archivos
-- `infra/mcp-ec2.yaml` – plantilla
+## Code / files
+- `infra/mcp-ec2.yaml` – template
 - `infra/1-create-stack.ps1`, `2-get-outputs.ps1`, `3-delete-stack.ps1` – scripts
-- Parámetros y outputs (IP, InstanceId)
+- Parameters and outputs (IP, InstanceId)
 
-## Cómo usar
-Orden de ejecución: 1-create-stack → 2-get-outputs (obtener IP) → 3-delete-stack para eliminar.
+## How to use
+Execution order: 1-create-stack → 2-get-outputs (get IP) → 3-delete-stack to delete.
 
-## Cómo testear
-Crear stack, ver outputs; eliminar stack y comprobar que se borra.
+## How to test
+Create the stack, verify outputs; delete the stack and confirm it’s gone.
 ```
 
-**Subtareas sugeridas (al pasar a En progreso):** Código: mcp-ec2.yaml y scripts 1–3; Documentación: qué hace cada script; Cómo usar: orden y parámetros; Cómo testear: crear/eliminar stack y ver outputs.
+**Suggested subtasks (when moving to In Progress):** Code: `mcp-ec2.yaml` and scripts 1–3; Docs: what each script does; How to use: order and parameters; How to test: create/delete stack and verify outputs.
 
 ---
 
-### 1.2 Setup remoto EC2: Docker y proyecto
+### 1.2 Remote EC2 setup: Docker and project
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Script para configurar la instancia EC2: instalación Docker en Amazon Linux, clonado/copia del proyecto, `docker compose up -d`.
+## What was done
+Script to set up the EC2 instance: install Docker on Amazon Linux, clone/copy the project, run `docker compose up -d`.
 
-## Código / archivos
+## Code / files
 - `infra/4-setup-remote.ps1`
 
-## Cómo usar
-Ejecutar desde local contra la IP de la instancia (SSH). Requiere clave y acceso SSH.
+## How to use
+Run locally against the instance IP (SSH). Requires the key and SSH access.
 
-## Cómo testear
-SSH a la instancia y comprobar que los servicios están levantados.
+## How to test
+SSH into the instance and confirm services are up.
 ```
 
-**Subtareas sugeridas:** Código: 4-setup-remote.ps1; Documentación: pasos y requisitos SSH; Cómo usar: ejecutar desde local contra IP; Cómo testear: SSH y comprobar servicios.
+**Suggested subtasks:** Code: `4-setup-remote.ps1`; Docs: steps and SSH prerequisites; How to use: run locally against IP; How to test: SSH and check services.
 
 ---
 
-### 1.3 Route53: registro mcp y actualización de IP
+### 1.3 Route53: mcp record and IP updates
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Registro DNS (Route53) para dominio mcp (ej. mcp.domoticore.co) apuntando a la IP del stack.
+## What was done
+DNS record (Route53) for the mcp domain (e.g. mcp.domoticore.co) pointing to the stack IP.
 
-## Código / archivos
+## Code / files
 - `infra/5-route53-mcp.ps1`, `route53-mcp-record.json`
 
-## Cómo usar
-Ejecutar después de crear el stack; obtener hosted zone id desde la consola AWS.
+## How to use
+Run after creating the stack; get the hosted zone id from the AWS console.
 
-## Cómo testear
-Comprobar que el DNS resuelve a la IP de la instancia.
+## How to test
+Verify DNS resolves to the instance IP.
 ```
 
-**Subtareas sugeridas:** Código: 5-route53-mcp.ps1 y JSON; Documentación: cómo obtener hosted zone id; Cómo usar: después de crear stack; Cómo testear: DNS resuelve a la IP.
+**Suggested subtasks:** Code: `5-route53-mcp.ps1` and JSON; Docs: how to get hosted zone id; How to use: run after stack creation; How to test: DNS resolves to the IP.
 
 ---
 
-### 1.4 Util scripts EC2: update-repo e instalación
+### 1.4 EC2 util scripts: update-repo and installation
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Scripts de utilidad en la instancia: update-repo (pull, build, restart), install-tools.sh (PATH y aliases en `/opt/mcp-tools`).
+## What was done
+Utility scripts on the instance: update-repo (pull, build, restart), install-tools.sh (PATH and aliases in `/opt/mcp-tools`).
 
-## Código / archivos
+## Code / files
 - `scripts/ec2/util_update_repo`, `install-tools.sh`
 
-## Cómo usar
-En EC2: `update-repo` tras hacer pull; ver COMANDOS-INSTANCIA-EC2 sección "Util scripts".
+## How to use
+On EC2: run `update-repo` after pulling; see COMANDOS-INSTANCIA-EC2 section "Util scripts".
 
-## Cómo testear
-Ejecutar en EC2 y comprobar que el reinicio de servicios se realiza correctamente.
+## How to test
+Run on EC2 and verify services restart correctly.
 ```
 
-**Subtareas sugeridas:** Código: util_update_repo, install-tools.sh; Documentación: COMANDOS-INSTANCIA-EC2 "Util scripts"; Cómo usar: update-repo tras pull; Cómo testear: ejecutar en EC2 y ver reinicio.
+**Suggested subtasks:** Code: `util_update_repo`, `install-tools.sh`; Docs: COMANDOS-INSTANCIA-EC2 "Util scripts"; How to use: run update-repo after pull; How to test: run on EC2 and observe restart.
 
 ---
 
-## 2. Indexación de datos
+## 2. Data indexing
 
-### 2.1 INDEX_INBOX y processInbox
+### 2.1 INDEX_INBOX and processInbox
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Supervisor procesa carpeta INDEX_INBOX: chunking, embeddings, upsert en Qdrant; luego borra/mueve archivos.
+## What was done
+Supervisor processes the INDEX_INBOX folder: chunking, embeddings, upsert into Qdrant; then deletes/moves files.
 
-## Código / archivos
+## Code / files
 - `inbox-indexer.ts`, `supervisor.ts`
 
-## Cómo usar
-Poner archivos en INDEX_INBOX; el supervisor los indexa en el siguiente ciclo.
+## How to use
+Place files into INDEX_INBOX; the supervisor indexes them in the next cycle.
 
-## Cómo testear
-Revisar logs y usar count_docs para verificar documentos indexados.
+## How to test
+Check logs and use count_docs to verify indexed documents.
 ```
 
-**Subtareas sugeridas:** Código: inbox-indexer, supervisor; Documentación: REVISION-INDEXADOR; Cómo usar: poner archivos en INDEX_INBOX; Cómo testear: logs y count_docs.
+**Suggested subtasks:** Code: inbox-indexer, supervisor; Docs: REVISION-INDEXADOR; How to use: put files into INDEX_INBOX; How to test: logs and count_docs.
 
 ---
 
-### 2.2 SHARED_DIRS y one-time (classic, blueivory)
+### 2.2 SHARED_DIRS and one-time (classic, blueivory)
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Carpetas compartidas classic/blueivory: indexación por ciclo; one-time en SQLite para no reindexar ya indexado.
+## What was done
+Shared folders classic/blueivory: per-cycle indexing; one-time tracking in SQLite to avoid re-indexing content already indexed.
 
-## Código / archivos
+## Code / files
 - `shared-dirs.ts`, `one-time-indexed-db.ts`
 
-## Cómo usar
-Configurar SHARED_DIRS en .env; el supervisor indexa en cada ciclo.
+## How to use
+Configure SHARED_DIRS in .env; the supervisor indexes every cycle.
 
-## Cómo testear
-shared-dirs.test.ts y ejecutar ciclo del supervisor.
+## How to test
+shared-dirs.test.ts and run a supervisor cycle.
 ```
 
-**Subtareas sugeridas:** Código: shared-dirs, one-time-indexed-db; Documentación: SHARED-DIRS-VS-ONE-TIME; Cómo usar: SHARED_DIRS en .env; Cómo testear: shared-dirs.test.ts y ciclo supervisor.
+**Suggested subtasks:** Code: shared-dirs, one-time-indexed-db; Docs: SHARED-DIRS-VS-ONE-TIME; How to use: SHARED_DIRS in .env; How to test: shared-dirs.test.ts and supervisor cycle.
 
 ---
 
-### 2.3 Indexación por URL (index_url, index_site)
+### 2.3 URL indexing (index_url, index_site)
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Herramientas MCP y módulo para indexar una URL o un sitio completo; opción render_js; límite de páginas.
+## What was done
+MCP tools and module to index a URL or an entire site; render_js option; page limit.
 
-## Código / archivos
+## Code / files
 - `url-indexer.ts`, mcp-server (index_url, index_site)
 
-## Cómo usar
-Desde MCP: index_url / index_site con la URL y parámetros.
+## How to use
+From MCP: run index_url / index_site with the URL and parameters.
 
-## Cómo testear
-Indexar una URL y buscar con search_docs.
+## How to test
+Index a URL and search via search_docs.
 ```
 
-**Subtareas sugeridas:** Código: url-indexer, mcp-server (index_url, index_site); Documentación: gateway/docs/tools; Cómo usar: MCP index_url / index_site; Cómo testear: indexar URL y buscar.
+**Suggested subtasks:** Code: url-indexer, mcp-server (index_url, index_site); Docs: gateway/docs/tools; How to use: MCP index_url / index_site; How to test: index URL and search.
 
 ---
 
-### 2.4 Estadísticas de indexación por día (SQLite)
+### 2.4 Daily indexing stats (SQLite)
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Estadísticas diarias de indexación (inbox, shared_new, shared_reindexed, url) en SQLite; endpoint GET /stats/indexing; logs indexing_daily.
+## What was done
+Daily indexing stats (inbox, shared_new, shared_reindexed, url) stored in SQLite; endpoint GET /stats/indexing; logs indexing_daily.
 
-## Código / archivos
+## Code / files
 - `indexing-stats.ts`, index.ts, supervisor
 
-## Cómo usar
-GET /stats/indexing?days=7 (o el número de días deseado).
+## How to use
+GET /stats/indexing?days=7 (or the desired number of days).
 
-## Cómo testear
+## How to test
 indexing-stats.test.ts.
 ```
 
-**Subtareas sugeridas:** Código: indexing-stats, index.ts, supervisor; Documentación: REVISION-INDEXADOR o API; Cómo usar: GET /stats/indexing?days=7; Cómo testear: indexing-stats.test.ts.
+**Suggested subtasks:** Code: indexing-stats, index.ts, supervisor; Docs: REVISION-INDEXADOR or API; How to use: GET /stats/indexing?days=7; How to test: indexing-stats.test.ts.
 
 ---
 
-### 2.5 Chunking y code-metadata
+### 2.5 Chunking and code-metadata
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Fragmentación de texto y código; metadatos para código (clases, archivo).
+## What was done
+Text/code chunking; metadata for code (classes, file).
 
-## Código / archivos
+## Code / files
 - `chunking.ts`, `code-chunking.ts`, `code-metadata.ts`
 
-## Cómo usar
-Usado internamente por el indexador.
+## How to use
+Used internally by the indexer.
 
-## Cómo testear
+## How to test
 chunking.test.ts, code-chunking.test.ts, code-metadata.test.ts.
 ```
 
-**Subtareas sugeridas:** Código: chunking, code-chunking, code-metadata; Documentación: SUGERENCIAS-INDEXACION; Cómo usar: usado por indexador; Cómo testear: los tres archivos .test.ts.
+**Suggested subtasks:** Code: chunking, code-chunking, code-metadata; Docs: SUGERENCIAS-INDEXACION; How to use: used by indexer; How to test: the three .test.ts files.
 
 ---
 
-### 2.6 Embeddings y búsqueda semántica
+### 2.6 Embeddings and semantic search
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-OpenAI embeddings, búsqueda por similitud en Qdrant; filtros opcionales.
+## What was done
+OpenAI embeddings, similarity search in Qdrant; optional filters.
 
-## Código / archivos
+## Code / files
 - `embedding.ts`, `search.ts`, `qdrant-client.ts`
 
-## Cómo usar
-Herramienta MCP search_docs con query y filtros.
+## How to use
+MCP tool search_docs with query and filters.
 
-## Cómo testear
+## How to test
 embedding.test.ts, search.test.ts.
 ```
 
-**Subtareas sugeridas:** Código: embedding, search, qdrant-client; Documentación: CHECKLIST-semantica-openai; Cómo usar: search_docs MCP; Cómo testear: embedding.test.ts, search.test.ts.
+**Suggested subtasks:** Code: embedding, search, qdrant-client; Docs: CHECKLIST-semantica-openai; How to use: MCP search_docs; How to test: embedding.test.ts, search.test.ts.
 
 ---
 
-## 3. Gateway MCP (herramientas y servicios)
+## 3. MCP Gateway (tools and services)
 
-### 3.1 Herramientas de búsqueda (search_docs, count_docs)
+### 3.1 Search tools (search_docs, count_docs)
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Búsqueda semántica y conteo de puntos en Qdrant; filtros por project, branch, etc.
+## What was done
+Semantic search and counting points in Qdrant; filters by project, branch, etc.
 
-## Código / archivos
+## Code / files
 - mcp-server (search_docs, count_docs), search.ts
 
-## Cómo usar
-Desde Cursor / usar MCP: invocar search_docs o count_docs.
+## How to use
+From Cursor / using MCP: invoke search_docs or count_docs.
 
-## Cómo testear
+## How to test
 search.test.ts.
 ```
 
-**Subtareas sugeridas:** Código: mcp-server (search_docs, count_docs), search; Documentación: gateway/docs/tools; Cómo usar: desde Cursor/usar-mcp; Cómo testear: search.test.ts.
+**Suggested subtasks:** Code: mcp-server (search_docs, count_docs), search; Docs: gateway/docs/tools; How to use: from Cursor/usar-mcp; How to test: search.test.ts.
 
 ---
 
-### 3.2 Herramientas de indexación y view_url
+### 3.2 Indexing tools and view_url
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-index_url, index_site, index_url_with_links; view_url con opción render_js (Puppeteer).
+## What was done
+index_url, index_site, index_url_with_links; view_url with render_js option (Puppeteer).
 
-## Código / archivos
+## Code / files
 - mcp-server, url-indexer, fetch-with-browser
 
-## Cómo usar
-Herramientas MCP desde el cliente.
+## How to use
+MCP tools from the client.
 
-## Cómo testear
-index.test.ts y pruebas manuales.
+## How to test
+index.test.ts and manual testing.
 ```
 
-**Subtareas sugeridas:** Código: mcp-server, url-indexer, fetch-with-browser; Documentación: tools/index_url, view_url; Cómo usar: MCP; Cómo testear: index.test.ts y pruebas manuales.
+**Suggested subtasks:** Code: mcp-server, url-indexer, fetch-with-browser; Docs: tools/index_url, view_url; How to use: MCP; How to test: index.test.ts and manual testing.
 
 ---
 
-### 3.3 ClickUp: cliente API y 8 herramientas MCP
+### 3.3 ClickUp: API client and 8 MCP tools
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Cliente ClickUp API v2 y 8 herramientas MCP: list_workspaces, list_spaces, list_folders, list_lists, list_tasks, create_task, get_task, update_task.
+## What was done
+ClickUp API v2 client and 8 MCP tools: list_workspaces, list_spaces, list_folders, list_lists, list_tasks, create_task, get_task, update_task.
 
-## Código / archivos
+## Code / files
 - `clickup-client.ts`, mcp-server (clickup_*)
 
-## Cómo usar
-CLICKUP_API_TOKEN en .env; invocar herramientas desde MCP.
+## How to use
+CLICKUP_API_TOKEN in .env; invoke tools from MCP.
 
-## Cómo testear
+## How to test
 create-clickup-example-task.cjs.
 ```
 
-**Subtareas sugeridas:** Código: clickup-client, mcp-server (clickup_*); Documentación: CLICKUP-API-REFERENCE; Cómo usar: CLICKUP_API_TOKEN y MCP; Cómo testear: create-clickup-example-task.cjs.
+**Suggested subtasks:** Code: clickup-client, mcp-server (clickup_*); Docs: CLICKUP-API-REFERENCE; How to use: CLICKUP_API_TOKEN + MCP; How to test: create-clickup-example-task.cjs.
 
 ---
 
-### 3.4 Repo/git y búsqueda GitHub
+### 3.4 Repo/git and GitHub search
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Herramientas repo_git y search_github_repos para operaciones git y búsqueda en GitHub.
+## What was done
+repo_git and search_github_repos tools for git operations and GitHub search.
 
-## Código / archivos
+## Code / files
 - `repo-git.ts`, `github-search.ts`, mcp-server
 
-## Cómo usar
-Desde MCP con los parámetros documentados en tools.
+## How to use
+From MCP with the parameters documented in tools.
 
-## Cómo testear
-Manual o tests si existen.
+## How to test
+Manual testing or tests if they exist.
 ```
 
-**Subtareas sugeridas:** Código: repo-git, github-search, mcp-server; Documentación: tools/repo_git, search_github_repos; Cómo usar: MCP; Cómo testear: manual o tests.
+**Suggested subtasks:** Code: repo-git, github-search, mcp-server; Docs: tools/repo_git, search_github_repos; How to use: MCP; How to test: manual or tests.
 
 ---
 
 ### 3.5 Shared dirs: list_shared_dir, read_shared_file
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Listar y leer archivos de carpetas compartidas (classic, blueivory).
+## What was done
+List and read files from shared folders (classic, blueivory).
 
-## Código / archivos
+## Code / files
 - mcp-server, shared-dirs
 
-## Cómo usar
-Herramientas MCP list_shared_dir y read_shared_file.
+## How to use
+MCP tools list_shared_dir and read_shared_file.
 
-## Cómo testear
+## How to test
 shared-dirs.test.ts.
 ```
 
-**Subtareas sugeridas:** Código: mcp-server, shared-dirs; Documentación: tools; Cómo usar: MCP; Cómo testear: shared-dirs.test.ts.
+**Suggested subtasks:** Code: mcp-server, shared-dirs; Docs: tools; How to use: MCP; How to test: shared-dirs.test.ts.
 
 ---
 
-## 4. Tests (una task por suite)
+## 4. Tests (one task per suite)
 
-Para cada task de test, al pasar a "En progreso": (1) Código: archivo X; (2) Qué valida; (3) Cómo ejecutar: `npm run test -- <archivo>`; (4) Criterio "Completado": todos los tests pasan.
+For each test task, when moving to "In Progress": (1) Code: file X; (2) What it validates; (3) How to run: `npm run test -- <file>`; (4) "Completed" criteria: all tests pass.
 
 ### 4.1 Tests: chunking
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué valida
-Fragmentación de texto (tamaño, solapamiento, límites).
+## What it validates
+Text chunking (size, overlap, limits).
 
-## Código
+## Code
 `chunking.test.ts`
 
-## Cómo ejecutar
+## How to run
 `npm run test -- chunking.test.ts`
 
-## Completado
-Todos los tests pasan.
+## Completed
+All tests pass.
 ```
 
 ---
 
 ### 4.2 Tests: code-chunking
 
-**Descripción (plantilla):** Chunking de código (funciones, clases). Archivo: `code-chunking.test.ts`. Ejecutar: `npm run test -- code-chunking.test.ts`. Completado: tests pasan.
+**Description (template):** Code chunking (functions, classes). File: `code-chunking.test.ts`. Run: `npm run test -- code-chunking.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.3 Tests: code-metadata
 
-**Descripción (plantilla):** Extracción de nombres de clase y tipos referenciados. Archivo: `code-metadata.test.ts`. Ejecutar: `npm run test -- code-metadata.test.ts`. Completado: tests pasan.
+**Description (template):** Extract class names and referenced types. File: `code-metadata.test.ts`. Run: `npm run test -- code-metadata.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.4 Tests: config
 
-**Descripción (plantilla):** Carga de configuración desde env. Archivo: `config.test.ts`. Ejecutar: `npm run test -- config.test.ts`. Completado: tests pasan.
+**Description (template):** Load configuration from env. File: `config.test.ts`. Run: `npm run test -- config.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.5 Tests: embedding
 
-**Descripción (plantilla):** Generación de embeddings (mock o clave). Archivo: `embedding.test.ts`. Ejecutar: `npm run test -- embedding.test.ts`. Completado: tests pasan.
+**Description (template):** Embeddings generation (mock or key). File: `embedding.test.ts`. Run: `npm run test -- embedding.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.6 Tests: flow-doc
 
-**Descripción (plantilla):** Flujo de documentos. Archivo: `flow-doc.test.ts`. Ejecutar: `npm run test -- flow-doc.test.ts`. Completado: tests pasan.
+**Description (template):** Flow documents. File: `flow-doc.test.ts`. Run: `npm run test -- flow-doc.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.7 Tests: index (gateway)
 
-**Descripción (plantilla):** Rutas HTTP del gateway. Archivo: `index.test.ts`. Ejecutar: `npm run test -- index.test.ts`. Completado: tests pasan.
+**Description (template):** Gateway HTTP routes. File: `index.test.ts`. Run: `npm run test -- index.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.8 Tests: indexed-keys-db
 
-**Descripción (plantilla):** DB de claves indexadas. Archivo: `indexed-keys-db.test.ts`. Ejecutar: `npm run test -- indexed-keys-db.test.ts`. Completado: tests pasan.
+**Description (template):** Indexed keys DB. File: `indexed-keys-db.test.ts`. Run: `npm run test -- indexed-keys-db.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.9 Tests: indexing-stats
 
-**Descripción (plantilla):** Estadísticas por día (SQLite). Archivo: `indexing-stats.test.ts`. Ejecutar: `npm run test -- indexing-stats.test.ts`. Completado: tests pasan.
+**Description (template):** Per-day stats (SQLite). File: `indexing-stats.test.ts`. Run: `npm run test -- indexing-stats.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.10 Tests: logger
 
-**Descripción (plantilla):** Logger. Archivo: `logger.test.ts`. Ejecutar: `npm run test -- logger.test.ts`. Completado: tests pasan.
+**Description (template):** Logger. File: `logger.test.ts`. Run: `npm run test -- logger.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.11 Tests: search
 
-**Descripción (plantilla):** Búsqueda semántica y filtros. Archivo: `search.test.ts`. Ejecutar: `npm run test -- search.test.ts`. Completado: tests pasan.
+**Description (template):** Semantic search and filters. File: `search.test.ts`. Run: `npm run test -- search.test.ts`. Completed: tests pass.
 
 ---
 
 ### 4.12 Tests: shared-dirs
 
-**Descripción (plantilla):** Resolución de directorios compartidos. Archivo: `shared-dirs.test.ts`. Ejecutar: `npm run test -- shared-dirs.test.ts`. Completado: tests pasan.
+**Description (template):** Shared directories resolution. File: `shared-dirs.test.ts`. Run: `npm run test -- shared-dirs.test.ts`. Completed: tests pass.
 
 ---
 
-## 5. Documentación
+## 5. Documentation
 
 ### 5.1 Doc: CLICKUP-API-REFERENCE
 
-**Descripción (plantilla):** Referencia API ClickUp (auth, endpoints, errores). Archivo: `docs/CLICKUP-API-REFERENCE.md`. Subtareas: Código: archivo; Qué cubre: auth, /team, /space, /folder, /list, /task; Cómo usar: consulta al integrar ClickUp.
+**Description (template):** ClickUp API reference (auth, endpoints, errors). File: `docs/CLICKUP-API-REFERENCE.md`. Subtasks: Code: file; Coverage: auth, /team, /space, /folder, /list, /task; How to use: reference when integrating ClickUp.
 
 ---
 
 ### 5.2 Doc: COMANDOS-INSTANCIA-EC2
 
-**Descripción (plantilla):** Comandos SSH, servicios, logs, reinicio, Qdrant, SQLite, ClickUp token. Archivo: `docs/COMANDOS-INSTANCIA-EC2.md`. Subtareas: Código: archivo; Qué cubre: conexión, docker compose, logs, util scripts; Cómo usar: operación diaria en EC2.
+**Description (template):** SSH commands, services, logs, restart, Qdrant, SQLite, ClickUp token. File: `docs/COMANDOS-INSTANCIA-EC2.md`. Subtasks: Code: file; Coverage: connect, docker compose, logs, util scripts; How to use: daily EC2 operations.
 
 ---
 
 ### 5.3 Doc: SYNC-Y-INDEXACION-DEPLOYS
 
-**Descripción (plantilla):** Sincronización de código e indexación en deploys. Archivo: `docs/SYNC-Y-INDEXACION-DEPLOYS.md`. Subtareas: Código: docs; Qué cubre: flujo sync e indexación; Cómo usar: guía de despliegue.
+**Description (template):** Code sync and deploy indexing. File: `docs/SYNC-Y-INDEXACION-DEPLOYS.md`. Subtasks: Code: docs; Coverage: sync flow and indexing; How to use: deployment guide.
 
 ---
 
-### 5.4 Doc: REVISION-INDEXADOR y SUGERENCIAS-INDEXACION
+### 5.4 Doc: REVISION-INDEXADOR and SUGERENCIAS-INDEXACION
 
-**Descripción (plantilla):** Revisión del indexador y sugerencias (metadata, chunking). Archivos en `gateway/docs/`. Subtareas: Código: REVISION-INDEXADOR, SUGERENCIAS-INDEXACION; Qué cubre: arquitectura indexador; Cómo usar: referencia para cambios.
-
----
-
-### 5.5 Doc: Herramientas MCP (tools/)
-
-**Descripción (plantilla):** Documentación por herramienta en `gateway/docs/tools/`. Subtareas: Código: README y archivos por herramienta; Qué cubre: parámetros y ejemplos; Cómo usar: referencia para usuarios del MCP.
+**Description (template):** Indexer review and suggestions (metadata, chunking). Files in `gateway/docs/`. Subtasks: Code: REVISION-INDEXADOR, SUGERENCIAS-INDEXACION; Coverage: indexer architecture; How to use: reference for changes.
 
 ---
 
-### 5.6 Doc: TESTING y validación por fases
+### 5.5 Doc: MCP tools (tools/)
 
-**Descripción (plantilla):** `gateway/docs/TESTING.md` y scripts `validate_phase*.ps1`, `validate_all.ps1`. Subtareas: Código: TESTING.md, scripts; Qué cubre: cómo escribir y ejecutar tests; Cómo usar: CI o local.
+**Description (template):** Per-tool documentation in `gateway/docs/tools/`. Subtasks: Code: README and tool files; Coverage: parameters and examples; How to use: reference for MCP users.
 
 ---
 
-## 6. Docker y servicios
+### 5.6 Doc: TESTING and phase validation
 
-### 6.1 Docker Compose: definición de servicios
+**Description (template):** `gateway/docs/TESTING.md` and scripts `validate_phase*.ps1`, `validate_all.ps1`. Subtasks: Code: TESTING.md, scripts; Coverage: how to write and run tests; How to use: CI or local.
 
-**Descripción (plantilla):**
+---
+
+## 6. Docker and services
+
+### 6.1 Docker Compose: service definitions
+
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Definición de servicios: postgres, redis, qdrant, influxdb, grafana, gateway, supervisor, webapp, nginx.
+## What was done
+Service definitions: postgres, redis, qdrant, influxdb, grafana, gateway, supervisor, webapp, nginx.
 
-## Código / archivos
+## Code / files
 - `docker-compose.yml`, Dockerfiles
 
-## Cómo usar
+## How to use
 `docker compose up -d`
 
-## Cómo testear
-Comprobar que los servicios están healthy.
+## How to test
+Verify services are healthy.
 ```
 
-**Subtareas sugeridas:** Código: docker-compose.yml, Dockerfiles; Documentación: qué hace cada servicio; Cómo usar: docker compose up -d; Cómo testear: servicios healthy.
+**Suggested subtasks:** Code: docker-compose.yml, Dockerfiles; Docs: what each service does; How to use: docker compose up -d; How to test: healthy services.
 
 ---
 
-### 6.2 Migraciones y arranque de datastores
+### 6.2 Migrations and datastore startup
 
-**Descripción (plantilla):**
+**Description (template):**
 
 ```markdown
-## Qué se hizo
-Scripts run_migrations.ps1, start_datastores.ps1; esquema SQL en scripts/sql/.
+## What was done
+Scripts run_migrations.ps1, start_datastores.ps1; SQL schema in scripts/sql/.
 
-## Código / archivos
-- scripts y SQL
+## Code / files
+- scripts and SQL
 
-## Cómo usar
-Ejecutar antes de gateway/supervisor (orden de arranque).
+## How to use
+Run before gateway/supervisor (startup order).
 
-## Cómo testear
-Postgres/Redis/Qdrant accesibles.
+## How to test
+Postgres/Redis/Qdrant accessible.
 ```
 
-**Subtareas sugeridas:** Código: scripts y SQL; Documentación: orden de arranque; Cómo usar: antes de gateway/supervisor; Cómo testear: datastores accesibles.
+**Suggested subtasks:** Code: scripts and SQL; Docs: startup order; How to use: before gateway/supervisor; How to test: datastores accessible.
 
 ---
 
-## Resumen
+## Summary
 
-| Área           | Cantidad |
+| Area           | Count |
 |----------------|----------|
-| Infraestructura| 4        |
-| Indexación     | 6        |
-| Gateway MCP    | 5        |
+| Infrastructure | 4        |
+| Indexing       | 6        |
+| MCP Gateway    | 5        |
 | Tests          | 12       |
-| Documentación  | 6        |
+| Documentation  | 6        |
 | Docker         | 2        |
 | **Total**      | **35**   |
 
-Crear todas las tareas en la lista elegida (Proyecto 1 o "Entregables MCP-SERVER"), asignadas al único desarrollador. Luego, una a una: **EN CURSO** → rellenar descripción/subtareas con lo hecho → **COMPLETADAS**.
+Create all tasks in the chosen list (Project 1 or "MCP-SERVER Deliverables"), assigned to the single developer. Then, one by one: **IN PROGRESS** → fill description/subtasks with what was done → **COMPLETED**.

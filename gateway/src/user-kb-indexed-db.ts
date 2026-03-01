@@ -1,6 +1,6 @@
 /**
- * SQLite para User KB: (owner_user_id, source_path) + content_hash.
- * Usado por indexUserKbRoots para indexación incremental (no reindexar si hash igual).
+ * SQLite for User KB: (owner_user_id, source_path) + content_hash.
+ * Used by indexUserKbRoots for incremental indexing (do not reindex if hash is unchanged).
  */
 import * as fs from 'fs';
 import * as path from 'path';

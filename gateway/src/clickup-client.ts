@@ -15,7 +15,7 @@ function getToken(): string | undefined {
 function authHeaders(): Record<string, string> {
   const token = getToken();
   if (!token) {
-    throw new Error('CLICKUP_API_TOKEN no está definido. Añade tu Personal API Token en .env o gateway/.env (local e instancia).');
+    throw new Error('CLICKUP_API_TOKEN is not set. Add your Personal API Token in .env or gateway/.env (local and instance).');
   }
   return {
     Authorization: token,

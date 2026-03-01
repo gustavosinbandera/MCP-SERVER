@@ -2,9 +2,40 @@
 # Prueba login MediaWiki con curl (ejecutar en la instancia EC2). LF only.
 set -e
 cd ~/MCP-SERVER || exit 1
-# Leer .env sin source para evitar CRLF en valores
-export INDEX_URL_USER=$(grep '^INDEX_URL_USER=' .env | cut -d= -f2- | tr -d '\r')
-export INDEX_URL_PASSWORD=$(grep '^INDEX_URL_PASSWORD=' .env | cut -d= -f2- | tr -d '\r' | sed 's/^"//;s/"$//')
+
+function read_env_value() {
+  local file="$1"
+  local key="$2"
+  if [[ ! -f "$file" ]]; then
+    echo ""
+    return 0
+  fi
+  local line
+  line="$(grep -m 1 -E "^${key}=" "$file" 2>/dev/null | tr -d '\r' || true)"
+  local val="${line#*=}"
+  val="${val%\"}"
+  val="${val#\"}"
+  val="${val%\'}"
+  val="${val#\'}"
+  echo "$val"
+}
+
+# Preferir gateway/.env (docker-compose lo carga); fallback a .env por compatibilidad.
+INDEX_URL_USER="$(read_env_value "gateway/.env" "INDEX_URL_USER")"
+INDEX_URL_PASSWORD="$(read_env_value "gateway/.env" "INDEX_URL_PASSWORD")"
+if [[ -z "$INDEX_URL_USER" || -z "$INDEX_URL_PASSWORD" ]]; then
+  INDEX_URL_USER="$(read_env_value ".env" "INDEX_URL_USER")"
+  INDEX_URL_PASSWORD="$(read_env_value ".env" "INDEX_URL_PASSWORD")"
+fi
+
+if [[ -z "$INDEX_URL_USER" || -z "$INDEX_URL_PASSWORD" ]]; then
+  echo "Faltan INDEX_URL_USER / INDEX_URL_PASSWORD en gateway/.env (o .env)."
+  echo "Configura esas variables y reintenta."
+  exit 1
+fi
+
+export INDEX_URL_USER
+export INDEX_URL_PASSWORD
 COOKIE_JAR=$(mktemp)
 trap "rm -f $COOKIE_JAR" EXIT
 echo "--- Paso 1: Token de login (guardando cookies) ---"

@@ -2,10 +2,10 @@
  * Crea en ClickUp la tarea "Desarrollo: Módulo transport_streamable_http (solo estructura)"
  * con subtareas placeholder para ir desarrollando.
  * Requiere CLICKUP_API_TOKEN en gateway/.env
- * Uso: desde gateway/ → node scripts/create-clickup-task-transport-streamable.cjs
+ * Uso: desde gateway/ → node scripts/clickup/seeds/create-clickup-task-transport-streamable.cjs
  */
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+const { loadGatewayEnv, requireDist } = require('../../_shared/script-env.cjs');
+loadGatewayEnv();
 
 const {
   getTeams,
@@ -16,7 +16,7 @@ const {
   createSubtask,
   getAuthorizedUser,
   hasClickUpToken,
-} = require('../dist/clickup-client.js');
+} = requireDist(['clickup-client.js', 'clickup']);
 
 async function resolveListId() {
   const listId = process.env.LIST_ID?.trim();

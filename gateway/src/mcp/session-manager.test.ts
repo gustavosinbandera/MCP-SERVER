@@ -35,7 +35,7 @@ describe('session-manager', () => {
     expect(second.sessionId).toBe(first.sessionId);
   });
 
-  it('getOrCreateSession with null sessionId reuses latest session (evita llenar límite con retries)', async () => {
+  it('getOrCreateSession with null sessionId reuses latest session (avoids filling the limit on retries)', async () => {
     const first = await getOrCreateSession('user-reuse', null);
     expect('error' in first).toBe(false);
     if ('error' in first) return;
@@ -52,7 +52,7 @@ describe('session-manager', () => {
   it('returns 429 when exceeding MAX_SESSIONS_PER_USER', async () => {
     const userId = 'user-limit-' + Date.now();
     const sessions: string[] = [];
-    // Crear N sesiones con ids distintos (con null reutilizaríamos la misma)
+    // Create N sessions with distinct ids (with null we'd reuse the same one)
     for (let i = 0; i < MAX_SESSIONS_PER_USER; i++) {
       const r = await getOrCreateSession(userId, `sid-${i}`);
       expect('error' in r).toBe(false);

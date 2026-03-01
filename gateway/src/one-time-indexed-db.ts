@@ -1,6 +1,6 @@
 /**
- * Persistencia en SQLite de los proyectos ya indexados una vez (SHARED_DIRS_ONCE).
- * Evita reindexar classic/blueivory u otros proyectos one-time en ciclos posteriores.
+ * SQLite persistence of projects already indexed once (SHARED_DIRS_ONCE).
+ * Avoids re-indexing classic/blueivory (or other one-time projects) on later cycles.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,13 +30,13 @@ function getDb(): Database.Database {
   return _db;
 }
 
-/** Ruta del archivo legacy (one project per line) por si existe y hay que migrar. */
+/** Path to the legacy file (one project per line), if it exists and needs migrating. */
 function getLegacyFilePath(): string {
   return path.resolve(path.dirname(getOneTimeIndexedDbPath()), 'one_time_indexed_projects.txt');
 }
 
 /**
- * Si existe el archivo legacy, lee los proyectos y los inserta en SQLite; luego renombra el archivo.
+ * If the legacy file exists, read projects and insert them into SQLite, then rename the file.
  */
 function migrateFromFileIfExists(): void {
   const filePath = getLegacyFilePath();
@@ -66,7 +66,7 @@ function migrateFromFileIfExists(): void {
 }
 
 /**
- * Devuelve el conjunto de proyectos ya indexados una vez (clave que evita reindexar).
+ * Return the set of projects already indexed once (key used to avoid re-indexing).
  */
 export function loadOneTimeIndexedProjects(): Set<string> {
   migrateFromFileIfExists();
@@ -78,7 +78,7 @@ export function loadOneTimeIndexedProjects(): Set<string> {
 }
 
 /**
- * Marca un proyecto como indexado una vez; no se volverá a indexar (persistido en SQLite).
+ * Mark a project as indexed once; it will not be indexed again (persisted in SQLite).
  */
 export function addOneTimeIndexedProject(project: string): void {
   const key = project.trim().toLowerCase();

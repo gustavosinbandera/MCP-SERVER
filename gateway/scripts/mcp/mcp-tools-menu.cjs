@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { gatewayRoot } = require('../_shared/script-env.cjs');
 
 // ANSI colors (compatible con Windows 10+ y terminales Unix)
 const c = {
@@ -30,10 +31,10 @@ function bold(s) { return c.bold + s + c.reset; }
 function gray(s) { return c.gray + s + c.reset; }
 function red(s) { return c.red + s + c.reset; }
 
-const TOOLS_DIR = path.join(__dirname, '..', 'docs', 'tools');
+const TOOLS_DIR = path.join(gatewayRoot(), 'docs', 'tools');
 let TOOL_LIST;
 try {
-  TOOL_LIST = require('./tools-config.cjs');
+  TOOL_LIST = require('../internal/tools-config.cjs');
 } catch (_) {
   TOOL_LIST = [
     'search_docs', 'count_docs', 'analize_code', 'index_url', 'index_url_with_links',
