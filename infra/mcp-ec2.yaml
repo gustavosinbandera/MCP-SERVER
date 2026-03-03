@@ -131,7 +131,7 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:
-            VolumeSize: 30
+            VolumeSize: 80
             VolumeType: gp3
       Tags:
         - Key: Name
