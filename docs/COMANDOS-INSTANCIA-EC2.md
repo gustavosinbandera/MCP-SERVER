@@ -69,27 +69,42 @@ Host mcp-ec2
 
 ## 1c. Home/search page (webapp)
 
-The MCP Knowledge Hub **home/search** page opens in a browser at this URL (important: **http**, no **s**):
+The MCP Knowledge Hub **home/search** page opens in a browser at this URL :
 
-**http://mcp.domoticore.co**
+**https://mcp.domoticore.co**
 
 The server only exposes HTTP (port 80), not HTTPS. If you use `https://`, the browser won’t connect and you won’t see the page.
 
 - Type in the address bar: `http://mcp.domoticore.co` and press Enter.
 - You should see the page titled “MCP Knowledge Hub” and the search box.
-- If the page is blank or doesn’t load, confirm you’re using **http** (not https) and that `webapp` and `nginx` are running on the instance: `docker compose ps webapp nginx`.
+- If the page is blank or doesn’t load, confirm you’re using **http** (not https) and that `webapp` and `nginx` are running on the instance: `docker compose ps webapp nginx`. See **docs/HTTPS-CERTIFICADO.md** for certificate and HTTPS details.
 
-## 1d. Check the gateway from your machine
+## 1d. Check the gateway from your machine (HTTPS)
 
-Gateway health (path under `/api/`):
+The gateway is served over **HTTPS**. Health check:
+
+**PowerShell:** In PowerShell, `curl` is an alias for `Invoke-WebRequest`, which doesn't accept curl flags. Use **`curl.exe`**:
 
 ```powershell
-Invoke-WebRequest -Uri "http://mcp.domoticore.co/api/health" -UseBasicParsing
+# Redirect HTTP → HTTPS (expect 302)
+curl.exe -sI http://mcp.domoticore.co/
+
+# Health over HTTPS (expect 200)
+curl.exe -sI https://mcp.domoticore.co/api/health
+# Or just the status code:
+curl.exe -sk -o NUL -w "%{http_code}" https://mcp.domoticore.co/api/health
 ```
 
-In Git Bash or with curl: `curl http://mcp.domoticore.co/api/health`
+**Git Bash / WSL:**
+
+```bash
+curl -sI http://mcp.domoticore.co/
+curl -sI https://mcp.domoticore.co/api/health
+```
 
 If you get **502 Bad Gateway**, on the instance check gateway logs and restart nginx: `docker compose logs gateway --tail=50` and `docker compose restart nginx`.
+
+**Full HTTPS and certificate guide:** Obtaining the Let's Encrypt certificate, renewal, nginx/certbot configuration, Cursor MCP URL, and troubleshooting are documented in **docs/HTTPS-CERTIFICADO.md**.
 
 ---
 

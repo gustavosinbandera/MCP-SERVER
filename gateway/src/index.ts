@@ -17,7 +17,7 @@ import { writeUploadedKbDoc } from './user-kb';
 import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
-import { requireJwt } from './auth/jwt';
+import { requireJwt, getCognitoIssuer } from './auth/jwt';
 import {
   hasAzureDevOpsConfig,
   listWorkItemsByDateRange,
@@ -61,6 +61,26 @@ const MCP_SESSION_ID_HEADER = 'mcp-session-id';
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'mcp-gateway', timestamp: new Date().toISOString() });
+});
+
+// ----- OAuth 2.0 Protected Resource Metadata (RFC 9728 / MCP discovery) -----
+// Clients (e.g. ChatGPT) use this to discover the authorization server (Cognito). JWT and MCP_API_KEY remain supported.
+const MCP_PUBLIC_BASE_URL = (process.env.MCP_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
+app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+  const issuer = getCognitoIssuer();
+  if (!issuer || !MCP_PUBLIC_BASE_URL) {
+    res.status(404).json({ error: 'OAuth discovery not configured (set COGNITO_* and MCP_PUBLIC_BASE_URL)' });
+    return;
+  }
+  const resource = `${MCP_PUBLIC_BASE_URL}/api/mcp`;
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({
+    resource,
+    authorization_servers: [issuer],
+    scopes_supported: ['openid'],
+    bearer_methods_supported: ['header'],
+    resource_name: 'MCP Knowledge Hub',
+  });
 });
 
 // ----- MCP logs (debugging stuck searches). Protected by JWT. -----
