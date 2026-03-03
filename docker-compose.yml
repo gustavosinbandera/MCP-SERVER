@@ -191,12 +191,36 @@ services:
     container_name: mcp-nginx
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/etc/letsencrypt:rw
+      - certbot_webroot:/var/www/certbot:ro
     depends_on:
       gateway:
         condition: service_healthy
       webapp:
         condition: service_started
     restart: always
+
+  # Certbot (Let's Encrypt): obtiene/renueva certificados; escribe en volumen compartido con nginx.
+  # Primera vez: docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d mcp.domoticore.co --email TU_EMAIL --agree-tos --non-interactive
+  # Luego: docker compose restart nginx (para cargar los certs reales).
+  certbot:
+    image: certbot/certbot:latest
+    container_name: mcp-certbot
+    volumes:
+      - letsencrypt:/etc/letsencrypt:rw
+      - certbot_webroot:/var/www/certbot:rw
+    environment:
+      - LETSENCRYPT_DOMAIN=${LETSENCRYPT_DOMAIN:-mcp.domoticore.co}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
+    # Renovar cada 12h (Let's Encrypt permite ~2 renovaciones/día)
+    command: >
+      sh -c "trap exit 0 TERM; while true; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 43200;
+      done"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
@@ -205,3 +229,5 @@ volumes:
   gateway_data:
   influxdb_data:
   grafana_data:
+  letsencrypt:
+  certbot_webroot:

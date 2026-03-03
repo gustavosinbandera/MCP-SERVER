@@ -608,6 +608,13 @@ app.get('/azure/changesets/:id/diff', async (req, res) => {
       return;
     }
     const tfvcPath = files[Math.min(fileIndex, files.length - 1)];
+    if (String(tfvcPath || '').trim().toLowerCase().endsWith('.rc')) {
+      res.status(400).json({
+        error:
+          'This file type (.rc) is hidden because it is usually huge and can crash the UI. Choose another file in this changeset.',
+      });
+      return;
+    }
 
     // Prefer file content snapshots (more compatible with older/on-prem Azure DevOps Server).
     // We still return a unified-style string for convenience, but the UI primarily uses before/after.

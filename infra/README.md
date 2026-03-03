@@ -72,6 +72,8 @@ Si ya tienes un User Pool, pon **CognitoCreateUserPool=false** en `parameters.js
 
 El script **5-route53-mcp.ps1** obtiene la PublicIP del stack y actualiza el registro A de **mcp.domoticore.co** en Route 53. Ejecútalo tras crear o reiniciar la EC2 (la IP puede cambiar si no usas IP elástica).
 
+**HTTP y HTTPS:** El mismo registro A sirve para ambos. No hace falta configurar nada distinto en Route 53 para HTTPS. En la EC2, nginx escucha 80 (redirige a HTTPS) y 443 (SSL); al usar `https://mcp.domoticore.co` el tráfico va a la misma IP por el puerto 443.
+
 **Programar para monitorear:** en Windows, Programador de tareas (Task Scheduler): crear tarea que ejecute `powershell.exe -File C:\PROYECTOS\MCP-SERVER\infra\5-route53-mcp.ps1` cada hora (o el intervalo que quieras) para que el DNS siga apuntando a la IP actual.
 
 ## Indexar desde la EC2
