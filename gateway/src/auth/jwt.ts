@@ -1,22 +1,29 @@
 /**
- * Simple JWT auth (Cognito) for v1: JWKS verification, no groups/scopes.
- * Middleware requireJwt validates Authorization: Bearer <JWT> and attaches req.auth = { userId }.
- * ADMIN_SUBS: optional allowlist of subs considered admin.
+ * JWT auth: Cognito (webapp) + Keycloak (ChatGPT/OAuth) + API key (Cursor).
+ * Middleware requireJwt validates Authorization: Bearer <JWT or API key> and attaches req.auth = { userId }.
  */
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
 
 const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
 const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || '').trim();
 const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || '').trim();
+const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
+const KEYCLOAK_REALM = (process.env.KEYCLOAK_REALM || 'mcp').trim();
 
 /** Issuer base for Cognito User Pool (ID tokens). */
 export function getCognitoIssuer(): string {
   if (COGNITO_REGION && COGNITO_USER_POOL_ID) {
     return `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}`;
   }
-  const issuer = (process.env.COGNITO_ISSUER || '').trim();
-  return issuer || '';
+  return (process.env.COGNITO_ISSUER || '').trim();
+}
+
+/** Keycloak issuer for realm (access tokens). */
+function getKeycloakIssuer(): string {
+  if (!KEYCLOAK_PUBLIC_URL || !KEYCLOAK_REALM) return '';
+  const base = KEYCLOAK_PUBLIC_URL.replace(/\/$/, '');
+  return `${base}/realms/${KEYCLOAK_REALM}`;
 }
 
 /** Set WWW-Authenticate Bearer on 401. */
@@ -24,22 +31,38 @@ function setAuthChallenge(res: Response): void {
   res.setHeader('WWW-Authenticate', 'Bearer');
 }
 
-/** JWKS URL for the User Pool (to verify signature). */
-function getJwksUrl(): string {
+/** JWKS URL for Cognito User Pool. */
+function getCognitoJwksUrl(): string {
   if (COGNITO_REGION && COGNITO_USER_POOL_ID) {
     return `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}/.well-known/jwks.json`;
   }
   return (process.env.COGNITO_JWKS_URL || '').trim();
 }
 
-let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+/** JWKS URL for Keycloak realm. */
+function getKeycloakJwksUrl(): string {
+  const iss = getKeycloakIssuer();
+  if (!iss) return '';
+  return `${iss}/protocol/openid-connect/certs`;
+}
 
-function getJwks() {
-  if (cachedJwks) return cachedJwks;
-  const url = getJwksUrl();
-  if (!url) throw new Error('JWT: COGNITO_JWKS_URL or COGNITO_REGION+COGNITO_USER_POOL_ID required');
-  cachedJwks = createRemoteJWKSet(new URL(url));
-  return cachedJwks;
+let cachedCognitoJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let cachedKeycloakJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+function getCognitoJwks() {
+  if (cachedCognitoJwks) return cachedCognitoJwks;
+  const url = getCognitoJwksUrl();
+  if (!url) throw new Error('Cognito JWKS not configured');
+  cachedCognitoJwks = createRemoteJWKSet(new URL(url));
+  return cachedCognitoJwks;
+}
+
+function getKeycloakJwks() {
+  if (cachedKeycloakJwks) return cachedKeycloakJwks;
+  const url = getKeycloakJwksUrl();
+  if (!url) throw new Error('Keycloak JWKS not configured');
+  cachedKeycloakJwks = createRemoteJWKSet(new URL(url));
+  return cachedKeycloakJwks;
 }
 
 export type AuthPayload = { userId: string };
@@ -53,21 +76,65 @@ declare global {
 }
 
 /**
- * Verify the JWT and return the payload (sub as userId).
- * Throws if the token is missing or invalid.
+ * Verify Cognito JWT and return sub as userId. Throws if invalid.
  */
-export async function verifyJwtAndGetUserId(token: string): Promise<string> {
+async function verifyCognitoAndGetUserId(token: string): Promise<string> {
   const issuer = getCognitoIssuer();
-  const jwks = getJwks();
+  if (!issuer) throw new Error('Cognito not configured');
+  const jwks = getCognitoJwks();
   const { payload } = await jwtVerify(token, jwks, {
-    issuer: issuer || undefined,
+    issuer,
     audience: COGNITO_APP_CLIENT_ID || undefined,
   });
   const sub = payload.sub;
-  if (!sub || typeof sub !== 'string') {
-    throw new Error('JWT missing sub');
-  }
+  if (!sub || typeof sub !== 'string') throw new Error('JWT missing sub');
   return sub;
+}
+
+/**
+ * Verify Keycloak access token and return sub as userId. Throws if invalid.
+ */
+async function verifyKeycloakAndGetUserId(token: string): Promise<string> {
+  const issuer = getKeycloakIssuer();
+  if (!issuer) throw new Error('Keycloak not configured');
+  const jwks = getKeycloakJwks();
+  const { payload } = await jwtVerify(token, jwks, { issuer });
+  const sub = payload.sub;
+  if (!sub || typeof sub !== 'string') throw new Error('JWT missing sub');
+  return sub;
+}
+
+/**
+ * Verify the JWT (Cognito or Keycloak) and return the payload (sub as userId).
+ * Tries Cognito first; if issuer is Keycloak or Cognito fails, tries Keycloak.
+ */
+export async function verifyJwtAndGetUserId(token: string): Promise<string> {
+  let iss: string | undefined;
+  try {
+    const decoded = decodeJwt(token);
+    iss = decoded.iss;
+  } catch {
+    throw new Error('Invalid JWT format');
+  }
+  const keycloakIssuer = getKeycloakIssuer();
+  if (keycloakIssuer && iss === keycloakIssuer) {
+    return verifyKeycloakAndGetUserId(token);
+  }
+  const cognitoIssuer = getCognitoIssuer();
+  if (cognitoIssuer && iss === cognitoIssuer) {
+    return verifyCognitoAndGetUserId(token);
+  }
+  if (cognitoIssuer) {
+    try {
+      return await verifyCognitoAndGetUserId(token);
+    } catch {
+      // fallthrough to Keycloak
+    }
+  }
+  if (keycloakIssuer) {
+    return verifyKeycloakAndGetUserId(token);
+  }
+  throw new Error('No JWT issuer configured');
 }
 
 /** Optional API key: if MCP_API_KEY is set, Bearer <MCP_API_KEY> is accepted as long-lived auth (does not expire hourly). */
@@ -129,6 +196,7 @@ export function isAdmin(userId: string): boolean {
 
 /** For tests: reset JWKS and admin-subs caches. */
 export function resetAuthCaches(): void {
-  cachedJwks = null;
+  cachedCognitoJwks = null;
+  cachedKeycloakJwks = null;
   adminSubsCache = null;
 }

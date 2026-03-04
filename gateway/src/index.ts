@@ -18,6 +18,7 @@ import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
+import { handleDcrRegistration } from './dcr-proxy';
 import {
   hasAzureDevOpsConfig,
   listWorkItemsByDateRange,
@@ -61,6 +62,28 @@ const MCP_SESSION_ID_HEADER = 'mcp-session-id';
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'mcp-gateway', timestamp: new Date().toISOString() });
+});
+
+// RFC 9728 OAuth Protected Resource Metadata (PRM) para clientes MCP (p. ej. ChatGPT)
+const MCP_OAUTH_RESOURCE = (process.env.MCP_OAUTH_RESOURCE || '').trim();
+const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
+app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+  if (!MCP_OAUTH_RESOURCE || !KEYCLOAK_PUBLIC_URL) {
+    res.status(503).json({ error: 'OAuth PRM not configured' });
+    return;
+  }
+  res.json({
+    resource: MCP_OAUTH_RESOURCE,
+    authorization_servers: [KEYCLOAK_PUBLIC_URL],
+  });
+});
+
+// DCR proxy: registro dinámico de clientes OAuth (ChatGPT). Nginx reenvía auth.domoticore.co/realms/... aquí.
+app.post('/realms/mcp/clients-registrations/openid-connect', (req, res) => {
+  handleDcrRegistration(req, res).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!res.headersSent) res.status(500).json({ error: msg });
+  });
 });
 
 // ----- MCP logs (debugging stuck searches). Protected by JWT. -----
