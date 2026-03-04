@@ -1,22 +1,29 @@
 /**
- * DCR proxy: recibe solicitudes de registro OIDC (p. ej. ChatGPT), valida y crea el cliente en Keycloak.
+ * DCR proxy: registro dinámico de clientes OIDC (ChatGPT). Sin auth Bearer: seguridad por allowlist de redirect_uris.
  * Ruta: POST /realms/mcp/clients-registrations/openid-connect
- * Auth: Authorization: Bearer <MCP_DCR_REG_SECRET>
  */
 import type { Request, Response } from 'express';
 
-const MCP_DCR_REG_SECRET = (process.env.MCP_DCR_REG_SECRET || '').trim();
 const KEYCLOAK_INTERNAL_URL = (process.env.KEYCLOAK_INTERNAL_URL || process.env.KEYCLOAK_PUBLIC_URL || '').trim();
 const KEYCLOAK_ADMIN = (process.env.KEYCLOAK_ADMIN || 'admin').trim();
 const KEYCLOAK_ADMIN_PASSWORD = (process.env.KEYCLOAK_ADMIN_PASSWORD || '').trim();
 const KEYCLOAK_REALM = (process.env.KEYCLOAK_REALM || 'mcp').trim();
 const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
-const MCP_GATEWAY_URL = (process.env.MCP_GATEWAY_URL || '').trim();
 
-/** Prefixes allowed for redirect_uris (one per line or comma-separated). Default allows ChatGPT. */
+function parsePrefixes(v?: string): string[] {
+  return (v || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function isAllowedRedirect(uri: string, allowed: string[]): boolean {
+  return allowed.some((a) => (a.endsWith('/') ? uri.startsWith(a) : uri === a));
+}
+
 function getAllowedRedirectPrefixes(): string[] {
-  const raw = (process.env.MCP_DCR_ALLOWED_REDIRECT_PREFIXES || 'https://chat.openai.com').trim();
-  return raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  const raw = (process.env.MCP_DCR_ALLOWED_REDIRECT_PREFIXES || 'https://chatgpt.com/connector/oauth/,https://chatgpt.com/connector_platform_oauth_redirect').trim();
+  return parsePrefixes(raw);
 }
 
 async function getKeycloakAdminToken(): Promise<string> {
@@ -42,34 +49,9 @@ async function getKeycloakAdminToken(): Promise<string> {
   return data.access_token;
 }
 
-function validateRedirectUris(redirect_uris: unknown): string[] {
-  if (!Array.isArray(redirect_uris) || redirect_uris.length === 0) {
-    throw new Error('redirect_uris required and must be a non-empty array');
-  }
-  const uris = redirect_uris.map((u) => (typeof u === 'string' ? u : String(u)).trim()).filter(Boolean);
-  const allowed = getAllowedRedirectPrefixes();
-  for (const uri of uris) {
-    if (!uri.startsWith('https://')) throw new Error(`Redirect URI must be HTTPS: ${uri}`);
-    const ok = allowed.some((prefix) => uri === prefix || uri.startsWith(prefix + '/'));
-    if (!ok) throw new Error(`Redirect URI not allowed: ${uri}. Allowed prefixes: ${allowed.join(', ')}`);
-  }
-  return uris;
-}
-
 export async function handleDcrRegistration(req: Request, res: Response): Promise<void> {
-  if (!MCP_DCR_REG_SECRET || !KEYCLOAK_INTERNAL_URL || !KEYCLOAK_ADMIN_PASSWORD) {
+  if (!KEYCLOAK_INTERNAL_URL || !KEYCLOAK_ADMIN_PASSWORD) {
     res.status(503).json({ error: 'DCR not configured' });
-    return;
-  }
-
-  const auth = req.headers.authorization;
-  if (!auth || typeof auth !== 'string') {
-    res.status(401).setHeader('WWW-Authenticate', 'Bearer').json({ error: 'Missing Authorization' });
-    return;
-  }
-  const match = auth.match(/^\s*Bearer\s+(.+)$/i);
-  if (!match || match[1].trim() !== MCP_DCR_REG_SECRET) {
-    res.status(401).setHeader('WWW-Authenticate', 'Bearer').json({ error: 'Invalid registration token' });
     return;
   }
 
@@ -79,17 +61,37 @@ export async function handleDcrRegistration(req: Request, res: Response): Promis
     return;
   }
 
-  let redirect_uris: string[];
-  try {
-    redirect_uris = validateRedirectUris(body.redirect_uris);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ error: msg });
+  if (!Array.isArray(body.redirect_uris) || body.redirect_uris.length === 0) {
+    res.status(400).json({ error: 'missing_redirect_uris' });
     return;
   }
 
-  const client_name = (typeof body.client_name === 'string' ? body.client_name : body.client_id) || 'mcp-oauth-client';
-  const scope = (typeof body.scope === 'string' ? body.scope : 'openid') || 'openid';
+  const allowed = getAllowedRedirectPrefixes();
+  const redirect_uris: string[] = [];
+  for (const uri of body.redirect_uris) {
+    if (typeof uri !== 'string' || !uri.startsWith('https://')) {
+      res.status(400).json({ error: 'redirect_uri_must_be_https', uri: String(uri) });
+      return;
+    }
+    if (!isAllowedRedirect(uri, allowed)) {
+      res.status(400).json({ error: 'redirect_uri_not_allowed', uri });
+      return;
+    }
+    redirect_uris.push(uri.trim());
+  }
+
+  const grantTypes = Array.isArray(body.grant_types) ? body.grant_types : [];
+  if (grantTypes.length !== 1 || grantTypes[0] !== 'authorization_code') {
+    res.status(400).json({ error: 'invalid_grant_types', grant_types: grantTypes });
+    return;
+  }
+
+  if (body.token_endpoint_auth_method && body.token_endpoint_auth_method !== 'none') {
+    res.status(400).json({ error: 'invalid_token_endpoint_auth_method' });
+    return;
+  }
+
+  const client_name = (typeof body.client_name === 'string' ? body.client_name : body.client_id) || 'mcp-chatgpt';
   const client_id = typeof body.client_id === 'string' && body.client_id.trim()
     ? body.client_id.trim()
     : `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -112,7 +114,7 @@ export async function handleDcrRegistration(req: Request, res: Response): Promis
     publicClient: true,
     redirectUris: redirect_uris,
     standardFlowEnabled: true,
-    directAccessGrantsEnabled: true,
+    directAccessGrantsEnabled: false,
     protocol: 'openid-connect',
     attributes: {
       'pkce.code.challenge.method': 'S256',
@@ -138,18 +140,18 @@ export async function handleDcrRegistration(req: Request, res: Response): Promis
   }
 
   const registrationClientUri = KEYCLOAK_PUBLIC_URL
-    ? `${KEYCLOAK_PUBLIC_URL}/realms/${KEYCLOAK_REALM}/clients-registrations/openid-connect/${client_id}`
+    ? `${KEYCLOAK_PUBLIC_URL.replace(/\/$/, '')}/realms/${KEYCLOAK_REALM}/clients-registrations/openid-connect/${client_id}`
     : '';
 
   const dcrResponse = {
     client_id,
-    client_secret: undefined as string | undefined,
     redirect_uris,
+    grant_types: ['authorization_code'] as string[],
+    response_types: ['code'] as string[],
+    token_endpoint_auth_method: 'none' as const,
     client_name,
-    scope,
     registration_client_uri: registrationClientUri || undefined,
-    registration_access_token: undefined as string | undefined,
   };
 
-  res.status(201).json(dcrResponse);
+  res.status(201).type('application/json').json(dcrResponse);
 }

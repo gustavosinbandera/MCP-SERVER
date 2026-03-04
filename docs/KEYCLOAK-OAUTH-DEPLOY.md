@@ -7,7 +7,7 @@ Resumen del plan ejecutado: variables, servicios, nginx, gateway (PRM + auth Key
 ## Orden de ejecución (en servidor / EC2)
 
 1. **Variables** (Fase 0)  
-   Ya están en `.env`: `KEYCLOAK_*`, `MCP_DCR_REG_SECRET`, `MCP_OAUTH_RESOURCE`, `KEYCLOAK_PUBLIC_URL`, `MCP_GATEWAY_URL`, etc.
+   En `.env`: `KEYCLOAK_*`, `MCP_OAUTH_RESOURCE`, `KEYCLOAK_PUBLIC_URL`, `KEYCLOAK_ISSUER` (realm, ej. `https://auth.domoticore.co/realms/mcp`), `MCP_DCR_ALLOWED_REDIRECT_PREFIXES` (ej. `https://chatgpt.com/connector/oauth/,https://chatgpt.com/connector_platform_oauth_redirect`). DCR **no** exige Bearer secret; la seguridad es por allowlist de redirect_uris.
 
 2. **Base de datos Keycloak** (Fase 1)  
    Con Docker levantado:
@@ -37,6 +37,8 @@ Resumen del plan ejecutado: variables, servicios, nginx, gateway (PRM + auth Key
 
 6. **Tests con curl** (Fase 7)  
    - PRM: `curl -s https://mcp.domoticore.co/.well-known/oauth-protected-resource`
+   - Health gateway: `curl -s https://mcp.domoticore.co/api/health`
+   - Desde la EC2, si `auth.domoticore.co` no resuelve en el host, usar: `curl -k --resolve auth.domoticore.co:443:127.0.0.1 https://auth.domoticore.co/...`
    - OIDC discovery Keycloak: `curl -s https://auth.domoticore.co/realms/mcp/.well-known/openid-configuration`
    - DCR (sustituir `MCP_DCR_REG_SECRET` por el valor de `.env`):
      ```bash

@@ -64,18 +64,22 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'mcp-gateway', timestamp: new Date().toISOString() });
 });
 
-// RFC 9728 OAuth Protected Resource Metadata (PRM) para clientes MCP (p. ej. ChatGPT)
-const MCP_OAUTH_RESOURCE = (process.env.MCP_OAUTH_RESOURCE || '').trim();
+// RFC 9728 OAuth Protected Resource Metadata (PRM). authorization_servers = issuer del realm (Keycloak).
+const MCP_OAUTH_RESOURCE = (process.env.MCP_OAUTH_RESOURCE || 'https://mcp.domoticore.co/api/mcp').trim();
 const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
+const KEYCLOAK_REALM = (process.env.KEYCLOAK_REALM || 'mcp').trim();
+const KEYCLOAK_ISSUER = (process.env.KEYCLOAK_ISSUER || '').trim();
 app.get('/.well-known/oauth-protected-resource', (req, res) => {
-  if (!KEYCLOAK_PUBLIC_URL) {
+  const issuer = KEYCLOAK_ISSUER || (KEYCLOAK_PUBLIC_URL ? `${KEYCLOAK_PUBLIC_URL.replace(/\/$/, '')}/realms/${KEYCLOAK_REALM}` : '');
+  if (!issuer) {
     res.status(503).set('Content-Type', 'application/json').json({ error: 'OAuth PRM not configured' });
     return;
   }
-  const resource = (req.headers['x-mcp-resource-url'] as string)?.trim() || MCP_OAUTH_RESOURCE || 'https://mcp.domoticore.co';
-  res.set('Content-Type', 'application/json').json({
-    resource: resource.replace(/\/$/, ''),
-    authorization_servers: [KEYCLOAK_PUBLIC_URL],
+  const resourceFromHeader = (req.headers['x-mcp-resource-url'] as string)?.trim();
+  const resource = (resourceFromHeader || MCP_OAUTH_RESOURCE).replace(/\/$/, '');
+  res.type('application/json').status(200).json({
+    resource,
+    authorization_servers: [issuer],
   });
 });
 
