@@ -1,8 +1,18 @@
 /**
  * DCR proxy: registro dinámico de clientes OIDC (ChatGPT). Sin auth Bearer: seguridad por allowlist de redirect_uris.
- * Ruta: POST /realms/mcp/clients-registrations/openid-connect
+ * POST: crea cliente en Keycloak, devuelve registration_access_token y registration_client_uri.
+ * GET /realms/mcp/clients-registrations/openid-connect/:clientId con Bearer registration_access_token: devuelve el registro (para "resolve OAuth client").
  */
+import crypto from 'crypto';
 import type { Request, Response } from 'express';
+
+type DcrRecord = {
+  registration_access_token: string;
+  client_id: string;
+  payload: Record<string, unknown>;
+};
+
+const dcrStore = new Map<string, DcrRecord>();
 
 const KEYCLOAK_INTERNAL_URL = (process.env.KEYCLOAK_INTERNAL_URL || process.env.KEYCLOAK_PUBLIC_URL || '').trim();
 const KEYCLOAK_ADMIN = (process.env.KEYCLOAK_ADMIN || 'admin').trim();
@@ -143,15 +153,58 @@ export async function handleDcrRegistration(req: Request, res: Response): Promis
     ? `${KEYCLOAK_PUBLIC_URL.replace(/\/$/, '')}/realms/${KEYCLOAK_REALM}/clients-registrations/openid-connect/${client_id}`
     : '';
 
-  const dcrResponse = {
+  const registration_access_token = crypto.randomBytes(24).toString('hex');
+
+  const dcrResponse: Record<string, unknown> = {
     client_id,
     redirect_uris,
-    grant_types: ['authorization_code'] as string[],
-    response_types: ['code'] as string[],
-    token_endpoint_auth_method: 'none' as const,
+    grant_types: ['authorization_code'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
     client_name,
     registration_client_uri: registrationClientUri || undefined,
+    registration_access_token,
+    scope: typeof body.scope === 'string' ? body.scope : 'openid profile email',
   };
 
+  dcrStore.set(client_id, {
+    registration_access_token,
+    client_id,
+    payload: { ...dcrResponse },
+  });
+
   res.status(201).type('application/json').json(dcrResponse);
+}
+
+/**
+ * GET registration client URI: ChatGPT llama para "resolver" el cliente con el registration_access_token.
+ */
+export function handleDcrGetRegistration(req: Request, res: Response): void {
+  const clientId = req.params.clientId;
+  if (!clientId || typeof clientId !== 'string') {
+    res.status(400).json({ error: 'missing_client_id' });
+    return;
+  }
+
+  const auth = req.header('Authorization') || '';
+  const m = /^Bearer\s+(.+)$/i.exec(auth);
+  const token = m?.[1]?.trim();
+
+  if (!token) {
+    res.status(401).json({ error: 'missing_registration_access_token' });
+    return;
+  }
+
+  const rec = dcrStore.get(clientId);
+  if (!rec) {
+    res.status(404).json({ error: 'unknown_client_id' });
+    return;
+  }
+
+  if (token !== rec.registration_access_token) {
+    res.status(401).json({ error: 'invalid_registration_access_token' });
+    return;
+  }
+
+  res.status(200).type('application/json').json(rec.payload);
 }

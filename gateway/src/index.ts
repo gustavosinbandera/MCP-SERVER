@@ -18,7 +18,7 @@ import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
 import { requireJwt } from './auth/jwt';
-import { handleDcrRegistration } from './dcr-proxy';
+import { handleDcrRegistration, handleDcrGetRegistration } from './dcr-proxy';
 import {
   hasAzureDevOpsConfig,
   listWorkItemsByDateRange,
@@ -92,6 +92,10 @@ app.post('/realms/mcp/clients-registrations/openid-connect', (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) res.status(500).json({ error: msg });
   });
+});
+// GET registration client URI (ChatGPT "resolve OAuth client")
+app.get('/realms/mcp/clients-registrations/openid-connect/:clientId', (req, res) => {
+  handleDcrGetRegistration(req, res);
 });
 
 // ----- MCP logs (debugging stuck searches). Protected by JWT. -----
