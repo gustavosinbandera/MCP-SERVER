@@ -69,7 +69,8 @@ const MCP_OAUTH_RESOURCE = (process.env.MCP_OAUTH_RESOURCE || 'https://mcp.domot
 const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
 const KEYCLOAK_REALM = (process.env.KEYCLOAK_REALM || 'mcp').trim();
 const KEYCLOAK_ISSUER = (process.env.KEYCLOAK_ISSUER || '').trim();
-app.get('/.well-known/oauth-protected-resource', (req, res) => {
+// RFC 9728: PRM. Ruta exacta o con sufijo (ej. /.well-known/oauth-protected-resource/api/mcp) por si nginx reenvía path completo.
+app.get(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/, (req, res) => {
   const issuer = KEYCLOAK_ISSUER || (KEYCLOAK_PUBLIC_URL ? `${KEYCLOAK_PUBLIC_URL.replace(/\/$/, '')}/realms/${KEYCLOAK_REALM}` : '');
   if (!issuer) {
     res.status(503).set('Content-Type', 'application/json').json({ error: 'OAuth PRM not configured' });

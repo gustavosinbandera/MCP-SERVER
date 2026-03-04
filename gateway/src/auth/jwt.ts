@@ -26,9 +26,27 @@ function getKeycloakIssuer(): string {
   return `${base}/realms/${KEYCLOAK_REALM}`;
 }
 
-/** Set WWW-Authenticate Bearer on 401. */
+/** Build RFC 9728 resource_metadata URL from MCP resource (e.g. https://mcp.domoticore.co/.well-known/oauth-protected-resource/api/mcp). */
+function getOAuthResourceMetadataUrl(): string | null {
+  const resource = (process.env.MCP_OAUTH_RESOURCE || '').trim();
+  if (!resource || !resource.startsWith('https://')) return null;
+  try {
+    const u = new URL(resource);
+    const pathPart = u.pathname.replace(/\/$/, '') || '';
+    const metadataPath = `/.well-known/oauth-protected-resource${pathPart}`;
+    return `${u.origin}${metadataPath}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Set WWW-Authenticate on 401; include resource_metadata so clients (e.g. ChatGPT) can discover OAuth PRM. */
 function setAuthChallenge(res: Response): void {
-  res.setHeader('WWW-Authenticate', 'Bearer');
+  const metadataUrl = getOAuthResourceMetadataUrl();
+  const value = metadataUrl
+    ? `Bearer resource_metadata="${metadataUrl}"`
+    : 'Bearer';
+  res.setHeader('WWW-Authenticate', value);
 }
 
 /** JWKS URL for Cognito User Pool. */
