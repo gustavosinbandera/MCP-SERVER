@@ -96,21 +96,22 @@ app.get('/.well-known/oauth-protected-resource', (_req, res) => {
   });
 });
 
-// Discovery OAuth/OIDC: devolvemos las URLs del Cognito Hosted UI para evitar BadRequest (clientes que no usan el issuer de Cognito bien).
+// Discovery OAuth/OIDC: devolvemos las URLs del Cognito Hosted UI. issuer lo ponemos a nuestro base para que clientes que hacen issuer+/authorize lleguen a nuestro redirect.
 function sendOpenIdConfiguration(_req: express.Request, res: express.Response): void {
-  const issuer = getCognitoIssuer();
+  const cognitoIssuer = getCognitoIssuer();
   const hostedUiBase = getCognitoHostedUiBase();
-  if (!issuer || !hostedUiBase) {
+  if (!cognitoIssuer || !hostedUiBase || !MCP_PUBLIC_BASE_URL) {
     res.status(404).json({ error: 'OAuth discovery not configured (COGNITO_APP_DOMAIN and COGNITO_REGION)' });
     return;
   }
+  const discoveryIssuer = `${MCP_PUBLIC_BASE_URL}/api`;
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.json({
-    issuer,
-    authorization_endpoint: `${hostedUiBase}/oauth2/authorize`,
+    issuer: discoveryIssuer,
+    authorization_endpoint: `${discoveryIssuer}/authorize`,
     token_endpoint: `${hostedUiBase}/oauth2/token`,
     userinfo_endpoint: `${hostedUiBase}/oauth2/userInfo`,
-    jwks_uri: `${issuer}/.well-known/jwks.json`,
+    jwks_uri: `${cognitoIssuer}/.well-known/jwks.json`,
     scopes_supported: ['openid', 'email', 'profile', 'phone'],
     response_types_supported: ['code', 'token'],
     response_modes_supported: ['query', 'fragment'],
@@ -122,6 +123,17 @@ function sendOpenIdConfiguration(_req: express.Request, res: express.Response): 
 }
 app.get('/.well-known/openid-configuration', sendOpenIdConfiguration);
 app.get('/.well-known/oauth-authorization-server', sendOpenIdConfiguration);
+
+// Redirigir /authorize al Hosted UI: algunos clientes (p. ej. ChatGPT) usan issuer + "/authorize" en vez del authorization_endpoint del discovery.
+app.get('/authorize', (req, res) => {
+  const hostedUiBase = getCognitoHostedUiBase();
+  if (!hostedUiBase) {
+    res.status(503).json({ error: 'COGNITO_APP_DOMAIN not configured' });
+    return;
+  }
+  const qs = new URLSearchParams(req.query as Record<string, string>).toString();
+  res.redirect(302, `${hostedUiBase}/oauth2/authorize${qs ? `?${qs}` : ''}`);
+});
 
 // ----- MCP logs (debugging stuck searches). Protected by JWT. -----
 const MAX_TAIL = 2000;
