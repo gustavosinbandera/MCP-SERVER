@@ -178,33 +178,35 @@ export async function handleDcrRegistration(req: Request, res: Response): Promis
 
 /**
  * GET registration client URI: ChatGPT llama para "resolver" el cliente con el registration_access_token.
+ * RFC 7591: el cliente usa GET + Bearer registration_access_token para obtener el registro.
  */
 export function handleDcrGetRegistration(req: Request, res: Response): void {
-  const clientId = req.params.clientId;
-  if (!clientId || typeof clientId !== 'string') {
-    res.status(400).json({ error: 'missing_client_id' });
+  const clientId = (req.params.clientId || '').trim();
+  if (!clientId) {
+    res.status(400).type('application/json').json({ error: 'missing_client_id' });
     return;
   }
 
   const auth = req.header('Authorization') || '';
   const m = /^Bearer\s+(.+)$/i.exec(auth);
-  const token = m?.[1]?.trim();
+  const token = (m?.[1] || '').trim();
 
   if (!token) {
-    res.status(401).json({ error: 'missing_registration_access_token' });
+    res.status(401).type('application/json').json({ error: 'missing_registration_access_token' });
     return;
   }
 
   const rec = dcrStore.get(clientId);
   if (!rec) {
-    res.status(404).json({ error: 'unknown_client_id' });
+    res.status(404).type('application/json').json({ error: 'unknown_client_id', client_id: clientId });
     return;
   }
 
   if (token !== rec.registration_access_token) {
-    res.status(401).json({ error: 'invalid_registration_access_token' });
+    res.status(401).type('application/json').json({ error: 'invalid_registration_access_token' });
     return;
   }
 
+  // Éxito: ChatGPT puede "resolver" el cliente (RFC 7591)
   res.status(200).type('application/json').json(rec.payload);
 }

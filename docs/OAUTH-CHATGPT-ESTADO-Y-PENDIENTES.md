@@ -132,6 +132,24 @@ Para mitigar “does not implement OAuth” se aplicó lo siguiente (según doc 
 
 **Tests tras deploy:** PRM root OK, openid-configuration en host OK, DCR 201 OK, 401 con header OK.
 
+### Fix "Failed to resolve OAuth client" (DCR GET registration_client_uri)
+
+- **Nginx:** `location ^~ /realms/mcp/clients-registrations/openid-connect` (prefijo) para que POST y GET `.../openid-connect/<client_id>` vayan al gateway.
+- **Gateway:** POST DCR devuelve `registration_access_token` y `registration_client_uri`; store in-memory por `client_id`. GET `.../openid-connect/:clientId` (con o sin trailing slash) con `Authorization: Bearer <registration_access_token>` devuelve 200 con el registro. CORS explícito (Allow-Methods, Allow-Headers) para peticiones desde el connector.
+- **Según doc oficial (developers.openai.com/apps-sdk/build/auth):** ChatGPT se registra por DCR en el `registration_endpoint`, obtiene `client_id`, y debe poder usar el flujo OAuth. Si el GET al `registration_client_uri` falla (TLS, 401, 404, timeout), aparece “Failed to resolve OAuth client”.
+
+**Si el error continúa:**
+
+1. **Ver qué llama ChatGPT:** En EC2, mientras pulsas “Crear” en ChatGPT, ejecuta:
+   ```bash
+   docker logs -f mcp-nginx 2>&1 | grep -E 'clients-registrations|oauth-protected|openid'
+   ```
+   Deberías ver `POST .../openid-connect 201` y luego `GET .../openid-connect/<client_id> 200`. Si ves GET 401/404 o no ves el GET, el fallo está ahí (token no enviado, store vacío, o TLS rechazado).
+
+2. **Certificado TLS de auth.domoticore.co:** Si el cert es autofirmado, la infra de ChatGPT puede rechazar la conexión al `registration_client_uri` (https://auth.domoticore.co/...) y no llegar al servidor. Solución: certificado válido (p. ej. Let's Encrypt) para `auth.domoticore.co`.
+
+3. **Plan B – Cliente fijo (sin DCR):** Crear en Keycloak un cliente público con redirect URIs `https://chatgpt.com/connector/oauth/*` y `https://chatgpt.com/connector_platform_oauth_redirect`. En ChatGPT, en “ID de cliente de OAuth (opcional)” pegar ese `client_id`; “Secreto” vacío. Así ChatGPT no usa DCR y no necesita resolver el cliente.
+
 ---
 
 ## 5. Próximos pasos recomendados

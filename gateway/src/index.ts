@@ -51,11 +51,14 @@ const PORT = process.env.GATEWAY_PORT || 3001;
 
 app.use(express.json());
 
-// CORS: allow webapp on another port (e.g. 3000) to call this gateway (e.g. 3001)
+// CORS: allow webapp, ChatGPT connector (DCR/registration_client_uri), etc.
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   next();
 });
+app.options('*', (_req, res) => res.sendStatus(204));
 
 const MCP_SESSION_ID_HEADER = 'mcp-session-id';
 
@@ -93,8 +96,11 @@ app.post('/realms/mcp/clients-registrations/openid-connect', (req, res) => {
     if (!res.headersSent) res.status(500).json({ error: msg });
   });
 });
-// GET registration client URI (ChatGPT "resolve OAuth client")
+// GET registration client URI (ChatGPT "resolve OAuth client"). Con y sin trailing slash.
 app.get('/realms/mcp/clients-registrations/openid-connect/:clientId', (req, res) => {
+  handleDcrGetRegistration(req, res);
+});
+app.get('/realms/mcp/clients-registrations/openid-connect/:clientId/', (req, res) => {
   handleDcrGetRegistration(req, res);
 });
 
