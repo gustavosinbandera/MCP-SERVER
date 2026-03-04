@@ -138,6 +138,8 @@ Para mitigar “does not implement OAuth” se aplicó lo siguiente (según doc 
 - **Gateway:** POST DCR devuelve `registration_access_token` y `registration_client_uri`; store in-memory por `client_id`. GET `.../openid-connect/:clientId` (con o sin trailing slash) con `Authorization: Bearer <registration_access_token>` devuelve 200 con el registro. CORS explícito (Allow-Methods, Allow-Headers) para peticiones desde el connector.
 - **Según doc oficial (developers.openai.com/apps-sdk/build/auth):** ChatGPT se registra por DCR en el `registration_endpoint`, obtiene `client_id`, y debe poder usar el flujo OAuth. Si el GET al `registration_client_uri` falla (TLS, 401, 404, timeout), aparece “Failed to resolve OAuth client”.
 
+**Análisis de logs:** ChatGPT (Python aiohttp) solo llama a mcp.domoticore.co; no hay peticiones a auth.domoticore.co. Pide discovery en rutas con sufijo `/api/mcp` que devolvían 404; nginx ahora sirve esas 4 URLs (mismo discovery). Revisar que Keycloak devuelva https en issuer/registration_endpoint.
+
 **Si el error continúa:**
 
 1. **Ver qué llama ChatGPT:** En EC2, mientras pulsas “Crear” en ChatGPT, ejecuta:
