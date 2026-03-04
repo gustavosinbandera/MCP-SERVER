@@ -64,12 +64,13 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'mcp-gateway', timestamp: new Date().toISOString() });
 });
 
-// RFC 9728 OAuth Protected Resource Metadata (PRM). authorization_servers = issuer del realm (Keycloak).
+// RFC 9728 OAuth Protected Resource Metadata (PRM). ChatGPT espera PRM en la raíz del host con resource = origen (host).
 const MCP_OAUTH_RESOURCE = (process.env.MCP_OAUTH_RESOURCE || 'https://mcp.domoticore.co/api/mcp').trim();
+const MCP_OAUTH_RESOURCE_ROOT = (process.env.MCP_OAUTH_RESOURCE_ROOT || 'https://mcp.domoticore.co').trim();
 const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
 const KEYCLOAK_REALM = (process.env.KEYCLOAK_REALM || 'mcp').trim();
 const KEYCLOAK_ISSUER = (process.env.KEYCLOAK_ISSUER || '').trim();
-// RFC 9728: PRM. Ruta exacta o con sufijo (ej. /.well-known/oauth-protected-resource/api/mcp) por si nginx reenvía path completo.
+// PRM: si llega X-MCP-Resource-URL (p. ej. /api/mcp/.well-known/...) usamos ese resource; si no, usamos root (ChatGPT).
 app.get(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/, (req, res) => {
   const issuer = KEYCLOAK_ISSUER || (KEYCLOAK_PUBLIC_URL ? `${KEYCLOAK_PUBLIC_URL.replace(/\/$/, '')}/realms/${KEYCLOAK_REALM}` : '');
   if (!issuer) {
@@ -77,10 +78,11 @@ app.get(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/, (req, res) => {
     return;
   }
   const resourceFromHeader = (req.headers['x-mcp-resource-url'] as string)?.trim();
-  const resource = (resourceFromHeader || MCP_OAUTH_RESOURCE).replace(/\/$/, '');
+  const resource = (resourceFromHeader || MCP_OAUTH_RESOURCE_ROOT || MCP_OAUTH_RESOURCE).replace(/\/$/, '');
   res.type('application/json').status(200).json({
     resource,
     authorization_servers: [issuer],
+    scopes_supported: ['mcp:tools', 'mcp:invoke'],
   });
 });
 
