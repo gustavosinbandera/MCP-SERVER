@@ -1,0 +1,1 @@
+{"client_name":"mcp-chatgpt","redirect_uris":["https://chatgpt.com/connector/oauth/s049mmGeQhY2"],"grant_types":["authorization_code"],"response_types":["code"],"token_endpoint_auth_method":"none"}
