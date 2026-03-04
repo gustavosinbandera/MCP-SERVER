@@ -67,13 +67,14 @@ app.get('/health', (_req, res) => {
 // RFC 9728 OAuth Protected Resource Metadata (PRM) para clientes MCP (p. ej. ChatGPT)
 const MCP_OAUTH_RESOURCE = (process.env.MCP_OAUTH_RESOURCE || '').trim();
 const KEYCLOAK_PUBLIC_URL = (process.env.KEYCLOAK_PUBLIC_URL || '').trim();
-app.get('/.well-known/oauth-protected-resource', (_req, res) => {
-  if (!MCP_OAUTH_RESOURCE || !KEYCLOAK_PUBLIC_URL) {
-    res.status(503).json({ error: 'OAuth PRM not configured' });
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  if (!KEYCLOAK_PUBLIC_URL) {
+    res.status(503).set('Content-Type', 'application/json').json({ error: 'OAuth PRM not configured' });
     return;
   }
-  res.json({
-    resource: MCP_OAUTH_RESOURCE,
+  const resource = (req.headers['x-mcp-resource-url'] as string)?.trim() || MCP_OAUTH_RESOURCE || 'https://mcp.domoticore.co';
+  res.set('Content-Type', 'application/json').json({
+    resource: resource.replace(/\/$/, ''),
     authorization_servers: [KEYCLOAK_PUBLIC_URL],
   });
 });
