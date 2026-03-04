@@ -66,6 +66,17 @@ app.get('/health', (_req, res) => {
 // ----- OAuth 2.0 Protected Resource Metadata (RFC 9728 / MCP discovery) -----
 // Clients (e.g. ChatGPT) use this to discover the authorization server (Cognito). JWT and MCP_API_KEY remain supported.
 const MCP_PUBLIC_BASE_URL = (process.env.MCP_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
+const COGNITO_APP_DOMAIN = (process.env.COGNITO_APP_DOMAIN || '').trim(); // e.g. mcp-hub-domoticore (Hosted UI)
+const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
+
+/** Base URL del Cognito Hosted UI (oauth2/authorize, oauth2/token). Sin esto algunos clientes llaman al endpoint antiguo y reciben BadRequest. */
+function getCognitoHostedUiBase(): string {
+  if (COGNITO_APP_DOMAIN && COGNITO_REGION) {
+    return `https://${COGNITO_APP_DOMAIN}.auth.${COGNITO_REGION}.amazoncognito.com`;
+  }
+  return '';
+}
+
 app.get('/.well-known/oauth-protected-resource', (_req, res) => {
   const issuer = getCognitoIssuer();
   if (!issuer || !MCP_PUBLIC_BASE_URL) {
@@ -73,15 +84,44 @@ app.get('/.well-known/oauth-protected-resource', (_req, res) => {
     return;
   }
   const resource = `${MCP_PUBLIC_BASE_URL}/api/mcp`;
+  // Que el cliente obtenga el discovery desde nuestro gateway (openid-configuration más abajo) para usar las URLs del Hosted UI.
+  const discoveryIssuer = `${MCP_PUBLIC_BASE_URL}/api`;
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.json({
     resource,
-    authorization_servers: [issuer],
-    scopes_supported: ['openid'],
+    authorization_servers: [discoveryIssuer],
+    scopes_supported: ['openid', 'email', 'profile'],
     bearer_methods_supported: ['header'],
     resource_name: 'MCP Knowledge Hub',
   });
 });
+
+// Discovery OAuth/OIDC: devolvemos las URLs del Cognito Hosted UI para evitar BadRequest (clientes que no usan el issuer de Cognito bien).
+function sendOpenIdConfiguration(_req: express.Request, res: express.Response): void {
+  const issuer = getCognitoIssuer();
+  const hostedUiBase = getCognitoHostedUiBase();
+  if (!issuer || !hostedUiBase) {
+    res.status(404).json({ error: 'OAuth discovery not configured (COGNITO_APP_DOMAIN and COGNITO_REGION)' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({
+    issuer,
+    authorization_endpoint: `${hostedUiBase}/oauth2/authorize`,
+    token_endpoint: `${hostedUiBase}/oauth2/token`,
+    userinfo_endpoint: `${hostedUiBase}/oauth2/userInfo`,
+    jwks_uri: `${issuer}/.well-known/jwks.json`,
+    scopes_supported: ['openid', 'email', 'profile', 'phone'],
+    response_types_supported: ['code', 'token'],
+    response_modes_supported: ['query', 'fragment'],
+    grant_types_supported: ['authorization_code', 'implicit', 'refresh_token'],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: ['RS256'],
+    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+  });
+}
+app.get('/.well-known/openid-configuration', sendOpenIdConfiguration);
+app.get('/.well-known/oauth-authorization-server', sendOpenIdConfiguration);
 
 // ----- MCP logs (debugging stuck searches). Protected by JWT. -----
 const MAX_TAIL = 2000;
