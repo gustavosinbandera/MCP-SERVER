@@ -1,6 +1,6 @@
 # HTTPS y certificado Let's Encrypt (mcp.domoticore.co)
 
-Documentación del despliegue HTTPS en la instancia EC2: nginx, Certbot, obtención y renovación del certificado, y configuración de clientes (Cursor, ChatGPT).
+Documentación del despliegue HTTPS en la instancia EC2: nginx, Certbot, obtención y renovación del certificado, y configuración de clientes (Cursor).
 
 ---
 
@@ -100,18 +100,6 @@ En `.cursor/mcp.json`, el servidor MCP remoto debe usar la URL HTTPS:
 
 - Con **certificado de Let's Encrypt**, Cursor se conecta sin avisos.
 - Con **certificado autofirmado**, Cursor (Node.js) puede mostrar `fetch failed: self signed certificate`. Solución recomendada: obtener el certificado real (sección 4). Alternativa temporal en tu PC: arrancar Cursor con `$env:NODE_TLS_REJECT_UNAUTHORIZED="0"` (solo desarrollo).
-
-### 6.1 OAuth discovery (ChatGPT y otros clientes)
-
-Para que clientes como **ChatGPT** reconozcan el servidor como compatible con OAuth (y dejen de mostrar "does not implement OAuth"):
-
-1. **Variables en el gateway** (en la EC2: `gateway/.env` o `.env` en la raíz del proyecto):  
-   - **COGNITO_REGION**, **COGNITO_USER_POOL_ID**, **COGNITO_APP_CLIENT_ID** (ya usadas para validar JWT).  
-   - **MCP_PUBLIC_BASE_URL**: URL pública del servidor, sin barra final, p. ej. `https://mcp.domoticore.co`.
-
-2. El gateway sirve el **Protected Resource Metadata** (RFC 9728) en `https://mcp.domoticore.co/.well-known/oauth-protected-resource` y, en las respuestas **401**, incluye la cabecera `WWW-Authenticate: Bearer resource_metadata="..."`. Así el cliente puede descubrir el authorization server (Cognito) y ofrecer el flujo OAuth (login con usuario/contraseña en Cognito, luego uso del IdToken como Bearer).
-
-3. **Autenticación:** se mantienen las tres opciones: **MCP_API_KEY** (Bearer fijo, Cursor), **JWT de Cognito** (tras OAuth o login manual) y el discovery OAuth para clientes que lo requieran. No es necesario cambiar Cursor ni el uso de `MCP_API_KEY`.
 
 ---
 

@@ -19,14 +19,9 @@ export function getCognitoIssuer(): string {
   return issuer || '';
 }
 
-/** Public base URL of the MCP server for OAuth discovery. */
-const MCP_PUBLIC_BASE_URL = (process.env.MCP_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
-
-/** Set WWW-Authenticate with resource_metadata when Cognito is configured (RFC 9728). */
+/** Set WWW-Authenticate Bearer on 401. */
 function setAuthChallenge(res: Response): void {
-  if (!MCP_PUBLIC_BASE_URL || !getCognitoIssuer()) return;
-  const metadataUrl = `${MCP_PUBLIC_BASE_URL}/.well-known/oauth-protected-resource`;
-  res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadataUrl}"`);
+  res.setHeader('WWW-Authenticate', 'Bearer');
 }
 
 /** JWKS URL for the User Pool (to verify signature). */

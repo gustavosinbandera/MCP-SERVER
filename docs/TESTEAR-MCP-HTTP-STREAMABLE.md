@@ -2,7 +2,10 @@
 
 Minimal checklist to test `POST /mcp` (JWT + JSON-RPC) from your machine or from Cursor.
 
-**Test user (already created in Cognito):** `mcp-test@domoticore.co` — use its password to obtain an IdToken (AWS CLI or Hosted UI) and test Cursor.
+**Test user (already created in Cognito, credenciales confirmadas):**
+- **Email:** `mcp-test@domoticore.co`
+- **Password:** `MCPtest123!`
+Usar para obtener IdToken (AWS CLI, Hosted UI o script `get-mcp-id-token.ps1`) y probar Cursor u otros clientes MCP.
 
 ---
 

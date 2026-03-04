@@ -17,7 +17,7 @@ import { writeUploadedKbDoc } from './user-kb';
 import { searchDocs } from './search';
 import { getStatsByDay } from './indexing-stats';
 import { recordSearchMetric } from './metrics';
-import { requireJwt, getCognitoIssuer } from './auth/jwt';
+import { requireJwt } from './auth/jwt';
 import {
   hasAzureDevOpsConfig,
   listWorkItemsByDateRange,
@@ -62,133 +62,6 @@ const MCP_SESSION_ID_HEADER = 'mcp-session-id';
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'mcp-gateway', timestamp: new Date().toISOString() });
 });
-
-// ----- OAuth 2.0 Protected Resource Metadata (RFC 9728 / MCP discovery) -----
-const MCP_PUBLIC_BASE_URL = (process.env.MCP_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
-const COGNITO_APP_DOMAIN = (process.env.COGNITO_APP_DOMAIN || '').trim();
-const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
-const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || '').trim();
-
-function getCognitoHostedUiBase(): string {
-  if (COGNITO_APP_DOMAIN && COGNITO_REGION) {
-    return `https://${COGNITO_APP_DOMAIN}.auth.${COGNITO_REGION}.amazoncognito.com`;
-  }
-  return '';
-}
-
-app.get('/.well-known/oauth-protected-resource', (_req, res) => {
-  const issuer = getCognitoIssuer();
-  if (!issuer || !MCP_PUBLIC_BASE_URL) {
-    res.status(404).json({ error: 'OAuth discovery not configured (set COGNITO_* and MCP_PUBLIC_BASE_URL)' });
-    return;
-  }
-  const resource = `${MCP_PUBLIC_BASE_URL}/api/mcp`;
-  const discoveryIssuer = `${MCP_PUBLIC_BASE_URL}/api`;
-  res.setHeader('Cache-Control', 'public, max-age=300');
-  res.json({
-    resource,
-    authorization_servers: [discoveryIssuer],
-    scopes_supported: ['openid', 'email', 'profile'],
-    bearer_methods_supported: ['header'],
-    resource_name: 'MCP Knowledge Hub',
-  });
-});
-
-function sendOpenIdConfiguration(_req: express.Request, res: express.Response): void {
-  const cognitoIssuer = getCognitoIssuer();
-  const hostedUiBase = getCognitoHostedUiBase();
-  if (!cognitoIssuer || !hostedUiBase || !MCP_PUBLIC_BASE_URL) {
-    res.status(404).json({ error: 'OAuth discovery not configured (COGNITO_APP_DOMAIN and COGNITO_REGION)' });
-    return;
-  }
-  const discoveryIssuer = `${MCP_PUBLIC_BASE_URL}/api`;
-  res.setHeader('Cache-Control', 'public, max-age=300');
-  res.json({
-    issuer: discoveryIssuer,
-    authorization_endpoint: `${discoveryIssuer}/authorize`,
-    token_endpoint: `${hostedUiBase}/oauth2/token`,
-    userinfo_endpoint: `${hostedUiBase}/oauth2/userInfo`,
-    jwks_uri: `${discoveryIssuer}/.well-known/jwks.json`,
-    scopes_supported: ['openid', 'email', 'profile', 'phone'],
-    response_types_supported: ['code', 'token'],
-    response_modes_supported: ['query', 'fragment'],
-    grant_types_supported: ['authorization_code', 'implicit', 'refresh_token'],
-    subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['RS256'],
-    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
-  });
-}
-app.get('/.well-known/openid-configuration', sendOpenIdConfiguration);
-app.get('/.well-known/oauth-authorization-server', sendOpenIdConfiguration);
-
-app.get('/.well-known/jwks.json', (_req, res) => {
-  const cognitoIssuer = getCognitoIssuer();
-  if (!cognitoIssuer) {
-    res.status(404).json({ error: 'OAuth not configured' });
-    return;
-  }
-  const jwksUrl = `${cognitoIssuer}/.well-known/jwks.json`;
-  fetch(jwksUrl)
-    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
-    .then((body) => {
-      res.setHeader('Cache-Control', 'public, max-age=300');
-      res.json(body);
-    })
-    .catch((err) => {
-      res.status(502).json({ error: 'Failed to fetch JWKS', detail: String(err) });
-    });
-});
-
-const COGNITO_STRIP_PARAMS = ['resource'];
-
-app.get('/authorize', (req, res) => {
-  const hostedUiBase = getCognitoHostedUiBase();
-  if (!hostedUiBase) {
-    res.status(503).json({ error: 'COGNITO_APP_DOMAIN not configured' });
-    return;
-  }
-  const query = req.query as Record<string, string>;
-  const paramsForCognito = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
-    if (v != null && v !== '' && !COGNITO_STRIP_PARAMS.includes(k)) paramsForCognito.set(k, v);
-  }
-  if (!paramsForCognito.get('client_id') || !paramsForCognito.get('redirect_uri')) {
-    const defaultRedirectUri = MCP_PUBLIC_BASE_URL ? `${MCP_PUBLIC_BASE_URL}/api/` : '';
-    const clientId = query.client_id || COGNITO_APP_CLIENT_ID;
-    const redirectUri = query.redirect_uri || defaultRedirectUri;
-    if (!clientId || !redirectUri) {
-      res.status(503).json({
-        error: 'Authorize defaults missing',
-        message: 'Open /api/authorize with query params (client_id, redirect_uri, scope) or set COGNITO_APP_CLIENT_ID and MCP_PUBLIC_BASE_URL in .env',
-      });
-      return;
-    }
-    paramsForCognito.set('response_type', query.response_type || 'code');
-    paramsForCognito.set('client_id', clientId);
-    paramsForCognito.set('redirect_uri', redirectUri);
-    paramsForCognito.set('scope', query.scope || 'openid email');
-    paramsForCognito.set('state', query.state || randomUUID());
-  } else if (!paramsForCognito.get('state')) {
-    paramsForCognito.set('state', randomUUID());
-  }
-  const qs = paramsForCognito.toString();
-  const cognitoAuthorizeUrl = `${hostedUiBase}/oauth2/authorize${qs ? `?${qs}` : ''}`;
-  const wantPage = query.page === '1' || (req.get('accept') || '').toLowerCase().includes('text/html');
-  if (wantPage) {
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sign in</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui;max-width:420px;margin:2rem auto;padding:1rem;"><h1 style="font-size:1.25rem;">Sign in to MCP</h1><p>Click below to open the sign-in page.</p><p><a href="${escapeHtml(cognitoAuthorizeUrl)}" style="display:inline-block;background:#333;color:#fff;padding:0.6rem 1.2rem;text-decoration:none;border-radius:6px;">Continue to sign-in</a></p><p style="font-size:0.9rem;color:#666;"><a href="${escapeHtml(cognitoAuthorizeUrl)}">Open sign-in page</a></p></body></html>`;
-    res.setHeader('Cache-Control', 'no-store');
-    return res.type('html').send(html);
-  }
-  res.redirect(302, cognitoAuthorizeUrl);
-});
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 // ----- MCP logs (debugging stuck searches). Protected by JWT. -----
 const MAX_TAIL = 2000;

@@ -38,15 +38,10 @@ Parameters:
   CognitoCallbackBaseUrl:
     Type: String
     Default: "https://mcp.domoticore.co/api"
-    Description: Base URL for Hosted UI callback/logout (no trailing slash). Used as CallbackURLs and LogoutURLs so login redirect works.
-  CognitoCallbackUrlExtra:
-    Type: String
-    Default: ""
-    Description: "(Opcional) URL de callback adicional, p. ej. para ChatGPT. Dejar vacío si solo usas el login directo."
+    Description: Base URL for Hosted UI callback/logout (no trailing slash). Used as CallbackURLs and LogoutURLs.
 
 Conditions:
   CreateCognito: !Equals [!Ref CognitoCreateUserPool, "true"]
-  HasExtraCallbackUrl: !Not [!Equals [!Ref CognitoCallbackUrlExtra, ""]]
 
 Resources:
   # Cognito User Pool para JWT del endpoint /mcp (Cursor, clientes HTTP streamable)
@@ -104,7 +99,6 @@ Resources:
         AccessToken: hours
         IdToken: hours
         RefreshToken: days
-      # Hosted UI: callback/logout URLs y OAuth para que /authorize -> login funcione sin redirect_mismatch
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows:
         - code
@@ -112,15 +106,11 @@ Resources:
         - openid
         - email
         - profile
-      CallbackURLs: !If
-        - HasExtraCallbackUrl
-        - - !Sub "${CognitoCallbackBaseUrl}/"
-          - !Ref CognitoCallbackUrlExtra
-        - - !Sub "${CognitoCallbackBaseUrl}/"
+      CallbackURLs:
+        - !Sub "${CognitoCallbackBaseUrl}/"
       LogoutURLs:
         - !Sub "${CognitoCallbackBaseUrl}/"
 
-  # Dominio para Hosted UI (OAuth authorization code flow). Sin esto, Cognito devuelve BadRequest al autorizar.
   MCPUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Condition: CreateCognito

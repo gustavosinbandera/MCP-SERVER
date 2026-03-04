@@ -42,7 +42,7 @@ No hace falta pasar argumentos: stack name, template y parámetros están fijos 
 
 ## Cognito (JWT para /mcp HTTP streamable)
 
-Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /mcp`. El App Client incluye **CallbackURLs** y **LogoutURLs** para el Hosted UI (parámetro `CognitoCallbackBaseUrl`, por defecto `https://mcp.domoticore.co/api`), así el login desde `https://mcp.domoticore.co/api/authorize` no da `redirect_mismatch`.
+Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /mcp`. El App Client incluye **CallbackURLs** y **LogoutURLs** para el Hosted UI (parámetro `CognitoCallbackBaseUrl`, por defecto `https://mcp.domoticore.co/api`).
 
 **Outputs del stack** (tras `2-get-outputs.ps1` o `aws cloudformation describe-stacks`):
 - **CognitoUserPoolId** → `COGNITO_USER_POOL_ID` en `.env` del gateway (en la EC2: `~/MCP-SERVER/.env` o `gateway/.env`).
