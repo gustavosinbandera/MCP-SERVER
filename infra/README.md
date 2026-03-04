@@ -42,7 +42,7 @@ No hace falta pasar argumentos: stack name, template y parámetros están fijos 
 
 ## Cognito (JWT para /mcp HTTP streamable)
 
-Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /mcp`.
+Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /mcp`. El App Client incluye **CallbackURLs** y **LogoutURLs** para el Hosted UI (parámetro `CognitoCallbackBaseUrl`, por defecto `https://mcp.domoticore.co/api`), así el login desde `https://mcp.domoticore.co/api/authorize` no da `redirect_mismatch`.
 
 **Outputs del stack** (tras `2-get-outputs.ps1` o `aws cloudformation describe-stacks`):
 - **CognitoUserPoolId** → `COGNITO_USER_POOL_ID` en `.env` del gateway (en la EC2: `~/MCP-SERVER/.env` o `gateway/.env`).
@@ -59,7 +59,11 @@ COGNITO_APP_CLIENT_ID=<CognitoAppClientId del output>
 
 Luego reinicia el gateway: `docker compose restart gateway`.
 
-**Crear usuarios en el User Pool:** consola AWS → Cognito → User Pools → *mcp-knowledge-hub-users* → Users → Create user (email + contraseña temporal). Para obtener IdToken desde CLI: `aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id <AppClientId> --auth-parameters USERNAME=<email>,PASSWORD=<pass> --query 'AuthenticationResult.IdToken'`.
+**Actualizar el App Client (callback URLs):** si el stack ya existía antes de añadir `CognitoCallbackBaseUrl`, actualiza el stack para aplicar los cambios: `aws cloudformation update-stack --stack-name mcp-hub-infra --template-body file://infra/mcp-ec2.yaml --parameters file://infra/parameters.json` (añade `CognitoCallbackBaseUrl` en `parameters.json` si usas otro dominio).
+
+**Usuario de prueba (credenciales confirmadas):** email `mcp-test@domoticore.co`, contraseña `MCPtest123!`. Ver **docs/TESTEAR-MCP-HTTP-STREAMABLE.md** para obtener IdToken (script, CLI o Hosted UI).
+
+**Crear más usuarios:** consola AWS → Cognito → User Pools → *mcp-knowledge-hub-users* → Users → Create user (email + contraseña temporal). Para IdToken desde CLI: `aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id <AppClientId> --auth-parameters USERNAME=<email>,PASSWORD=<pass> --query 'AuthenticationResult.IdToken'`.
 
 Si ya tienes un User Pool, pon **CognitoCreateUserPool=false** en `parameters.json` y configura en `.env` las variables con los valores de tu pool.
 

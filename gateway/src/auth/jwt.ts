@@ -10,7 +10,7 @@ const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
 const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || '').trim();
 const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || '').trim();
 
-/** Issuer base for Cognito User Pool (ID tokens). Exported for OAuth discovery (PRM). */
+/** Issuer base for Cognito User Pool (ID tokens). */
 export function getCognitoIssuer(): string {
   if (COGNITO_REGION && COGNITO_USER_POOL_ID) {
     return `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}`;
@@ -19,11 +19,11 @@ export function getCognitoIssuer(): string {
   return issuer || '';
 }
 
-/** Public base URL of the MCP server (e.g. https://mcp.domoticore.co) for OAuth discovery. */
+/** Public base URL of the MCP server for OAuth discovery. */
 const MCP_PUBLIC_BASE_URL = (process.env.MCP_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
 
-/** Set WWW-Authenticate with resource_metadata when Cognito is configured (RFC 9728 / MCP OAuth discovery). */
-function setOAuthChallenge(res: Response): void {
+/** Set WWW-Authenticate with resource_metadata when Cognito is configured (RFC 9728). */
+function setAuthChallenge(res: Response): void {
   if (!MCP_PUBLIC_BASE_URL || !getCognitoIssuer()) return;
   const metadataUrl = `${MCP_PUBLIC_BASE_URL}/.well-known/oauth-protected-resource`;
   res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadataUrl}"`);
@@ -88,13 +88,13 @@ const MCP_API_KEY_USER_ID = (process.env.MCP_API_KEY_USER_ID || '').trim() || 'a
 export function requireJwt(req: Request, res: Response, next: NextFunction): void {
   const raw = req.headers.authorization;
   if (!raw || typeof raw !== 'string') {
-    setOAuthChallenge(res);
+    setAuthChallenge(res);
     res.status(401).json({ error: 'Missing Authorization header' });
     return;
   }
   const match = raw.match(/^\s*Bearer\s+(.+)$/i);
   if (!match) {
-    setOAuthChallenge(res);
+    setAuthChallenge(res);
     res.status(401).json({ error: 'Authorization must be Bearer <token>' });
     return;
   }
@@ -113,7 +113,7 @@ export function requireJwt(req: Request, res: Response, next: NextFunction): voi
     })
     .catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
-      setOAuthChallenge(res);
+      setAuthChallenge(res);
       res.status(401).json({ error: 'Invalid or expired token', detail: msg });
     });
 }

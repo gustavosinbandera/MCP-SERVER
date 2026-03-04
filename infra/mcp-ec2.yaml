@@ -35,9 +35,18 @@ Parameters:
     Default: "true"
     AllowedValues: ["true", "false"]
     Description: Create Cognito User Pool and App Client for MCP HTTP JWT auth. Set false to use an existing User Pool.
+  CognitoCallbackBaseUrl:
+    Type: String
+    Default: "https://mcp.domoticore.co/api"
+    Description: Base URL for Hosted UI callback/logout (no trailing slash). Used as CallbackURLs and LogoutURLs so login redirect works.
+  CognitoCallbackUrlExtra:
+    Type: String
+    Default: ""
+    Description: "(Opcional) URL de callback adicional, p. ej. para ChatGPT. Dejar vacío si solo usas el login directo."
 
 Conditions:
   CreateCognito: !Equals [!Ref CognitoCreateUserPool, "true"]
+  HasExtraCallbackUrl: !Not [!Equals [!Ref CognitoCallbackUrlExtra, ""]]
 
 Resources:
   # Cognito User Pool para JWT del endpoint /mcp (Cursor, clientes HTTP streamable)
@@ -88,13 +97,37 @@ Resources:
       PreventUserExistenceErrors: ENABLED
       SupportedIdentityProviders:
         - COGNITO
-      AccessTokenValidity: 1
-      IdTokenValidity: 1
+      AccessTokenValidity: 24
+      IdTokenValidity: 24
       RefreshTokenValidity: 60
       TokenValidityUnits:
         AccessToken: hours
         IdToken: hours
         RefreshToken: days
+      # Hosted UI: callback/logout URLs y OAuth para que /authorize -> login funcione sin redirect_mismatch
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      CallbackURLs: !If
+        - HasExtraCallbackUrl
+        - - !Sub "${CognitoCallbackBaseUrl}/"
+          - !Ref CognitoCallbackUrlExtra
+        - - !Sub "${CognitoCallbackBaseUrl}/"
+      LogoutURLs:
+        - !Sub "${CognitoCallbackBaseUrl}/"
+
+  # Dominio para Hosted UI (OAuth authorization code flow). Sin esto, Cognito devuelve BadRequest al autorizar.
+  MCPUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Condition: CreateCognito
+    DependsOn: MCPUserPool
+    Properties:
+      UserPoolId: !Ref MCPUserPool
+      Domain: mcp-hub-domoticore
 
   MCPInstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
