@@ -31,6 +31,7 @@ import {
   getTfvcItemTextAtChangeset,
   pickAuthor,
 } from './azure';
+import { startAzureTunnelServer } from './azure/tunnel-server';
 import { getOrCreateSession, closeSession } from './mcp/session-manager';
 import { enqueueAndWait, clearSessionQueue } from './mcp/session-queue';
 import { getMcpToolByName, getMcpToolsCatalog } from './mcp/tools-catalog';
@@ -1092,6 +1093,7 @@ app.delete('/mcp', requireJwt, async (req, res) => {
 });
 
 if (require.main === module) {
+  startAzureTunnelServer();
   app.listen(PORT, () => {
     console.log(`MCP Gateway listening on port ${PORT}`);
     logInfo('Gateway started', { port: PORT, path: getLogFilePath() });

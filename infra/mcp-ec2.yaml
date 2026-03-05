@@ -139,6 +139,11 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0
           Description: HTTPS
+        - IpProtocol: tcp
+          FromPort: 3097
+          ToPort: 3097
+          CidrIp: 0.0.0.0/0
+          Description: Azure tunnel WebSocket (client connects from local/VPN)
       Tags:
         - Key: Name
           Value: mcp-server-instance-sg

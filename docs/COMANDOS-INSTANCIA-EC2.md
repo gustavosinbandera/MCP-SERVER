@@ -188,7 +188,23 @@ When the instance **cannot** reach Azure (no corporate VPN) but you have a machi
    - `AZURE_DEVOPS_PROXY_URL=http://<IP_DE_TU_PC_O_TUNEL>:3099`
 3. Rebuild and restart: `docker compose build gateway && docker compose up -d gateway` (or use `util_update_repo` / `instance_update` after setting the vars).
 
+**Si usas tu IP pública (cambiante):** en tu PC abre en el router el puerto hacia tu máquina (p. ej. **80** para no abrir otro; **3099** por defecto). Cuando cambie tu IP pública, ejecuta desde la raíz del repo:
+
+```powershell
+.\scripts\update-azure-proxy-ip-on-instance.ps1 -RestartGateway
+```
+
+Ese script obtiene tu IP actual, actualiza `AZURE_DEVOPS_PROXY_URL` en `gateway/.env` de la instancia y opcionalmente recrea el contenedor gateway (`-RestartGateway`). Para usar puerto 80 (testing, sin abrir otro puerto): `.\scripts\update-azure-proxy-ip-on-instance.ps1 -ProxyPort 80 -RestartGateway` y en tu PC arranca el proxy con `npm run azure-proxy:80` (en `gateway/`). Opcional: variables de entorno `INSTANCE_SSH_KEY_PATH` e `INSTANCE_SSH_TARGET` si usas otra clave/host.
+
 See **docs/FEATURE-AZURE-DEVOPS-MCP.md** (section “Testing when the gateway is outside the network”).
+
+### 1d6. Azure tunnel (WebSocket): sin abrir puertos en tu casa
+
+La instancia levanta un **servidor WebSocket** en el puerto **3097**. Tu máquina (con VPN y PAT) se conecta **hacia** la instancia; la instancia envía las peticiones Azure por ese canal. No hace falta abrir puertos en tu router.
+
+1. **En la instancia:** el gateway expone el puerto 3097. Abre el puerto 3097 en el security group (entrada TCP). En `gateway/.env` de la instancia no pongas `AZURE_DEVOPS_PAT` ni `AZURE_DEVOPS_PROXY_URL`; solo `AZURE_DEVOPS_BASE_URL` y `AZURE_DEVOPS_PROJECT`.
+2. **En tu PC (con VPN):** en `gateway/.env` pon `AZURE_DEVOPS_PAT` y `AZURE_TUNNEL_WS_URL=ws://<IP_INSTANCIA>:3097`. Opcional: `AZURE_TUNNEL_SECRET` (mismo valor en instancia y en tu .env).
+3. Arranca el cliente: en `gateway/` ejecuta `npm run azure-tunnel`. Queda conectado; el MCP en la instancia usará este canal para Azure. Reconexión automática si se cae.
 
 ## 1e. Cursor can’t connect: "Maximum sessions per user (3) reached"
 

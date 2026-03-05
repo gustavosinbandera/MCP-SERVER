@@ -2,7 +2,10 @@
  * Azure DevOps (Server) API client for MCP tools.
  * Work Items (WIQL, batch), TFVC changesets, changeset changes, file content at changeset.
  * Config: AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, AZURE_DEVOPS_PAT in .env.
+ * Optional: AZURE_DEVOPS_PROXY_URL (HTTP proxy) or Azure tunnel (WebSocket client from local machine).
  */
+
+import { isTunnelReady, requestViaTunnel } from './tunnel-server';
 
 const API_VER = (process.env.AZURE_DEVOPS_API_VERSION || '7.0').trim();
 
@@ -34,7 +37,7 @@ function joinUrl(base: string, ...parts: (string | number)[]): string {
 
 export function hasAzureDevOpsConfig(): boolean {
   const { baseUrl, project, pat, proxyUrl } = getConfig();
-  return !!(baseUrl && project && (pat || proxyUrl));
+  return !!(baseUrl && project && (pat || proxyUrl || isTunnelReady()));
 }
 
 function ensureConfig(): { baseUrl: string; project: string; pat: string; proxyUrl: string; proxySecret: string } {
@@ -42,9 +45,9 @@ function ensureConfig(): { baseUrl: string; project: string; pat: string; proxyU
   if (!c.baseUrl || !c.project) {
     throw new Error('AZURE_DEVOPS_BASE_URL and AZURE_DEVOPS_PROJECT must be set in .env.');
   }
-  if (!c.pat && !c.proxyUrl) {
+  if (!c.pat && !c.proxyUrl && !isTunnelReady()) {
     throw new Error(
-      'Set either AZURE_DEVOPS_PAT (direct access) or AZURE_DEVOPS_PROXY_URL (via proxy on a machine with VPN).'
+      'Set AZURE_DEVOPS_PAT (direct), AZURE_DEVOPS_PROXY_URL (HTTP proxy), or connect the Azure tunnel client (WebSocket).'
     );
   }
   return c;
@@ -68,9 +71,18 @@ function formatFetchFailure(err: unknown): string {
 
 type AzureFetchResult = { ok: boolean; status: number; statusText: string; text: string; contentType: string };
 
-/** When AZURE_DEVOPS_PROXY_URL is set, forwards the request to the proxy (e.g. machine with VPN); otherwise fetches directly with PAT. */
+/** Prefer tunnel (local client), then HTTP proxy, then direct PAT. */
 async function azureFetch(url: string, options: RequestInit = {}): Promise<AzureFetchResult> {
   const c = ensureConfig();
+  if (isTunnelReady()) {
+    try {
+      return await requestViaTunnel(url, options);
+    } catch (err) {
+      throw new Error(
+        `Azure tunnel request failed. ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
   if (c.proxyUrl) {
     const method = (options.method || 'GET').toUpperCase();
     const body =
