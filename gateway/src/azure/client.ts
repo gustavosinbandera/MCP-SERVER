@@ -6,11 +6,13 @@
 
 const API_VER = (process.env.AZURE_DEVOPS_API_VERSION || '7.0').trim();
 
-function getConfig(): { baseUrl: string; project: string; pat: string } {
+function getConfig(): { baseUrl: string; project: string; pat: string; proxyUrl: string; proxySecret: string } {
   const baseUrl = (process.env.AZURE_DEVOPS_BASE_URL || '').trim();
   const project = (process.env.AZURE_DEVOPS_PROJECT || '').trim();
   const pat = (process.env.AZURE_DEVOPS_PAT || '').trim();
-  return { baseUrl, project, pat };
+  const proxyUrl = (process.env.AZURE_DEVOPS_PROXY_URL || '').trim().replace(/\/+$/g, '');
+  const proxySecret = (process.env.AZURE_DEVOPS_PROXY_SECRET || '').trim();
+  return { baseUrl, project, pat, proxyUrl, proxySecret };
 }
 
 function authHeader(pat: string): string {
@@ -31,15 +33,18 @@ function joinUrl(base: string, ...parts: (string | number)[]): string {
 }
 
 export function hasAzureDevOpsConfig(): boolean {
-  const { baseUrl, project, pat } = getConfig();
-  return !!(baseUrl && project && pat);
+  const { baseUrl, project, pat, proxyUrl } = getConfig();
+  return !!(baseUrl && project && (pat || proxyUrl));
 }
 
-function ensureConfig(): { baseUrl: string; project: string; pat: string } {
+function ensureConfig(): { baseUrl: string; project: string; pat: string; proxyUrl: string; proxySecret: string } {
   const c = getConfig();
-  if (!c.baseUrl || !c.project || !c.pat) {
+  if (!c.baseUrl || !c.project) {
+    throw new Error('AZURE_DEVOPS_BASE_URL and AZURE_DEVOPS_PROJECT must be set in .env.');
+  }
+  if (!c.pat && !c.proxyUrl) {
     throw new Error(
-      'AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT must be set in .env.'
+      'Set either AZURE_DEVOPS_PAT (direct access) or AZURE_DEVOPS_PROXY_URL (via proxy on a machine with VPN).'
     );
   }
   return c;
@@ -61,34 +66,105 @@ function formatFetchFailure(err: unknown): string {
   return parts.join(' | ');
 }
 
-async function httpJson<T = unknown>(url: string, options: RequestInit = {}): Promise<T> {
-  const { pat } = ensureConfig();
+type AzureFetchResult = { ok: boolean; status: number; statusText: string; text: string; contentType: string };
+
+/** When AZURE_DEVOPS_PROXY_URL is set, forwards the request to the proxy (e.g. machine with VPN); otherwise fetches directly with PAT. */
+async function azureFetch(url: string, options: RequestInit = {}): Promise<AzureFetchResult> {
+  const c = ensureConfig();
+  if (c.proxyUrl) {
+    const method = (options.method || 'GET').toUpperCase();
+    const body =
+      options.body === undefined || options.body === null
+        ? undefined
+        : typeof options.body === 'string'
+          ? options.body
+          : JSON.stringify(options.body);
+    const headers: Record<string, string> = {};
+    if (options.headers && typeof options.headers === 'object' && !Array.isArray(options.headers)) {
+      const h = options.headers as Record<string, string>;
+      for (const [k, v] of Object.entries(h)) if (v !== undefined && k.toLowerCase() !== 'authorization') headers[k] = String(v);
+    }
+    const proxyBody: { url: string; method: string; body?: string; headers?: Record<string, string> } = {
+      url,
+      method,
+      headers: Object.keys(headers).length ? headers : undefined,
+    };
+    if (body !== undefined) proxyBody.body = body;
+    const proxyHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(c.proxySecret ? { 'X-Proxy-Secret': c.proxySecret } : {}),
+    };
+    let res: Response;
+    try {
+      res = await fetch(`${c.proxyUrl}/forward`, {
+        method: 'POST',
+        headers: proxyHeaders,
+        body: JSON.stringify(proxyBody),
+      });
+    } catch (err) {
+      throw new Error(
+        `Azure proxy request failed. URL: ${c.proxyUrl}. ${formatFetchFailure(err)}`
+      );
+    }
+    const proxyJson = await res.json().catch(() => ({}));
+    const azureStatus = proxyJson.status ?? res.status;
+    const azureStatusText = proxyJson.statusText ?? res.statusText;
+    const text = typeof proxyJson.body === 'string' ? proxyJson.body : (proxyJson.body ? JSON.stringify(proxyJson.body) : '');
+    const contentType = typeof proxyJson.contentType === 'string' ? proxyJson.contentType : '';
+    if (!res.ok) {
+      throw new Error(
+        `Azure proxy error ${res.status}. ${typeof proxyJson.error === 'string' ? proxyJson.error : ''} ${proxyJson.detail || ''}`.trim()
+      );
+    }
+    return {
+      ok: azureStatus >= 200 && azureStatus < 300,
+      status: azureStatus,
+      statusText: azureStatusText,
+      text,
+      contentType,
+    };
+  }
+  const auth = authHeader(c.pat);
   let res: Response;
   try {
     res = await fetch(url, {
       ...options,
       headers: {
-        Authorization: authHeader(pat),
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
         ...(options.headers as Record<string, string>),
+        Authorization: auth,
       },
     });
   } catch (err) {
-    // Network/TLS/DNS errors from fetch (undici) often surface as "fetch failed" without details.
-    // Include URL + cause code so callers can troubleshoot (VPN, firewall, wrong host/port).
     throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
   }
   const text = await res.text();
+  return {
+    ok: res.ok,
+    status: res.status,
+    statusText: res.statusText,
+    text,
+    contentType: String(res.headers.get('content-type') || ''),
+  };
+}
+
+async function httpJson<T = unknown>(url: string, options: RequestInit = {}): Promise<T> {
+  const r = await azureFetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(options.headers as Record<string, string>),
+    },
+  });
   let data: T;
   try {
-    data = (text ? JSON.parse(text) : null) as T;
+    data = (r.text ? JSON.parse(r.text) : null) as T;
   } catch {
-    data = text as unknown as T;
+    data = r.text as unknown as T;
   }
-  if (!res.ok) {
+  if (!r.ok) {
     throw new Error(
-      `Azure DevOps HTTP ${res.status} ${res.statusText}\nURL: ${url}\n` +
+      `Azure DevOps HTTP ${r.status} ${r.statusText}\nURL: ${url}\n` +
         (typeof data === 'string' ? data : JSON.stringify(data, null, 2))
     );
   }
@@ -119,35 +195,11 @@ async function httpTextTfvcWithFallback(
   projectScopedUrl: string,
   collectionScopedUrl: string
 ): Promise<string> {
-  const { pat } = ensureConfig();
-  async function getText(url: string): Promise<{ ok: boolean; status: number; statusText: string; text: string; contentType: string }> {
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        headers: {
-          Authorization: authHeader(pat),
-          Accept: '*/*',
-        },
-      });
-    } catch (err) {
-      throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
-    }
-    const text = await res.text();
-    return {
-      ok: res.ok,
-      status: res.status,
-      statusText: res.statusText,
-      text,
-      contentType: String(res.headers.get('content-type') || ''),
-    };
-  }
-
-  const a = await getText(projectScopedUrl);
+  const a = await azureFetch(projectScopedUrl, { headers: { Accept: '*/*' } });
   if (a.ok) return a.text;
   const msgA = `Azure DevOps HTTP ${a.status} ${a.statusText}\nURL: ${projectScopedUrl}\n${a.text || a.statusText}`;
-  // If it's the "project scoped TFVC 404 Page not found", retry at collection level.
   if (a.status === 404 && a.text.toLowerCase().includes('page not found')) {
-    const b = await getText(collectionScopedUrl);
+    const b = await azureFetch(collectionScopedUrl, { headers: { Accept: '*/*' } });
     if (b.ok) return b.text;
     throw new Error(`Azure DevOps HTTP ${b.status} ${b.statusText}\nURL: ${collectionScopedUrl}\n${b.text || b.statusText}`);
   }
@@ -178,28 +230,14 @@ export async function getTfvcItemTextAtChangeset(tfvcPath: string, changesetId: 
   const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/items') + `?${q.toString()}`;
   const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/items') + `?${q.toString()}`;
 
-  // We need both raw body and content-type to unwrap JSON "content".
-  const { pat } = ensureConfig();
-  async function getRaw(url: string): Promise<{ ok: boolean; status: number; statusText: string; text: string; contentType: string }> {
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        headers: {
-          Authorization: authHeader(pat),
-          Accept: 'application/json, text/plain, */*',
-        },
-      });
-    } catch (err) {
-      throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
-    }
-    const text = await res.text();
-    return { ok: res.ok, status: res.status, statusText: res.statusText, text, contentType: String(res.headers.get('content-type') || '') };
-  }
-
-  const a = await getRaw(projectScopedUrl);
+  const a = await azureFetch(projectScopedUrl, {
+    headers: { Accept: 'application/json, text/plain, */*' },
+  });
   if (a.ok) return pickTfvcItemContent(a.text, a.contentType);
   if (a.status === 404 && a.text.toLowerCase().includes('page not found')) {
-    const b = await getRaw(collectionScopedUrl);
+    const b = await azureFetch(collectionScopedUrl, {
+      headers: { Accept: 'application/json, text/plain, */*' },
+    });
     if (b.ok) return pickTfvcItemContent(b.text, b.contentType);
     throw new Error(`Azure DevOps HTTP ${b.status} ${b.statusText}\nURL: ${collectionScopedUrl}\n${b.text || b.statusText}`);
   }
@@ -223,25 +261,23 @@ export async function updateWorkItem(
   const url =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitems', id) +
     `?api-version=${encodeURIComponent(API_VER)}`;
-  const res = await fetch(url, {
+  const r = await azureFetch(url, {
     method: 'PATCH',
     headers: {
-      Authorization: authHeader(ensureConfig().pat),
       'Content-Type': 'application/json-patch+json',
       Accept: 'application/json',
     },
     body: JSON.stringify(patch),
   });
-  const text = await res.text();
   let data: { id?: number; rev?: number; fields?: Record<string, unknown> };
   try {
-    data = text ? JSON.parse(text) : {};
+    data = r.text ? JSON.parse(r.text) : {};
   } catch {
     data = {};
   }
-  if (!res.ok) {
+  if (!r.ok) {
     throw new Error(
-      `Azure DevOps PATCH ${res.status} ${res.statusText}\nURL: ${url}\n` + (text || res.statusText)
+      `Azure DevOps PATCH ${r.status} ${r.statusText}\nURL: ${url}\n` + (r.text || r.statusText)
     );
   }
   return data as { id: number; rev?: number; fields?: Record<string, unknown>; [k: string]: unknown };

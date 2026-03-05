@@ -177,6 +177,19 @@ If the Azure MCP tools work but `/azure-tasks` shows that error, it’s usually 
 
 If it returns JSON with `items`, the webapp should be able to list tasks.
 
+### 1d5. Azure on the instance via proxy (testing, instance outside VPN)
+
+When the instance **cannot** reach Azure (no corporate VPN) but you have a machine **with VPN** running the Azure proxy:
+
+1. **On your machine (with VPN):** in `gateway/` run `npm run azure-proxy` (or `npm run azure-gateway`). It listens on port 3099. Ensure the instance can reach your machine on that port (IP or tunnel URL).
+2. **On the instance**, after pulling the repo, edit `gateway/.env` and set (do **not** set `AZURE_DEVOPS_PAT` here):
+   - `AZURE_DEVOPS_BASE_URL=<same as your proxy machine>`
+   - `AZURE_DEVOPS_PROJECT=<same as your proxy machine>`
+   - `AZURE_DEVOPS_PROXY_URL=http://<IP_DE_TU_PC_O_TUNEL>:3099`
+3. Rebuild and restart: `docker compose build gateway && docker compose up -d gateway` (or use `util_update_repo` / `instance_update` after setting the vars).
+
+See **docs/FEATURE-AZURE-DEVOPS-MCP.md** (section “Testing when the gateway is outside the network”).
+
 ## 1e. Cursor can’t connect: "Maximum sessions per user (3) reached"
 
 If Cursor remote MCP fails with that message, on **EC2** do one of these:
