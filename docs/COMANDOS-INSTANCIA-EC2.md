@@ -1,4 +1,4 @@
-# Useful commands – EC2 instance (MCP Knowledge Hub)
+# Useful commands â€“ EC2 instance (MCP Knowledge Hub)
 
 Commands to connect to the instance, view logs, and start/stop services manually.
 
@@ -30,11 +30,11 @@ To open the instance project in Cursor and work as if it were local (terminal, f
 
 **1. Configure SSH on your machine**
 
-On Windows, create or edit the SSH config file. It’s usually located at:
+On Windows, create or edit the SSH config file. Itâ€™s usually located at:
 
 - `C:\Users\<your_user>\.ssh\config`
 
-Add a block like this (adjust the key path if it’s different):
+Add a block like this (adjust the key path if itâ€™s different):
 
 ```
 Host mcp-ec2
@@ -45,7 +45,7 @@ Host mcp-ec2
   ServerAliveCountMax 3
 ```
 
-`ServerAliveInterval 60` sends a keepalive every 60 seconds so the session doesn’t close due to inactivity. `ServerAliveCountMax 3` allows 3 missed responses before considering the connection dead.
+`ServerAliveInterval 60` sends a keepalive every 60 seconds so the session doesnâ€™t close due to inactivity. `ServerAliveCountMax 3` allows 3 missed responses before considering the connection dead.
 
 **2. Connect from Cursor**
 
@@ -57,7 +57,7 @@ Host mcp-ec2
 **3. What you get when connected**
 
 - Remote file explorer, a terminal on the instance, and extensions running on the remote.
-- The code and containers (Docker) live on the instance; you can edit and run `docker compose` from Cursor’s terminal.
+- The code and containers (Docker) live on the instance; you can edit and run `docker compose` from Cursorâ€™s terminal.
 
 **4. If something fails**
 
@@ -73,11 +73,11 @@ The MCP Knowledge Hub **home/search** page opens in a browser at this URL :
 
 **https://mcp.domoticore.co**
 
-The server only exposes HTTP (port 80), not HTTPS. If you use `https://`, the browser won’t connect and you won’t see the page.
+The server only exposes HTTP (port 80), not HTTPS. If you use `https://`, the browser wonâ€™t connect and you wonâ€™t see the page.
 
 - Type in the address bar: `http://mcp.domoticore.co` and press Enter.
-- You should see the page titled “MCP Knowledge Hub” and the search box.
-- If the page is blank or doesn’t load, confirm you’re using **http** (not https) and that `webapp` and `nginx` are running on the instance: `docker compose ps webapp nginx`. See **docs/HTTPS-CERTIFICADO.md** for certificate and HTTPS details.
+- You should see the page titled â€œMCP Knowledge Hubâ€ and the search box.
+- If the page is blank or doesnâ€™t load, confirm youâ€™re using **http** (not https) and that `webapp` and `nginx` are running on the instance: `docker compose ps webapp nginx`. See **docs/HTTPS-CERTIFICADO.md** for certificate and HTTPS details.
 
 ## 1d. Check the gateway from your machine (HTTPS)
 
@@ -86,7 +86,7 @@ The gateway is served over **HTTPS**. Health check:
 **PowerShell:** In PowerShell, `curl` is an alias for `Invoke-WebRequest`, which doesn't accept curl flags. Use **`curl.exe`**:
 
 ```powershell
-# Redirect HTTP → HTTPS (expect 302)
+# Redirect HTTP â†’ HTTPS (expect 302)
 curl.exe -sI http://mcp.domoticore.co/
 
 # Health over HTTPS (expect 200)
@@ -129,14 +129,14 @@ So your **local MCP** (magaya, usar-mcp, or the gateway on your PC) can use the 
    ssh -L 6333:localhost:6333 mcp-ec2
    ```
 
-   With this, your machine’s **localhost:6333** forwards to port 6333 on the instance (where Qdrant listens in Docker). Keepalives prevent disconnections due to inactivity.
+   With this, your machineâ€™s **localhost:6333** forwards to port 6333 on the instance (where Qdrant listens in Docker). Keepalives prevent disconnections due to inactivity.
 
 2. **Configure MCP to use Qdrant on localhost**  
-   In `.cursor/mcp.json`, the server (magaya / usar-mcp) already has `"QDRANT_URL": "http://localhost:6333"`. With the tunnel active, that `localhost:6333` points to the instance’s Qdrant.
+   In `.cursor/mcp.json`, the server (magaya / usar-mcp) already has `"QDRANT_URL": "http://localhost:6333"`. With the tunnel active, that `localhost:6333` points to the instanceâ€™s Qdrant.
 
 3. **Start the local MCP** (Cursor will use magaya or usar-mcp). Tools that use Qdrant (`search_docs`, etc.) will talk to the remote Qdrant through the tunnel.
 
-**If you run the gateway locally** (not just stdio): set `QDRANT_URL=http://localhost:6333` in `gateway/.env` and keep the tunnel open; the gateway will use the instance’s Qdrant.
+**If you run the gateway locally** (not just stdio): set `QDRANT_URL=http://localhost:6333` in `gateway/.env` and keep the tunnel open; the gateway will use the instanceâ€™s Qdrant.
 
 **Note:** On the instance, Qdrant runs in Docker with `ports: "6333:6333"`, so it listens on EC2 localhost:6333. The `-L 6333:localhost:6333` tunnel makes your PC see that port as its own localhost:6333.
 
@@ -144,10 +144,10 @@ So your **local MCP** (magaya, usar-mcp, or the gateway on your PC) can use the 
 
 ## 1d3. `search_docs` returns "Search failed: fetch failed"
 
-The **search_docs** tool needs the gateway to connect to **Qdrant**. The "fetch failed" error usually means it can’t reach Qdrant.
+The **search_docs** tool needs the gateway to connect to **Qdrant**. The "fetch failed" error usually means it canâ€™t reach Qdrant.
 
 - **If you use local MCP (magaya/usar-mcp) on your PC:** the gateway runs on your machine and uses `QDRANT_URL` from `gateway/.env` (default `http://localhost:6333`). To make `search_docs` work:
-  1. **Option A:** SSH tunnel to the instance (see 1d2) and keep it open. With `QDRANT_URL=http://localhost:6333`, the gateway will use the instance’s Qdrant.
+  1. **Option A:** SSH tunnel to the instance (see 1d2) and keep it open. With `QDRANT_URL=http://localhost:6333`, the gateway will use the instanceâ€™s Qdrant.
   2. **Option B:** Run Qdrant on your PC (e.g. with Docker) and point `QDRANT_URL` to that service.
 - **If you use remote MCP (gateway on the instance):** the gateway is already on EC2; `QDRANT_URL` is typically `http://localhost:6333` or a container name. Check that the `mcp-qdrant` container is Up and healthy (`docker compose ps`).
 
@@ -157,7 +157,7 @@ After changing `.env` or opening the tunnel, restart MCP (restart Cursor or relo
 
 ## 1d4. The webapp shows "Azure DevOps is not configured"
 
-If the Azure MCP tools work but `/azure-tasks` shows that error, it’s usually because:
+If the Azure MCP tools work but `/azure-tasks` shows that error, itâ€™s usually because:
 
 - **MCP** (the `azure_*` tools) loads variables from **`gateway/.env`**.
 - **The Docker gateway** (called by the webapp via `/api/azure/*`) loads variables from **`.env`** (repo root) and, in this project, also from **`gateway/.env`**.
@@ -177,40 +177,19 @@ If the Azure MCP tools work but `/azure-tasks` shows that error, it’s usually 
 
 If it returns JSON with `items`, the webapp should be able to list tasks.
 
-### 1d5. Azure on the instance via proxy (testing, instance outside VPN)
-
-When the instance **cannot** reach Azure (no corporate VPN) but you have a machine **with VPN** running the Azure proxy:
-
-1. **On your machine (with VPN):** in `gateway/` run `npm run azure-proxy` (or `npm run azure-gateway`). It listens on port 3099. Ensure the instance can reach your machine on that port (IP or tunnel URL).
-2. **On the instance**, after pulling the repo, edit `gateway/.env` and set (do **not** set `AZURE_DEVOPS_PAT` here):
-   - `AZURE_DEVOPS_BASE_URL=<same as your proxy machine>`
-   - `AZURE_DEVOPS_PROJECT=<same as your proxy machine>`
-   - `AZURE_DEVOPS_PROXY_URL=http://<IP_DE_TU_PC_O_TUNEL>:3099`
-3. Rebuild and restart: `docker compose build gateway && docker compose up -d gateway` (or use `util_update_repo` / `instance_update` after setting the vars).
-
-**Si usas tu IP pública (cambiante):** en tu PC abre en el router el puerto hacia tu máquina (p. ej. **80** para no abrir otro; **3099** por defecto). Cuando cambie tu IP pública, ejecuta desde la raíz del repo:
-
-```powershell
-.\scripts\update-azure-proxy-ip-on-instance.ps1 -RestartGateway
-```
-
-Ese script obtiene tu IP actual, actualiza `AZURE_DEVOPS_PROXY_URL` en `gateway/.env` de la instancia y opcionalmente recrea el contenedor gateway (`-RestartGateway`). Para usar puerto 80 (testing, sin abrir otro puerto): `.\scripts\update-azure-proxy-ip-on-instance.ps1 -ProxyPort 80 -RestartGateway` y en tu PC arranca el proxy con `npm run azure-proxy:80` (en `gateway/`). Opcional: variables de entorno `INSTANCE_SSH_KEY_PATH` e `INSTANCE_SSH_TARGET` si usas otra clave/host.
-
-See **docs/FEATURE-AZURE-DEVOPS-MCP.md** (section “Testing when the gateway is outside the network”).
-
-### 1d6. Azure tunnel (WebSocket): sin abrir puertos en tu casa
+### 1d5. Azure tunnel (WebSocket): sin abrir puertos en tu casa
 
 La instancia levanta un **servidor WebSocket** en el puerto **3097**. Tu máquina (con VPN y PAT) se conecta **hacia** la instancia; la instancia envía las peticiones Azure por ese canal. No hace falta abrir puertos en tu router.
 
-1. **En la instancia:** el gateway expone el puerto 3097. Abre el puerto 3097 en el security group (entrada TCP). En `gateway/.env` de la instancia no pongas `AZURE_DEVOPS_PAT` ni `AZURE_DEVOPS_PROXY_URL`; solo `AZURE_DEVOPS_BASE_URL` y `AZURE_DEVOPS_PROJECT`.
+1. **En la instancia:** el gateway expone el puerto 3097. Abre el puerto 3097 en el security group (entrada TCP). En `gateway/.env` de la instancia no pongas `AZURE_DEVOPS_PAT`; solo `AZURE_DEVOPS_BASE_URL` y `AZURE_DEVOPS_PROJECT`.
 2. **En tu PC (con VPN):** en `gateway/.env` pon `AZURE_DEVOPS_PAT` y `AZURE_TUNNEL_WS_URL=ws://<IP_INSTANCIA>:3097`. Opcional: `AZURE_TUNNEL_SECRET` (mismo valor en instancia y en tu .env).
 3. Arranca el cliente: en `gateway/` ejecuta `npm run azure-tunnel`. Queda conectado; el MCP en la instancia usará este canal para Azure. Reconexión automática si se cae.
 
-## 1e. Cursor can’t connect: "Maximum sessions per user (3) reached"
+## 1e. Cursor can't connect: "Maximum sessions per user (3) reached"
 
 If Cursor remote MCP fails with that message, on **EC2** do one of these:
 
-**Option A – Increase the limit and restart (recommended)**
+**Option A â€“ Increase the limit and restart (recommended)**
 
 On the instance:
 
@@ -221,7 +200,7 @@ echo "MAX_SESSIONS_PER_USER=10" >> .env
 docker compose restart gateway
 ```
 
-**Option B – Restart only (clears in-memory sessions)**
+**Option B â€“ Restart only (clears in-memory sessions)**
 
 ```bash
 cd ~/MCP-SERVER
@@ -371,16 +350,16 @@ The gateway returns: collection (`mcp_docs`) and total indexed documents.
 
 **What the output of `curl ... | grep points_count` means**
 
-- **points_count:** number of points (chunks) in the collection. Each file can generate multiple points if chunked. This is the “total records” in Qdrant.
+- **points_count:** number of points (chunks) in the collection. Each file can generate multiple points if chunked. This is the â€œtotal recordsâ€ in Qdrant.
 - **vectors_count / indexed_vectors_count:** indexed vectors (similar to points_count; there can be a small delay while indexing catches up).
 - **status: green:** the collection is healthy.
 
-If the number **goes up** (e.g. from 65k to 93k), it’s usually because **new files are being added** (e.g. the first full blueivory cycle), not because the same files are being re-indexed. The indexer **does not re-send** files that are already in the index.
+If the number **goes up** (e.g. from 65k to 93k), itâ€™s usually because **new files are being added** (e.g. the first full blueivory cycle), not because the same files are being re-indexed. The indexer **does not re-send** files that are already in the index.
 
-**Why we don’t re-index the same content (and don’t waste API spend)**
+**Why we donâ€™t re-index the same content (and donâ€™t waste API spend)**
 
 1. **Already-indexed keys:** At the start of each cycle, all indexed `(project, path)` keys are loaded from Qdrant (or persistent SQLite). Only files whose key is **not** in that set are sent for embeddings (new files).
-2. **One-time (classic / blueivory):** If a project is in `SHARED_DIRS_ONCE` and already exists in `data/one_time_indexed.db`, it is **not processed** in later cycles: the folder isn’t scanned and the API isn’t called.
+2. **One-time (classic / blueivory):** If a project is in `SHARED_DIRS_ONCE` and already exists in `data/one_time_indexed.db`, it is **not processed** in later cycles: the folder isnâ€™t scanned and the API isnâ€™t called.
 3. **Reindex only if changed:** Only if you enable `INDEX_SHARED_REINDEX_CHANGED=true` will files be re-indexed when their **content** changes (by hash). Off by default.
 
 So API spend growth corresponds to **new content** (e.g. blueivory the first time), not repeatedly processing the same files.
@@ -414,13 +393,13 @@ grep -E "indexSharedDirs completed|one-time complete" ~/index-cycle.log
 grep "Fatal error" ~/index-cycle.log
 ```
 
-If you **don’t** see `indexSharedDirs completed` and the cycle container is no longer running, check whether there was an error:
+If you **donâ€™t** see `indexSharedDirs completed` and the cycle container is no longer running, check whether there was an error:
 
 ```bash
 grep -E "Fatal error|Embedding batch failed" ~/index-cycle.log
 ```
 
-If you only see many `Embedding batch retry` lines (429 rate limit), the process is **still running** or waiting 90s between retries; it hasn’t finished or failed yet. When it succeeds, near the end of the log you’ll see something like:
+If you only see many `Embedding batch retry` lines (429 rate limit), the process is **still running** or waiting 90s between retries; it hasnâ€™t finished or failed yet. When it succeeds, near the end of the log youâ€™ll see something like:
 
 ```text
 {"ts":"...","level":"info","message":"indexSharedDirs one-time complete","project":"blueivory"}
@@ -441,7 +420,7 @@ If you only see many `Embedding batch retry` lines (429 rate limit), the process
 | redis     | mcp-redis      | 6379          | Queue (worker)         |
 | influxdb   | mcp-influxdb   | 8086          | Metrics                |
 | grafana   | mcp-grafana    | 3002          | Dashboards             |
-| supervisor| mcp-supervisor | —             | Periodic indexing      |
+| supervisor| mcp-supervisor | â€”             | Periodic indexing      |
 
 ---
 
@@ -464,7 +443,7 @@ cat ~/MCP-SERVER/gateway/.env
 
 Edit `.env` on the instance and then restart the services that use it (gateway, supervisor).
 
-### 6a. Required files/vars on the instance (so Docker Compose “works like before”)
+### 6a. Required files/vars on the instance (so Docker Compose â€œworks like beforeâ€)
 
 On the **EC2 instance**, before deploying, make sure you have these files (not committed to Git):
 
@@ -528,7 +507,7 @@ Then close and reopen the SSH session (or `source /etc/profile.d/mcp-tools.sh`) 
 - **`instance_report`**: returns the SSH command to print a Markdown status report: current IP, last update, status (`.last-update-status`), containers, health.
 - **`instance_reboot`**: returns the SSH command to restart all services (`docker compose restart`).
 
-Default host and key: `ec2-user@52.91.217.181`, `infra/mcp-server-key.pem`. Run the command in Cursor’s terminal (or ask Cursor to run it). **If you use remote MCP:** run it in a terminal on your PC (from the repo root) or in a terminal already connected via SSH. If tools don’t show up, update the instance and reconnect Cursor to MCP.
+Default host and key: `ec2-user@52.91.217.181`, `infra/mcp-server-key.pem`. Run the command in Cursorâ€™s terminal (or ask Cursor to run it). **If you use remote MCP:** run it in a terminal on your PC (from the repo root) or in a terminal already connected via SSH. If tools donâ€™t show up, update the instance and reconnect Cursor to MCP.
 
 ---
 

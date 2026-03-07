@@ -4,6 +4,8 @@
 **Servidor MCP:** `https://mcp.domoticore.co/api/mcp`  
 **Auth:** Keycloak (realm `mcp`) + DCR + PKCE
 
+**Estado discovery HTTPS:** Config actualizada con Keycloak **hostname v2** (sin KC_PROXY) y headers proxy en nginx. **Importante:** Si auth.domoticore.co sigue con cert **autofirmado**, ChatGPT no conecta; hay que poner Let's Encrypt real. Runbook: **docs/runbook_tls_https_keycloak_for_chatgpt.md**.
+
 ---
 
 ## 1. Comportamiento actual en ChatGPT
@@ -95,8 +97,8 @@ A pesar de que:
 
 1. **Orden o forma en que ChatGPT descubre OAuth:**  
    Puede que ChatGPT no use exactamente la URL RFC 9728 o que espere otro path (por ejemplo seguir usando `.../api/mcp/.well-known/oauth-protected-resource`). No está documentado de forma pública el algoritmo exacto que usa ChatGPT para “implementa OAuth”.
-2. **Certificado de `auth.domoticore.co`:**  
-   Si el certificado es autofirmado, el cliente (o un proxy intermedio) podría rechazar la conexión a `auth.domoticore.co` (OIDC discovery, DCR, token) y ChatGPT interpretarlo como “no OAuth”.
+2. **Certificado de `auth.domoticore.co` (causa comprobada si es autofirmado):**  
+   Si el certificado es autofirmado (`issuer=CN=auth.domoticore.co`), la infra de ChatGPT **no lo acepta** y no llega tráfico (no hay logs en auth). Solución: **Let's Encrypt real** en auth.domoticore.co. Ver **docs/runbook_tls_https_keycloak_for_chatgpt.md**.
 3. **CORS o cabeceras:**  
    Alguna restricción de cabeceras o CORS en el PRM o en el 401 que haga que el cliente de ChatGPT no use la respuesta.
 4. **Cambios recientes de producto:**  
@@ -140,6 +142,19 @@ Para mitigar “does not implement OAuth” se aplicó lo siguiente (según doc 
 
 **Análisis de logs:** ChatGPT (Python aiohttp) solo llama a mcp.domoticore.co; no hay peticiones a auth.domoticore.co. Pide discovery en rutas con sufijo `/api/mcp` que devolvían 404; nginx ahora sirve esas 4 URLs (mismo discovery). Revisar que Keycloak devuelva https en issuer/registration_endpoint.
 
+### Discovery con HTTPS (issuer y registration_endpoint)
+
+Para que ChatGPT no rechace el discovery por URLs en `http`:
+
+- **Keycloak:** En Keycloak 26 se usa `KC_HOSTNAME: https://auth.domoticore.co` (URL completa), `KC_HOSTNAME_STRICT: "false"` y `KC_PROXY_HEADERS: xforwarded` para que el discovery devuelva siempre `issuer` y `registration_endpoint` con **https**. Requiere recrear el contenedor Keycloak (`docker compose up -d keycloak`) tras el cambio.
+- **Nginx:** En todas las locations de discovery (mcp.domoticore.co) se añadió `proxy_set_header X-Forwarded-Host auth.domoticore.co` junto a `X-Forwarded-Proto https` para que Keycloak construya bien las URLs.
+
+**Tras desplegar:** Comprobar que la respuesta de discovery tenga `https`:
+```bash
+curl -s https://mcp.domoticore.co/.well-known/openid-configuration | jq '.issuer, .registration_endpoint'
+# Debe mostrar https://auth.domoticore.co/realms/mcp y https://auth.domoticore.co/realms/mcp/clients-registrations/openid-connect
+```
+
 **Si el error continúa:**
 
 1. **Ver qué llama ChatGPT:** En EC2, mientras pulsas “Crear” en ChatGPT, ejecuta:
@@ -156,13 +171,15 @@ Para mitigar “does not implement OAuth” se aplicó lo siguiente (según doc 
 
 ## 5. Próximos pasos recomendados
 
-1. **Certificado válido para `auth.domoticore.co`**  
+1. **~~Desplegar y comprobar discovery HTTPS~~** (hecho 24 feb 2025)  
+   Keycloak con `KC_HOSTNAME: https://auth.domoticore.co` y nginx con `X-Forwarded-Host` desplegados en EC2; el discovery ya devuelve https. **Siguiente:** probar de nuevo el conector OAuth en ChatGPT.
+2. **Certificado válido para `auth.domoticore.co`**  
    Obtener certificado (p. ej. Let's Encrypt) para `auth.domoticore.co` y usarlo en nginx, para descartar fallos por certificado autofirmado en discovery/DCR/token.
-2. **Documentación y soporte de OpenAI/ChatGPT**  
+3. **Documentación y soporte de OpenAI/ChatGPT**  
    Revisar la documentación actual de “Building MCP servers for ChatGPT” y “Authentication” (OpenAI), y si existe soporte o foro, preguntar por el flujo exacto de descubrimiento OAuth (qué URL se consulta y qué cabeceras/respuestas se esperan).
-3. **Logs y red**  
+4. **Logs y red**  
    En la EC2, revisar logs de nginx y del gateway cuando se intenta crear el conector con OAuth (qué URLs recibe el servidor y qué responde) para ver si ChatGPT llama a la URL RFC 9728 o a otra.
-4. **Mantener ambas rutas PRM**  
+5. **Mantener ambas rutas PRM**  
    Dejar servidas tanto la URL RFC 9728 como la ruta bajo `/api/mcp/.well-known/oauth-protected-resource` por compatibilidad con clientes que no sigan estrictamente la norma.
 
 ---

@@ -15,27 +15,30 @@ Resumen del plan ejecutado: variables, servicios, nginx, gateway (PRM + auth Key
    .\scripts\create-keycloak-db.ps1
    ```
 
-3. **Certificado auth.domoticore.co** (Fase 3)  
+3. **DNS auth.domoticore.co** (Route 53)  
+   En tu máquina (AWS CLI configurado): `.\infra\5b-route53-auth.ps1` — crea el registro A `auth.domoticore.co` con la IP de la EC2 (mismo HostedZoneId que mcp.domoticore.co).
+
+4. **Certificado auth.domoticore.co** (Fase 3)  
    DNS de `auth.domoticore.co` debe apuntar a esta máquina; puerto 80 accesible.
    ```powershell
    .\scripts\obtain-auth-cert.ps1 -Email "tu@email.com"
    ```
    Si Let's Encrypt crea `auth.domoticore.co-0001`, edita `nginx/nginx.conf` y cambia las rutas de certificado del bloque `auth.domoticore.co` a `.../live/auth.domoticore.co-0001/...`, luego reinicia nginx.
 
-4. **Build y arranque**
+5. **Build y arranque**
    ```powershell
    docker compose up -d --build
    ```
    Nginx puede fallar si el cert de auth no existe aún; en ese caso obtener el cert (paso 3) y luego `docker compose up -d` de nuevo.
 
-5. **Realm y usuario en Keycloak** (Fase 4)  
+6. **Realm y usuario en Keycloak** (Fase 4)  
    Cuando Keycloak esté listo:
    ```powershell
    .\scripts\keycloak-setup-realm.ps1
    ```
    Opcional: `$env:MCP_TEST_USER_PASSWORD = "tu-password"; .\scripts\keycloak-setup-realm.ps1`
 
-6. **Tests con curl** (Fase 7)  
+7. **Tests con curl** (Fase 7)  
    - PRM: `curl -s https://mcp.domoticore.co/.well-known/oauth-protected-resource`
    - Health gateway: `curl -s https://mcp.domoticore.co/api/health`
    - Desde la EC2, si `auth.domoticore.co` no resuelve en el host, usar: `curl -k --resolve auth.domoticore.co:443:127.0.0.1 https://auth.domoticore.co/...`

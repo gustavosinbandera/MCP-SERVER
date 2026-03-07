@@ -8,7 +8,8 @@
 #   2. Siguientes veces: .\scripts\get-mcp-id-token.ps1
 #      Lee el refresh token guardado y devuelve un IdToken nuevo (válido 1 h). Puedes usarlo 60 días sin volver a poner contraseña.
 #
-# Uso con usuario/contraseña (guarda RefreshToken para los próximos 60 días):
+# Uso con usuario/contraseña (guarda RefreshToken para los próximos 60 días).
+# Usuario de prueba confirmado (Cognito mcp-knowledge-hub-users): mcp-test@domoticore.co / MCPtest123!
 #   .\scripts\get-mcp-id-token.ps1 -Email "mcp-test@domoticore.co" -Password "MCPtest123!"
 #
 # Salida: imprime solo el IdToken (para copiar a mcp.json o Authorization: Bearer ...).

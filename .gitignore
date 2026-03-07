@@ -11,6 +11,9 @@ infra/route53-mcp-record-temp.json
 
 # Sync EC2 (host/key no subir al repo)
 scripts/sync-config.json
+# EC2 one-time deploy (contienen secretos)
+scripts/ec2/keycloak-env-append.txt
+scripts/ec2/reset-keycloak-password.sql
 
 # Instancia: fecha última ejecución de instance_update (solo en EC2)
 .last-instance-update

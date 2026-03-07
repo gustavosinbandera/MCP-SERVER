@@ -3,5 +3,6 @@
   {"ParameterKey":"InstanceType","ParameterValue":"t3.medium"},
   {"ParameterKey":"AllowedSSHCIDR","ParameterValue":"0.0.0.0/0"},
   {"ParameterKey":"CognitoUserPoolName","ParameterValue":"mcp-knowledge-hub-users"},
-  {"ParameterKey":"CognitoCreateUserPool","ParameterValue":"true"}
+  {"ParameterKey":"CognitoCreateUserPool","ParameterValue":"true"},
+  {"ParameterKey":"CognitoCallbackBaseUrl","ParameterValue":"https://mcp.domoticore.co/api"}
 ]

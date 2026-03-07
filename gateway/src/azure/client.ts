@@ -2,20 +2,18 @@
  * Azure DevOps (Server) API client for MCP tools.
  * Work Items (WIQL, batch), TFVC changesets, changeset changes, file content at changeset.
  * Config: AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, AZURE_DEVOPS_PAT in .env.
- * Optional: AZURE_DEVOPS_PROXY_URL (HTTP proxy) or Azure tunnel (WebSocket client from local machine).
+ * Optional: Azure tunnel (WebSocket client from local machine) when instance has no PAT.
  */
 
 import { isTunnelReady, requestViaTunnel } from './tunnel-server';
 
 const API_VER = (process.env.AZURE_DEVOPS_API_VERSION || '7.0').trim();
 
-function getConfig(): { baseUrl: string; project: string; pat: string; proxyUrl: string; proxySecret: string } {
+function getConfig(): { baseUrl: string; project: string; pat: string } {
   const baseUrl = (process.env.AZURE_DEVOPS_BASE_URL || '').trim();
   const project = (process.env.AZURE_DEVOPS_PROJECT || '').trim();
   const pat = (process.env.AZURE_DEVOPS_PAT || '').trim();
-  const proxyUrl = (process.env.AZURE_DEVOPS_PROXY_URL || '').trim().replace(/\/+$/g, '');
-  const proxySecret = (process.env.AZURE_DEVOPS_PROXY_SECRET || '').trim();
-  return { baseUrl, project, pat, proxyUrl, proxySecret };
+  return { baseUrl, project, pat };
 }
 
 function authHeader(pat: string): string {
@@ -36,19 +34,17 @@ function joinUrl(base: string, ...parts: (string | number)[]): string {
 }
 
 export function hasAzureDevOpsConfig(): boolean {
-  const { baseUrl, project, pat, proxyUrl } = getConfig();
-  return !!(baseUrl && project && (pat || proxyUrl || isTunnelReady()));
+  const { baseUrl, project, pat } = getConfig();
+  return !!(baseUrl && project && (pat || isTunnelReady()));
 }
 
-function ensureConfig(): { baseUrl: string; project: string; pat: string; proxyUrl: string; proxySecret: string } {
+function ensureConfig(): { baseUrl: string; project: string; pat: string } {
   const c = getConfig();
   if (!c.baseUrl || !c.project) {
     throw new Error('AZURE_DEVOPS_BASE_URL and AZURE_DEVOPS_PROJECT must be set in .env.');
   }
-  if (!c.pat && !c.proxyUrl && !isTunnelReady()) {
-    throw new Error(
-      'Set AZURE_DEVOPS_PAT (direct), AZURE_DEVOPS_PROXY_URL (HTTP proxy), or connect the Azure tunnel client (WebSocket).'
-    );
+  if (!c.pat && !isTunnelReady()) {
+    throw new Error('Set AZURE_DEVOPS_PAT (direct) or connect the Azure tunnel client (WebSocket).');
   }
   return c;
 }
@@ -71,7 +67,7 @@ function formatFetchFailure(err: unknown): string {
 
 type AzureFetchResult = { ok: boolean; status: number; statusText: string; text: string; contentType: string };
 
-/** Prefer tunnel (local client), then HTTP proxy, then direct PAT. */
+/** Use tunnel when connected, otherwise direct PAT. */
 async function azureFetch(url: string, options: RequestInit = {}): Promise<AzureFetchResult> {
   const c = ensureConfig();
   if (isTunnelReady()) {
@@ -82,59 +78,6 @@ async function azureFetch(url: string, options: RequestInit = {}): Promise<Azure
         `Azure tunnel request failed. ${err instanceof Error ? err.message : String(err)}`
       );
     }
-  }
-  if (c.proxyUrl) {
-    const method = (options.method || 'GET').toUpperCase();
-    const body =
-      options.body === undefined || options.body === null
-        ? undefined
-        : typeof options.body === 'string'
-          ? options.body
-          : JSON.stringify(options.body);
-    const headers: Record<string, string> = {};
-    if (options.headers && typeof options.headers === 'object' && !Array.isArray(options.headers)) {
-      const h = options.headers as Record<string, string>;
-      for (const [k, v] of Object.entries(h)) if (v !== undefined && k.toLowerCase() !== 'authorization') headers[k] = String(v);
-    }
-    const proxyBody: { url: string; method: string; body?: string; headers?: Record<string, string> } = {
-      url,
-      method,
-      headers: Object.keys(headers).length ? headers : undefined,
-    };
-    if (body !== undefined) proxyBody.body = body;
-    const proxyHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(c.proxySecret ? { 'X-Proxy-Secret': c.proxySecret } : {}),
-    };
-    let res: Response;
-    try {
-      res = await fetch(`${c.proxyUrl}/forward`, {
-        method: 'POST',
-        headers: proxyHeaders,
-        body: JSON.stringify(proxyBody),
-      });
-    } catch (err) {
-      throw new Error(
-        `Azure proxy request failed. URL: ${c.proxyUrl}. ${formatFetchFailure(err)}`
-      );
-    }
-    const proxyJson = await res.json().catch(() => ({}));
-    const azureStatus = proxyJson.status ?? res.status;
-    const azureStatusText = proxyJson.statusText ?? res.statusText;
-    const text = typeof proxyJson.body === 'string' ? proxyJson.body : (proxyJson.body ? JSON.stringify(proxyJson.body) : '');
-    const contentType = typeof proxyJson.contentType === 'string' ? proxyJson.contentType : '';
-    if (!res.ok) {
-      throw new Error(
-        `Azure proxy error ${res.status}. ${typeof proxyJson.error === 'string' ? proxyJson.error : ''} ${proxyJson.detail || ''}`.trim()
-      );
-    }
-    return {
-      ok: azureStatus >= 200 && azureStatus < 300,
-      status: azureStatus,
-      statusText: azureStatusText,
-      text,
-      contentType,
-    };
   }
   const auth = authHeader(c.pat);
   let res: Response;

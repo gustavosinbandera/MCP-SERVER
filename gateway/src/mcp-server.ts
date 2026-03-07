@@ -52,6 +52,8 @@ import {
 } from './azure';
 import { findRelevantCode } from './bug-search-code';
 import { generatePossibleCauseEnglish, generateSolutionDescriptionEnglish, hasOpenAIForBugs } from './bug-solution-llm';
+import { parseFileWithTreeSitter } from './tree-sitter-tool';
+import { runSemgrepScan } from './semgrep-tool';
 import { info as logInfo } from './logger';
 import { getMcpToolsCatalog } from './mcp/tools-catalog';
 
@@ -1409,6 +1411,50 @@ mcpServer.tool(
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
+    },
+  );
+
+  mcpServer.tool(
+    'tree_sitter_parse',
+    'Parse a source file with Tree-sitter and return the AST as S-expression. Use when you need the syntax tree of a file (e.g. to analyze structure, find nodes). Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs. Path is relative to project root or absolute.',
+    { file_path: z.string() } as any,
+    async (args: { file_path: string }) => {
+      const result = parseFileWithTreeSitter(args.file_path);
+      if (!result.ok) {
+        return {
+          content: [{ type: 'text' as const, text: `Tree-sitter parse failed: ${result.error}\nPath: ${result.path}` }],
+        };
+      }
+      const header = `AST for ${result.path} (${result.language})\n\n`;
+      return {
+        content: [{ type: 'text' as const, text: header + (result.ast ?? '') }],
+      };
+    },
+  );
+
+  mcpServer.tool(
+    'semgrep_scan',
+    'Run Semgrep static analysis on a directory. Requires semgrep CLI installed (pip install semgrep). Use for security/quality scans. Path relative to project root or absolute. Optional: config (default "auto"), format (text|json).',
+    {
+      path: z.string(),
+      config: z.string().optional(),
+      format: z.enum(['text', 'json']).optional(),
+    } as any,
+    async (args: { path: string; config?: string; format?: 'text' | 'json' }) => {
+      const result = await runSemgrepScan({
+        path: args.path,
+        config: args.config,
+        format: args.format ?? 'text',
+      });
+      const parts: string[] = [`Target: ${result.target}`];
+      if (result.findingsCount !== undefined) parts.push(`Findings: ${result.findingsCount}`);
+      if (result.error) parts.push(`Note: ${result.error}`);
+      if (result.stdout) parts.push('\n--- stdout ---\n', result.stdout);
+      if (result.stderr) parts.push('\n--- stderr ---\n', result.stderr);
+      const text = parts.join('\n');
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
     },
   );
 

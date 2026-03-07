@@ -60,11 +60,14 @@ function connect() {
           ws.send(JSON.stringify({ type: 'error', id: msg.id, message: 'Not authenticated' }));
           return;
         }
+        const isDiff = String(msg.url).includes('/tfvc/diffs');
+        if (isDiff) console.log('[azure-tunnel] request diff:', msg.url.slice(0, 120) + '...');
         const method = (msg.method || 'GET').toUpperCase();
+        const incoming = msg.headers && typeof msg.headers === 'object' ? msg.headers : {};
         const headers = {
-          Authorization: authHeader(PAT),
+          ...incoming,
           Accept: 'application/json, text/plain, */*',
-          ...(msg.headers || {}),
+          Authorization: authHeader(PAT),
         };
         try {
           const res = await fetch(msg.url, {
@@ -72,6 +75,7 @@ function connect() {
             headers,
             body: method === 'GET' ? undefined : (msg.body || undefined),
           });
+          if (isDiff) console.log('[azure-tunnel] diff response:', res.status, res.statusText);
           const body = await res.text();
           const contentType = res.headers.get('content-type') || '';
           ws.send(

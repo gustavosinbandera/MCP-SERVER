@@ -213,6 +213,23 @@ export const MCP_TOOLS_CATALOG: ToolCatalogEntry[] = [
   { name: 'azure_count_changesets', description: 'Count TFVC changesets with filters. project, author, from_date, to_date, max_count.' },
   { name: 'azure_list_changesets', description: 'List TFVC changesets with filters. project, author, from_date, to_date, top (paginates internally).' },
   { name: 'azure_list_changeset_authors', description: 'List authors with changesets. Optional project; optional max_scan.' },
+  {
+    name: 'tree_sitter_parse',
+    description: 'Parse a source file with Tree-sitter and return the AST as S-expression. Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs.',
+    args: [{ name: 'file_path', type: 'string', required: true, description: 'Path relative to project root or absolute.' }],
+    examples: [{ title: 'Parse a TS file', args: { file_path: 'gateway/src/mcp-server.ts' } }],
+  },
+  {
+    name: 'semgrep_scan',
+    description: 'Run Semgrep static analysis on a directory. Requires semgrep CLI (pip install semgrep). Optional config (default "auto"), format (text|json).',
+    args: [
+      { name: 'path', type: 'string', required: true, description: 'Directory to scan (relative to project root or absolute).' },
+      { name: 'config', type: 'string', required: false, description: 'E.g. auto, p/javascript, p/typescript.' },
+      { name: 'format', type: 'string', required: false, enum: ['text', 'json'] },
+    ],
+    examples: [{ title: 'Scan gateway', args: { path: 'gateway', config: 'auto' } }],
+    notes: ['Requires semgrep installed on the system.'],
+  },
   { name: 'list_tools', description: 'List all available MCP tools with name and description.' },
 ];
 

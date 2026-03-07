@@ -10,7 +10,7 @@ Azure DevOps (Server) integration for the MCP Knowledge Hub: tools to list work 
 
 ### Client (`gateway/src/azure/client.ts`)
 
-- **Auth**: PAT (Personal Access Token) via Basic auth, or **proxy** when the gateway runs outside the corporate network (see below). Env vars: `AZURE_DEVOPS_BASE_URL`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_PAT` (or `AZURE_DEVOPS_PROXY_URL` for testing).
+- **Auth**: PAT (Personal Access Token) via Basic auth, or **WebSocket tunnel** when the instance has no PAT (see COMANDOS-INSTANCIA-EC2 §1d5). Env vars: `AZURE_DEVOPS_BASE_URL`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_PAT` (or tunnel client with `AZURE_TUNNEL_WS_URL`).
 - **Work items**: WIQL queries with filters: type (Bug/Task), states, year, top, assigned to @Me or a specific user.
 - **TFVC**: fetch changesets, files modified by changeset, file contents at a changeset, find previous changeset by path for diffs.
 - **Diff**: readable diff (LCS) between two file versions from consecutive changesets for the same path.
@@ -41,17 +41,9 @@ Azure DevOps (Server) integration for the MCP Knowledge Hub: tools to list work 
 - For **azure_bug_analysis_or_solution**: `OPENAI_API_KEY`; optional `AZURE_DEVOPS_FIELD_ANALYSIS` (default `Custom.PossibleCause`), `AZURE_DEVOPS_FIELD_SOLUTION` (default `Custom.SolutionDescription`). Adjust to your process field names if you don’t use those.
 - Reference: `gateway/.env.example`.
 
-### Testing when the gateway is outside the network (proxy)
+### Testing when the gateway is outside the network (tunnel)
 
-When the MCP gateway runs on a machine that **cannot** reach Azure (e.g. an instance without VPN), but you have a machine **with VPN** (e.g. your laptop), you can use a small proxy so the instance forwards Azure API calls through that machine:
-
-1. **On the machine with VPN** (same `.env` with PAT): run the proxy  
-   `npm run azure-proxy` (in `gateway/`). It listens on `0.0.0.0:3099` by default (set `PORT` to change). Optional: `PROXY_SECRET` to require header `X-Proxy-Secret`.
-2. **On the instance**: set in `.env`  
-   `AZURE_DEVOPS_BASE_URL=...`, `AZURE_DEVOPS_PROJECT=...`, `AZURE_DEVOPS_PROXY_URL=http://YOUR_IP:3099`  
-   and **do not** set `AZURE_DEVOPS_PAT` (the proxy adds it). Optional: `AZURE_DEVOPS_PROXY_SECRET` if the proxy uses `PROXY_SECRET`.
-
-The instance gateway will send all Azure requests to the proxy; the proxy calls Azure and returns the response. For production, deploy the gateway on a host that has network access to Azure and do not use the proxy.
+When the MCP gateway runs on the **instance** (no VPN, no PAT), use the **WebSocket tunnel**: the instance runs a WS server on port 3097; your machine (with VPN and PAT) runs `npm run azure-tunnel` (in `gateway/`) and connects to the instance. All Azure requests from the instance then go through the tunnel to your script, which calls Azure with your PAT. See **COMANDOS-INSTANCIA-EC2.md** §1d5.
 
 ---
 

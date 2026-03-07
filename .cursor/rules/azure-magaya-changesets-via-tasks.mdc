@@ -1,0 +1,16 @@
+---
+description: Estrategia para traer changesets usando tareas (list_work_items + get_bug_changesets)
+alwaysApply: true
+---
+
+# Azure/Magaya: changesets vía tareas
+
+Cuando el usuario pida **"los últimos N changesets"**, **"changesets recientes"** o **"tareas con changesets"** usando magaya (MCP Azure):
+
+1. **Listar tareas recientes** con `azure_list_work_items` (type=Task, top=20 o 30).
+2. **Por cada tarea**, obtener los changesets enlazados con `azure_get_bug_changesets` (el parámetro acepta cualquier work item id, no solo bugs).
+3. **Acumular** los changesets (ordenar por fecha si hace falta) hasta completar los N pedidos. Si no alcanzan, ampliar con más tareas (más páginas o más top).
+
+Ventaja: los changesets quedan con **contexto de trabajo** (qué tarea/bug los generó). Combinar `azure_list_work_items` + `azure_get_bug_changesets` da buen poder para este flujo.
+
+Si el usuario pide solo "últimas N tareas" sin mencionar changesets, usar solo `azure_list_work_items` con top=N.
