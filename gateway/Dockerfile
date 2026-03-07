@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip \
     && pip3 install --no-cache-dir --break-system-packages semgrep \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-ENV PATH="/usr/local/bin:${PATH}" SEMGREP_BIN=/usr/local/bin/semgrep
+ENV PATH="/usr/local/bin:${PATH}"
 COPY package*.json ./
 RUN npm ci --only=production
 COPY --from=builder /app/dist ./dist
