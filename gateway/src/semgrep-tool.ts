@@ -6,10 +6,27 @@
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { promisify } from 'util';
 import { getProjectRoot } from './config';
 
-const execFileAsync = promisify(execFile);
+function execFileWithOutput(
+  bin: string,
+  args: string[],
+  opts: { encoding: 'utf8'; maxBuffer: number; timeout: number }
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, opts, (err, stdout, stderr) => {
+      const out = stdout ?? '';
+      const errOut = stderr ?? '';
+      if (err) {
+        (err as NodeJS.ErrnoException & { stdout?: string; stderr?: string }).stdout = out;
+        (err as NodeJS.ErrnoException & { stdout?: string; stderr?: string }).stderr = errOut;
+        reject(err);
+      } else {
+        resolve({ stdout: out, stderr: errOut });
+      }
+    });
+  });
+}
 
 function resolvePath(inputPath: string): string {
   const trimmed = inputPath.trim();
@@ -60,12 +77,15 @@ export async function runSemgrepScan(options: {
   }
   args.push(targetDir);
 
+  const semgrepBin = process.env.SEMGREP_BIN || 'semgrep';
+  const execOpts = {
+    encoding: 'utf8' as const,
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 120_000,
+  };
+
   try {
-    const { stdout, stderr } = await execFileAsync('semgrep', args, {
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024, // 10 MB
-      timeout: 120_000, // 2 min
-    });
+    const { stdout, stderr } = await execFileWithOutput(semgrepBin, args, execOpts);
 
     let findingsCount: number | undefined;
     if (format === 'json' && stdout) {
@@ -86,20 +106,21 @@ export async function runSemgrepScan(options: {
       findingsCount,
     };
   } catch (err: unknown) {
-    const execErr = err as { code?: number; killed?: boolean; signal?: string; stdout?: string; stderr?: string };
-    const stdout = execErr.stdout ?? '';
-    const stderr = execErr.stderr ?? '';
-    const msg =
-      execErr.code === 1 && (stdout || stderr)
+    const execErr = err as { code?: number; killed?: boolean; signal?: string; stdout?: string; stderr?: string; message?: string };
+    const out = execErr.stdout ?? '';
+    const errOut = execErr.stderr ?? '';
+    let msg =
+      execErr.code === 1 && (out || errOut)
         ? 'Semgrep finished with findings (exit code 1).'
         : execErr instanceof Error
           ? execErr.message
           : String(err);
+    if (errOut && msg.indexOf(errOut) === -1) msg += '\nstderr: ' + errOut;
     return {
       ok: execErr.code === 1,
       target: relativeDisplay,
-      stdout: stdout || undefined,
-      stderr: stderr || undefined,
+      stdout: out || undefined,
+      stderr: errOut || undefined,
       error: msg,
     };
   }
