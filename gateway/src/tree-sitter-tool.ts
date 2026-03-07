@@ -1,6 +1,6 @@
 /**
  * Tree-sitter integration for MCP: parse source files and return AST (S-expression).
- * Supports TypeScript, TSX, JavaScript, JSX via tree-sitter grammars.
+ * Supports TypeScript, TSX, JavaScript, JSX, C, C++ via tree-sitter grammars.
  */
 
 import * as fs from 'fs';
@@ -9,9 +9,11 @@ import * as path from 'path';
 const Parser = require('tree-sitter') as typeof import('tree-sitter');
 import JavaScript from 'tree-sitter-javascript';
 import TypeScript from 'tree-sitter-typescript';
-import { getProjectRoot } from './config';
+import ParserC from 'tree-sitter-c';
+import ParserCpp from 'tree-sitter-cpp';
+import { getProjectRoot, getSharedDirsEntries } from './config';
 
-type LangKey = 'typescript' | 'tsx' | 'javascript';
+type LangKey = 'typescript' | 'tsx' | 'javascript' | 'c' | 'cpp';
 
 const EXT_TO_LANG: Record<string, LangKey> = {
   '.ts': 'typescript',
@@ -20,6 +22,14 @@ const EXT_TO_LANG: Record<string, LangKey> = {
   '.jsx': 'javascript',
   '.mjs': 'javascript',
   '.cjs': 'javascript',
+  '.c': 'c',
+  '.h': 'c',
+  '.cpp': 'cpp',
+  '.cc': 'cpp',
+  '.cxx': 'cpp',
+  '.c++': 'cpp',
+  '.hpp': 'cpp',
+  '.hxx': 'cpp',
 };
 
 function getLanguageForPath(filePath: string): LangKey | undefined {
@@ -31,21 +41,48 @@ function createParserForLang(lang: LangKey): InstanceType<typeof Parser> {
   const parser = new Parser();
   if (lang === 'javascript') {
     parser.setLanguage(JavaScript);
-  } else {
-    // typescript | tsx
+  } else if (lang === 'typescript' || lang === 'tsx') {
     const ts = TypeScript;
     parser.setLanguage(lang === 'tsx' ? ts.tsx : ts.typescript);
+  } else if (lang === 'c') {
+    parser.setLanguage(ParserC);
+  } else {
+    parser.setLanguage(ParserCpp);
   }
   return parser;
 }
 
+const pathSep = path.sep;
+const pathSepAlt = pathSep === '/' ? '\\' : '/';
+
 /**
- * Resolve path: if relative, resolve against project root; otherwise use as-is (if absolute).
+ * Resolve path: if absolute, use as-is. Otherwise try (1) project root, then (2) SHARED_DIRS
+ * when the path starts with a project name (e.g. blueivory/..., classic/...).
  */
-function resolvePath(inputPath: string): string {
-  const trimmed = inputPath.trim();
-  if (path.isAbsolute(trimmed)) return trimmed;
-  return path.join(getProjectRoot(), trimmed);
+function resolvePath(inputPath: string): { resolved: string; relativeDisplay: string } {
+  const trimmed = inputPath.trim().replace(/[/\\]+/g, pathSep);
+  if (path.isAbsolute(trimmed)) {
+    return { resolved: trimmed, relativeDisplay: trimmed };
+  }
+  const projectRoot = getProjectRoot();
+  const fromProjectRoot = path.join(projectRoot, trimmed);
+  if (fs.existsSync(fromProjectRoot)) {
+    return { resolved: fromProjectRoot, relativeDisplay: path.relative(projectRoot, fromProjectRoot) || trimmed };
+  }
+  const entries = getSharedDirsEntries();
+  for (const entry of entries) {
+    const prefix = entry.project + pathSep;
+    const prefixAlt = entry.project + pathSepAlt;
+    if (trimmed.startsWith(prefix) || trimmed.startsWith(prefixAlt)) {
+      const rest = trimmed.slice(entry.project.length + 1).replace(/[/\\]+/g, pathSep);
+      const underShared = path.join(entry.path, rest);
+      if (fs.existsSync(underShared)) {
+        const display = path.relative(entry.path, underShared);
+        return { resolved: underShared, relativeDisplay: `${entry.project}/${display.replace(/\\/g, '/')}` };
+      }
+    }
+  }
+  return { resolved: fromProjectRoot, relativeDisplay: path.relative(projectRoot, fromProjectRoot) || trimmed };
 }
 
 export interface TreeSitterParseResult {
@@ -58,11 +95,10 @@ export interface TreeSitterParseResult {
 
 /**
  * Parse a source file with Tree-sitter and return the AST as S-expression string.
- * Supported extensions: .ts, .tsx, .js, .jsx, .mjs, .cjs.
+ * Supported extensions: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx.
  */
 export function parseFileWithTreeSitter(filePath: string): TreeSitterParseResult {
-  const resolved = resolvePath(filePath);
-  const relativeDisplay = path.relative(getProjectRoot(), resolved);
+  const { resolved, relativeDisplay } = resolvePath(filePath);
 
   if (!fs.existsSync(resolved)) {
     return { ok: false, path: relativeDisplay, error: `File not found: ${resolved}` };
@@ -79,7 +115,7 @@ export function parseFileWithTreeSitter(filePath: string): TreeSitterParseResult
     return {
       ok: false,
       path: relativeDisplay,
-      error: `Unsupported extension "${ext}". Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs`,
+      error: `Unsupported extension "${ext}". Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx`,
     };
   }
 

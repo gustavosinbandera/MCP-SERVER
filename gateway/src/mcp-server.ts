@@ -1416,7 +1416,7 @@ mcpServer.tool(
 
   mcpServer.tool(
     'tree_sitter_parse',
-    'Parse a source file with Tree-sitter and return the AST as S-expression. Use when you need the syntax tree of a file (e.g. to analyze structure, find nodes). Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs. Path is relative to project root or absolute.',
+    'Parse a source file with Tree-sitter and return the AST as S-expression. Use when you need the syntax tree of a file (e.g. to analyze structure, find nodes). Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx. Path is relative to project root or absolute.',
     { file_path: z.string() } as any,
     async (args: { file_path: string }) => {
       const result = parseFileWithTreeSitter(args.file_path);

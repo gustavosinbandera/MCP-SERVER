@@ -215,7 +215,7 @@ export const MCP_TOOLS_CATALOG: ToolCatalogEntry[] = [
   { name: 'azure_list_changeset_authors', description: 'List authors with changesets. Optional project; optional max_scan.' },
   {
     name: 'tree_sitter_parse',
-    description: 'Parse a source file with Tree-sitter and return the AST as S-expression. Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs.',
+    description: 'Parse a source file with Tree-sitter and return the AST as S-expression. Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx.',
     args: [{ name: 'file_path', type: 'string', required: true, description: 'Path relative to project root or absolute.' }],
     examples: [{ title: 'Parse a TS file', args: { file_path: 'gateway/src/mcp-server.ts' } }],
   },

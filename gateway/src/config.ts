@@ -31,8 +31,10 @@ export const INDEX_CONCURRENCY = Math.min(
   20
 );
 
-/** Project root (parent of gateway/). Used to resolve relative paths in SHARED_DIRS. */
+/** Project root (parent of gateway/). Used to resolve relative paths in SHARED_DIRS. In Docker, set PROJECT_ROOT=/app if needed. */
 export function getProjectRoot(): string {
+  const envRoot = process.env.PROJECT_ROOT?.trim();
+  if (envRoot) return path.resolve(envRoot);
   return path.resolve(__dirname, '..', '..');
 }
 
