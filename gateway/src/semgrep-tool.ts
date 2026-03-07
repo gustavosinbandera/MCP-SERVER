@@ -116,6 +116,9 @@ export async function runSemgrepScan(options: {
           ? execErr.message
           : String(err);
     if (errOut && msg.indexOf(errOut) === -1) msg += '\nstderr: ' + errOut;
+    if (errOut && (errOut.includes('404') || errOut.includes('invalid configuration')) && config.toLowerCase().includes('cpp')) {
+      msg += '\nHint: For C/C++ use config "p/c" or "auto"; "p/cpp" is not in the Semgrep registry.';
+    }
     return {
       ok: execErr.code === 1,
       target: relativeDisplay,
