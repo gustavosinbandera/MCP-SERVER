@@ -60,12 +60,8 @@ export async function runSemgrepScan(options: {
   }
   args.push(targetDir);
 
-  // Prefer python3 -m semgrep so it works in Docker when semgrep is installed via pip (PATH may not include it)
-  const semgrepCmd = process.env.SEMGREP_CMD || 'python3';
-  const semgrepArgs = process.env.SEMGREP_CMD ? args : ['-m', 'semgrep', ...args];
-
   try {
-    const { stdout, stderr } = await execFileAsync(semgrepCmd, semgrepArgs, {
+    const { stdout, stderr } = await execFileAsync('semgrep', args, {
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024, // 10 MB
       timeout: 120_000, // 2 min
