@@ -138,6 +138,7 @@ services:
       # SHARED_DIRS=classic:classic;blueivory:blueivory resuelve contra project root = /app en el contenedor
       - ./classic:/app/classic
       - ./blueivory:/app/blueivory
+      - ./gateway:/app/gateway:ro
       - ./INDEX_INBOX:/app/INDEX_INBOX
       - ./USER_KB:/app/USER_KB
     expose:
