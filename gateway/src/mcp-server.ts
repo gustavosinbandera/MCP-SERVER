@@ -66,8 +66,8 @@ import {
 } from './azure/response-envelope';
 import { findRelevantCode } from './bug-search-code';
 import { generatePossibleCauseEnglish, generateSolutionDescriptionEnglish, hasOpenAIForBugs } from './bug-solution-llm';
-import { parseFileWithTreeSitter } from './tree-sitter-tool';
-import { runSemgrepScan } from './semgrep-tool';
+import { parseFileWithTreeSitter, TREE_SITTER_V2_DELIMITER } from './tree-sitter-tool';
+import { runSemgrepScan, SEMGREP_V2_DELIMITER } from './semgrep-tool';
 import { runGrepCode } from './tools/grep-code';
 import { runGrepSymbols } from './tools/grep-symbols';
 import { info as logInfo } from './logger';
@@ -1594,42 +1594,108 @@ mcpServer.tool(
 
   mcpServer.tool(
     'tree_sitter_parse',
-    'Parse a source file with Tree-sitter and return the AST as S-expression. Use when you need the syntax tree of a file (e.g. to analyze structure, find nodes). Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx. Path is relative to project root or absolute.',
-    { file_path: z.string() } as any,
-    async (args: { file_path: string }) => {
-      const result = parseFileWithTreeSitter(args.file_path);
+    'Parse a source file with Tree-sitter and return the AST as S-expression. Supports an automation-friendly summary mode via summary_only. Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx. Path is relative to project root or absolute.',
+    {
+      file_path: z.string(),
+      summary_only: z.boolean().optional(),
+      max_top_node_types: z.number().optional(),
+      max_interesting_nodes: z.number().optional(),
+    } as any,
+    async (args: { file_path: string; summary_only?: boolean; max_top_node_types?: number; max_interesting_nodes?: number }) => {
+      const result = parseFileWithTreeSitter(args.file_path, {
+        summaryOnly: args.summary_only,
+        maxTopNodeTypes: args.max_top_node_types,
+        maxInterestingNodes: args.max_interesting_nodes,
+      });
       if (!result.ok) {
         return {
           content: [{ type: 'text' as const, text: `Tree-sitter parse failed: ${result.error}\nPath: ${result.path}` }],
         };
       }
-      const header = `AST for ${result.path} (${result.language})\n\n`;
+      const summaryLines = [
+        `Tree-sitter parse completed`,
+        `Path: ${result.path}`,
+        `Language: ${result.language}`,
+        `Total nodes: ${result.summary?.totalNodes ?? 0}`,
+        `Named nodes: ${result.summary?.namedNodes ?? 0}`,
+        `Max depth: ${result.summary?.maxDepth ?? 0}`,
+      ];
+      if ((result.summary?.interestingNodes.length ?? 0) > 0) {
+        summaryLines.push(
+          `Interesting nodes: ${result.summary?.interestingNodes.slice(0, 8).map((n) => `${n.type}@${n.startLine}-${n.endLine}`).join(', ')}`,
+        );
+      }
+      const text = args.summary_only
+        ? `${summaryLines.join('\n')}${TREE_SITTER_V2_DELIMITER}${JSON.stringify({
+            path: result.path,
+            language: result.language,
+            summary: result.summary,
+            ast_included: false,
+          }, null, 2)}`
+        : `${summaryLines.join('\n')}\n\nAST for ${result.path} (${result.language})\n\n${result.ast ?? ''}${TREE_SITTER_V2_DELIMITER}${JSON.stringify({
+            path: result.path,
+            language: result.language,
+            summary: result.summary,
+            ast_included: true,
+          }, null, 2)}`;
       return {
-        content: [{ type: 'text' as const, text: header + (result.ast ?? '') }],
+        content: [{ type: 'text' as const, text }],
       };
     },
   );
 
   mcpServer.tool(
     'semgrep_scan',
-    'Run Semgrep static analysis on a directory. Requires semgrep CLI installed (pip install semgrep). Use for security/quality scans. Path relative to project root or absolute. Optional: config (default "auto"), format (text|json).',
+    'Run Semgrep static analysis on a directory. Requires semgrep CLI installed (pip install semgrep). Use for security/quality scans. Path relative to project root or absolute. Optional: config (default "auto"), format (text|json), timeout_ms, include and exclude comma-separated glob filters.',
     {
       path: z.string(),
       config: z.string().optional(),
       format: z.enum(['text', 'json']).optional(),
+      timeout_ms: z.number().optional(),
+      include: z.string().optional(),
+      exclude: z.string().optional(),
     } as any,
-    async (args: { path: string; config?: string; format?: 'text' | 'json' }) => {
+    async (args: { path: string; config?: string; format?: 'text' | 'json'; timeout_ms?: number; include?: string; exclude?: string }) => {
       const result = await runSemgrepScan({
         path: args.path,
         config: args.config,
         format: args.format ?? 'text',
+        timeoutMs: args.timeout_ms,
+        include: args.include,
+        exclude: args.exclude,
       });
-      const parts: string[] = [`Target: ${result.target}`];
+      const parts: string[] = [
+        `Semgrep scan ${result.ok ? 'completed' : 'failed'}`,
+        `Target: ${result.target}`,
+        `Status: ${result.status}`,
+        `Config: ${result.config}`,
+        `Format: ${result.format}`,
+        `Elapsed ms: ${result.elapsedMs}`,
+        `Timed out: ${result.timedOut ? 'yes' : 'no'}`,
+      ];
+      if (result.exitCode != null) parts.push(`Exit code: ${result.exitCode}`);
       if (result.findingsCount !== undefined) parts.push(`Findings: ${result.findingsCount}`);
+      if (result.includePatterns?.length) parts.push(`Include: ${result.includePatterns.join(', ')}`);
+      if (result.excludePatterns?.length) parts.push(`Exclude: ${result.excludePatterns.join(', ')}`);
       if (result.error) parts.push(`Note: ${result.error}`);
       if (result.stdout) parts.push('\n--- stdout ---\n', result.stdout);
       if (result.stderr) parts.push('\n--- stderr ---\n', result.stderr);
-      const text = parts.join('\n');
+      const envelope = {
+        target: result.target,
+        status: result.status,
+        ok: result.ok,
+        config: result.config,
+        format: result.format,
+        elapsed_ms: result.elapsedMs,
+        timed_out: result.timedOut,
+        exit_code: result.exitCode ?? null,
+        findings_count: result.findingsCount ?? null,
+        include_patterns: result.includePatterns ?? [],
+        exclude_patterns: result.excludePatterns ?? [],
+        error: result.error ?? null,
+        parsed_json: result.parsedJson ?? null,
+      };
+      const text = `${parts.join('\n')}${SEMGREP_V2_DELIMITER}${JSON.stringify(envelope, null, 2)}`;
       return {
         content: [{ type: 'text' as const, text }],
       };

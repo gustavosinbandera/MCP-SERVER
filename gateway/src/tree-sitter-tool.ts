@@ -14,6 +14,26 @@ import ParserCpp from 'tree-sitter-cpp';
 import { getProjectRoot, getSharedDirsEntries } from './config';
 
 type LangKey = 'typescript' | 'tsx' | 'javascript' | 'c' | 'cpp';
+export const TREE_SITTER_V2_DELIMITER = '\n\n<!--TREE_SITTER_V2-->\n';
+
+interface TreeSitterNodeSummary {
+  type: string;
+  count: number;
+}
+
+interface TreeSitterInterestingNode {
+  type: string;
+  startLine: number;
+  endLine: number;
+}
+
+export interface TreeSitterSummary {
+  totalNodes: number;
+  namedNodes: number;
+  maxDepth: number;
+  topNodeTypes: TreeSitterNodeSummary[];
+  interestingNodes: TreeSitterInterestingNode[];
+}
 
 const EXT_TO_LANG: Record<string, LangKey> = {
   '.ts': 'typescript',
@@ -90,14 +110,84 @@ export interface TreeSitterParseResult {
   path: string;
   language?: LangKey;
   ast?: string;
+  summary?: TreeSitterSummary;
   error?: string;
+}
+
+type TreeNodeLike = {
+  type: string;
+  isNamed?: boolean;
+  childCount: number;
+  child: (index: number) => TreeNodeLike | null;
+  startPosition?: { row: number; column: number };
+  endPosition?: { row: number; column: number };
+};
+
+const INTERESTING_NODE_TYPES = [
+  'function',
+  'method',
+  'class',
+  'struct',
+  'namespace',
+  'interface',
+  'enum',
+];
+
+function summarizeTree(rootNode: TreeNodeLike, maxTopNodeTypes = 12, maxInterestingNodes = 20): TreeSitterSummary {
+  const counts = new Map<string, number>();
+  const interestingNodes: TreeSitterInterestingNode[] = [];
+  let totalNodes = 0;
+  let namedNodes = 0;
+  let maxDepth = 0;
+
+  const visit = (node: TreeNodeLike, depth: number) => {
+    totalNodes += 1;
+    if (node.isNamed) namedNodes += 1;
+    if (depth > maxDepth) maxDepth = depth;
+    counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+
+    const lowerType = node.type.toLowerCase();
+    if (
+      interestingNodes.length < maxInterestingNodes &&
+      INTERESTING_NODE_TYPES.some((part) => lowerType.includes(part))
+    ) {
+      interestingNodes.push({
+        type: node.type,
+        startLine: (node.startPosition?.row ?? 0) + 1,
+        endLine: (node.endPosition?.row ?? 0) + 1,
+      });
+    }
+
+    for (let i = 0; i < node.childCount; i += 1) {
+      const child = node.child(i);
+      if (child) visit(child, depth + 1);
+    }
+  };
+
+  visit(rootNode, 0);
+
+  const topNodeTypes = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, maxTopNodeTypes)
+    .map(([type, count]) => ({ type, count }));
+
+  return {
+    totalNodes,
+    namedNodes,
+    maxDepth,
+    topNodeTypes,
+    interestingNodes,
+  };
 }
 
 /**
  * Parse a source file with Tree-sitter and return the AST as S-expression string.
  * Supported extensions: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx.
  */
-export function parseFileWithTreeSitter(filePath: string): TreeSitterParseResult {
+export function parseFileWithTreeSitter(
+  filePath: string,
+  options?: { summaryOnly?: boolean; maxTopNodeTypes?: number; maxInterestingNodes?: number },
+): TreeSitterParseResult {
   const { resolved, relativeDisplay } = resolvePath(filePath);
 
   if (!fs.existsSync(resolved)) {
@@ -123,8 +213,13 @@ export function parseFileWithTreeSitter(filePath: string): TreeSitterParseResult
     const source = fs.readFileSync(resolved, 'utf8');
     const parser = createParserForLang(lang);
     const tree = parser.parse(source);
-    const ast = tree.rootNode.toString();
-    return { ok: true, path: relativeDisplay, language: lang, ast };
+    const summary = summarizeTree(
+      tree.rootNode as TreeNodeLike,
+      options?.maxTopNodeTypes,
+      options?.maxInterestingNodes,
+    );
+    const ast = options?.summaryOnly ? undefined : tree.rootNode.toString();
+    return { ok: true, path: relativeDisplay, language: lang, ast, summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, path: relativeDisplay, language: lang, error: message };

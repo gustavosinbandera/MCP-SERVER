@@ -255,20 +255,37 @@ export const MCP_TOOLS_CATALOG: ToolCatalogEntry[] = [
   { name: 'azure_list_changeset_authors', description: 'List authors with changesets. Optional project; optional max_scan.' },
   {
     name: 'tree_sitter_parse',
-    description: 'Parse a source file with Tree-sitter and return the AST as S-expression. Supported: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx.',
-    args: [{ name: 'file_path', type: 'string', required: true, description: 'Path relative to project root or absolute.' }],
-    examples: [{ title: 'Parse a TS file', args: { file_path: 'gateway/src/mcp-server.ts' } }],
+    description: 'Parse a source file with Tree-sitter and return the AST as S-expression. Also supports summary_only for automation-friendly metadata.',
+    args: [
+      { name: 'file_path', type: 'string', required: true, description: 'Path relative to project root or absolute.' },
+      { name: 'summary_only', type: 'boolean', required: false, description: 'If true, omits the AST body and returns only summary metadata.' },
+      { name: 'max_top_node_types', type: 'number', required: false, description: 'Limit for top node types in summary (default 12).' },
+      { name: 'max_interesting_nodes', type: 'number', required: false, description: 'Limit for interesting nodes in summary (default 20).' },
+    ],
+    examples: [
+      { title: 'Parse a TS file', args: { file_path: 'gateway/src/mcp-server.ts' } },
+      { title: 'Get summary only', args: { file_path: 'blueivory/blueivory/ALO/ALOHelper.cpp', summary_only: true } },
+    ],
   },
   {
     name: 'semgrep_scan',
-    description: 'Run Semgrep static analysis on a directory. Requires semgrep CLI (pip install semgrep). Optional config (default "auto"), format (text|json).',
+    description: 'Run Semgrep static analysis on a directory. Returns human summary plus machine-readable metadata after <!--SEMGREP_V2-->. Optional config, format, timeout_ms, include, exclude.',
     args: [
       { name: 'path', type: 'string', required: true, description: 'Directory to scan (relative to project root or absolute).' },
       { name: 'config', type: 'string', required: false, description: 'E.g. auto, p/javascript, p/typescript.' },
       { name: 'format', type: 'string', required: false, enum: ['text', 'json'] },
+      { name: 'timeout_ms', type: 'number', required: false, description: 'Optional timeout in milliseconds (clamped to safe limits).' },
+      { name: 'include', type: 'string', required: false, description: 'Optional comma-separated include glob patterns.' },
+      { name: 'exclude', type: 'string', required: false, description: 'Optional comma-separated exclude glob patterns.' },
     ],
-    examples: [{ title: 'Scan gateway', args: { path: 'gateway', config: 'auto' } }],
-    notes: ['Requires semgrep installed on the system.'],
+    examples: [
+      { title: 'Scan gateway', args: { path: 'gateway', config: 'auto' } },
+      { title: 'Scan candidate C++ folder', args: { path: 'blueivory/blueivory/ALO', config: 'p/cpp', format: 'json', timeout_ms: 45000 } },
+    ],
+    notes: [
+      'Requires semgrep installed on the system.',
+      'Best used on focused subdirectories instead of entire repos for automation flows.',
+    ],
   },
   {
     name: 'grep_code',
@@ -317,4 +334,3 @@ export function getMcpToolByName(name: string): ToolCatalogEntry | undefined {
   if (!n) return undefined;
   return MCP_TOOLS_CATALOG.find((t) => t.name === n);
 }
-
