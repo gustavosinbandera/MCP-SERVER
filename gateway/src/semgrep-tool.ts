@@ -36,6 +36,7 @@ export interface SemgrepScanResult {
   stdout?: string;
   stderr?: string;
   error?: string;
+  warnings?: string[];
   includePatterns?: string[];
   excludePatterns?: string[];
   /** Parsed findings count when output is JSON (optional). */
@@ -56,6 +57,17 @@ function parsePatterns(input?: string): string[] {
     .filter(Boolean);
 }
 
+function normalizeConfig(input?: string): { requested: string; effective: string; warnings: string[] } {
+  const requested = input?.trim() || 'auto';
+  const warnings: string[] = [];
+  let effective = requested;
+  if (requested === 'p/cpp') {
+    effective = 'p/c';
+    warnings.push('Semgrep registry config "p/cpp" is not valid in Semgrep 1.154.0; using "p/c" instead.');
+  }
+  return { requested, effective, warnings };
+}
+
 /**
  * Run semgrep scan on a path. Uses CLI: semgrep scan --config <config> --json (or --text).
  * config: "auto" (default), "p/javascript", "p/typescript", or path to rule file.
@@ -72,7 +84,7 @@ export async function runSemgrepScan(options: {
   const startedAt = Date.now();
   const targetDir = resolvePath(options.path);
   const relativeDisplay = path.relative(getProjectRoot(), targetDir);
-  const config = options.config?.trim() || 'auto';
+  const { effective: config, warnings } = normalizeConfig(options.config);
   const format = options.format || 'text';
   const timeoutMs = clampTimeout(options.timeoutMs);
   const includePatterns = parsePatterns(options.include);
@@ -88,6 +100,7 @@ export async function runSemgrepScan(options: {
       elapsedMs: Date.now() - startedAt,
       timedOut: false,
       error: `Path not found: ${targetDir}`,
+      warnings,
     };
   }
 
@@ -102,6 +115,7 @@ export async function runSemgrepScan(options: {
       elapsedMs: Date.now() - startedAt,
       timedOut: false,
       error: `Not a directory: ${targetDir}`,
+      warnings,
     };
   }
 
@@ -151,6 +165,7 @@ export async function runSemgrepScan(options: {
       exitCode: 0,
       stdout: stdout || undefined,
       stderr: stderr || undefined,
+      warnings: warnings.length ? warnings : undefined,
       includePatterns: includePatterns.length ? includePatterns : undefined,
       excludePatterns: excludePatterns.length ? excludePatterns : undefined,
       findingsCount,
@@ -197,6 +212,7 @@ export async function runSemgrepScan(options: {
       exitCode: execErr.code,
       stdout: stdout || undefined,
       stderr: stderr || undefined,
+      warnings: warnings.length ? warnings : undefined,
       includePatterns: includePatterns.length ? includePatterns : undefined,
       excludePatterns: excludePatterns.length ? excludePatterns : undefined,
       error: msg,

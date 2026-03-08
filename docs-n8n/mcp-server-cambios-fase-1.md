@@ -84,6 +84,7 @@ Se mejoro la tool para que devuelva metadatos utiles para automatizacion.
 - soporte para `include` y `exclude` como listas separadas por coma
 - mejor deteccion de timeout real
 - mejor diferenciacion entre findings, no findings y error de ejecucion
+- normalizacion de config `p/cpp` -> `p/c` para compatibilidad con Semgrep `1.154.0`
 
 ### Beneficio
 
@@ -130,6 +131,7 @@ Se agrego una capa de resumen para automatizacion.
   - `topNodeTypes`
   - `interestingNodes`
 - modo `summary_only` para evitar devolver AST gigante cuando no hace falta
+- parseo por chunks para evitar el error `Invalid argument` con archivos grandes
 
 ### Beneficio
 
@@ -175,7 +177,7 @@ Ejemplo recomendado para C/C++:
 - no escanear todo `blueivory` o `classic` como primer intento,
 - usar subdirectorios candidatos,
 - usar `format: "json"` para flujos automatizados,
-- usar `p/cpp` en vez de `auto` para codigo C/C++,
+- para C/C++, pedir `p/cpp` desde el workflow es aceptable, pero el gateway lo normaliza internamente a `p/c` porque `p/cpp` devuelve 404 en Semgrep `1.154.0`,
 - tratar `timeout` como warning y no como fallo total del pipeline.
 
 ## 5.2 Uso recomendado de `tree_sitter_parse`

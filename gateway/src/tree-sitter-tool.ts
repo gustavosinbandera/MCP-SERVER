@@ -180,6 +180,11 @@ function summarizeTree(rootNode: TreeNodeLike, maxTopNodeTypes = 12, maxInterest
   };
 }
 
+function parseSourceChunked(parser: InstanceType<typeof Parser>, source: string) {
+  const chunkSize = 16 * 1024;
+  return parser.parse((index: number) => source.slice(index, index + chunkSize));
+}
+
 /**
  * Parse a source file with Tree-sitter and return the AST as S-expression string.
  * Supported extensions: .ts, .tsx, .js, .jsx, .mjs, .cjs, .c, .h, .cpp, .cc, .cxx, .c++, .hpp, .hxx.
@@ -212,7 +217,7 @@ export function parseFileWithTreeSitter(
   try {
     const source = fs.readFileSync(resolved, 'utf8');
     const parser = createParserForLang(lang);
-    const tree = parser.parse(source);
+    const tree = parseSourceChunked(parser, source);
     const summary = summarizeTree(
       tree.rootNode as TreeNodeLike,
       options?.maxTopNodeTypes,

@@ -1675,6 +1675,7 @@ mcpServer.tool(
       ];
       if (result.exitCode != null) parts.push(`Exit code: ${result.exitCode}`);
       if (result.findingsCount !== undefined) parts.push(`Findings: ${result.findingsCount}`);
+      if (result.warnings?.length) parts.push(`Warnings: ${result.warnings.join(' | ')}`);
       if (result.includePatterns?.length) parts.push(`Include: ${result.includePatterns.join(', ')}`);
       if (result.excludePatterns?.length) parts.push(`Exclude: ${result.excludePatterns.join(', ')}`);
       if (result.error) parts.push(`Note: ${result.error}`);
@@ -1690,6 +1691,7 @@ mcpServer.tool(
         timed_out: result.timedOut,
         exit_code: result.exitCode ?? null,
         findings_count: result.findingsCount ?? null,
+        warnings: result.warnings ?? [],
         include_patterns: result.includePatterns ?? [],
         exclude_patterns: result.excludePatterns ?? [],
         error: result.error ?? null,
