@@ -8,9 +8,9 @@ RUN npm run build
 
 FROM node:20-slim
 WORKDIR /app
-# Install Semgrep (Python) so semgrep_scan MCP tool works in the container
+# Install Semgrep (Python) and ripgrep so semgrep_scan and grep_code/grep_symbols work in the container
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip \
+    python3 python3-pip ripgrep \
     && pip3 install --no-cache-dir --break-system-packages semgrep \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 ENV PATH="/usr/local/bin:${PATH}"

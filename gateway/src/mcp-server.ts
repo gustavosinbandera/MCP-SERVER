@@ -68,6 +68,8 @@ import { findRelevantCode } from './bug-search-code';
 import { generatePossibleCauseEnglish, generateSolutionDescriptionEnglish, hasOpenAIForBugs } from './bug-solution-llm';
 import { parseFileWithTreeSitter } from './tree-sitter-tool';
 import { runSemgrepScan } from './semgrep-tool';
+import { runGrepCode } from './tools/grep-code';
+import { runGrepSymbols } from './tools/grep-symbols';
 import { info as logInfo } from './logger';
 import { getMcpToolsCatalog } from './mcp/tools-catalog';
 
@@ -1631,6 +1633,67 @@ mcpServer.tool(
       return {
         content: [{ type: 'text' as const, text }],
       };
+    },
+  );
+
+  mcpServer.tool(
+    'grep_code',
+    'Search with ripgrep (rg) in blueivory or classic. Exact/regex matches. Returns envelope: summary_text, data.matches (file, line, column, text, context_before/after), meta. Complements search_docs (Qdrant).',
+    {
+      pattern: z.string(),
+      path: z.string().optional(),
+      include: z.string().optional(),
+      ignore_case: z.boolean().optional(),
+      max_matches: z.number().optional(),
+      context_lines: z.number().optional(),
+    } as any,
+    async (args: {
+      pattern: string;
+      path?: string;
+      include?: string;
+      ignore_case?: boolean;
+      max_matches?: number;
+      context_lines?: number;
+    }) => {
+      const result = await runGrepCode({
+        pattern: args.pattern,
+        path: args.path,
+        include: args.include,
+        ignore_case: args.ignore_case,
+        max_matches: args.max_matches,
+        context_lines: args.context_lines,
+      });
+      const text = JSON.stringify(result, null, 2);
+      return { content: [{ type: 'text' as const, text }] };
+    },
+  );
+
+  mcpServer.tool(
+    'grep_symbols',
+    'Extract C/C++ symbols (function, class, struct, namespace) in blueivory or classic via ripgrep. Returns envelope: summary_text, data.counts, data.symbols (kind, name, file, line, signature). Useful for flow and entrypoints.',
+    {
+      query: z.string().optional(),
+      path: z.string().optional(),
+      symbol_types: z.array(z.enum(['function', 'class', 'struct', 'namespace'])).optional(),
+      max_results: z.number().optional(),
+      include: z.string().optional(),
+    } as any,
+    async (args: {
+      query?: string;
+      path?: string;
+      symbol_types?: Array<'function' | 'class' | 'struct' | 'namespace'>;
+      max_results?: number;
+      include?: string;
+    }) => {
+      const result = await runGrepSymbols({
+        query: args.query,
+        path: args.path,
+        symbol_types: args.symbol_types,
+        max_results: args.max_results,
+        include: args.include,
+      });
+      const text = JSON.stringify(result, null, 2);
+      return { content: [{ type: 'text' as const, text }] };
     },
   );
 

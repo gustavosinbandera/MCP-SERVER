@@ -4,7 +4,7 @@
 
 - **mcp-ec2.yaml** – Stack que crea:
   - Security Group (puertos 22, 80, 443)
-  - Instancia EC2 **mcp-server-instance** (Amazon Linux 2023, 30 GB gp3)
+  - Instancia EC2 **mcp-server-instance** (Amazon Linux 2023, 150 GB gp3)
 - **Scripts (orden de secuencia):**
   - **1-create-stack.ps1** – Crear el stack
   - **2-get-outputs.ps1** – Ver estado y outputs (IP, URL, comando SSH)
@@ -124,6 +124,37 @@ Para que la indexación (classic, blueivory) se ejecute **desde la instancia EC2
    Si expusiste el puerto 80 (nginx) o 3001 (gateway), prueba el health y la búsqueda según tu API (por ejemplo `GET /health` y la ruta de búsqueda de documentos).
 
 Si cambias código en classic/blueivory y quieres que se reindexe solo lo cambiado, deja **INDEX_SHARED_REINDEX_CHANGED=true** en el `.env`; la indexación por diff solo embeberá los chunks nuevos o modificados.
+
+---
+
+## Ampliar disco (volumen EBS) en instancia existente
+
+Si la instancia ya existe con 80 GB y quieres llevarla a 150 GB (o más):
+
+1. **Obtener el ID del volumen** (en tu PC o en la consola AWS):
+   ```powershell
+   aws ec2 describe-instances --instance-ids <InstanceId> --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='/dev/xvda'].Ebs.VolumeId" --output text
+   ```
+   O en consola AWS: EC2 → Instances → tu instancia → pestaña Storage → Volume ID.
+
+2. **Modificar el tamaño del volumen** (ej. 150 GB):
+   ```powershell
+   aws ec2 modify-volume --volume-id vol-xxxxxxxx --size 150
+   ```
+   Espera unos minutos a que el estado del volumen sea `completed` (EC2 → Volumes → estado del volumen).
+
+3. **En la instancia (SSH)** extender la partición y el sistema de archivos:
+   ```bash
+   # Partición (nvme en Amazon Linux 2023)
+   sudo growpart /dev/nvme0n1 1
+   # Sistema de archivos (XFS es lo habitual en AL2023)
+   sudo xfs_growfs /
+   # Si fuera ext4:
+   # sudo resize2fs /dev/nvme0n1p1
+   ```
+   Comprobar: `df -h /` debe mostrar el nuevo tamaño.
+
+La plantilla **mcp-ec2.yaml** tiene ya `VolumeSize: 150` para que nuevas instancias creadas con el stack salgan con 150 GB.
 
 ---
 

@@ -270,6 +270,41 @@ export const MCP_TOOLS_CATALOG: ToolCatalogEntry[] = [
     examples: [{ title: 'Scan gateway', args: { path: 'gateway', config: 'auto' } }],
     notes: ['Requires semgrep installed on the system.'],
   },
+  {
+    name: 'grep_code',
+    description:
+      'Search with ripgrep (rg) in blueivory or classic. Exact/regex matches. Returns envelope: summary_text, data.matches (file, line, column, text, context), meta. Complements search_docs.',
+    args: [
+      { name: 'pattern', type: 'string', required: true, description: 'Regex or literal search pattern.' },
+      { name: 'path', type: 'string', required: false, description: "Default 'blueivory'. Only 'blueivory' or 'classic' (and subpaths)." },
+      { name: 'include', type: 'string', required: false, description: 'Glob, e.g. *.{cpp,h,hpp,c,cc,cxx}' },
+      { name: 'ignore_case', type: 'boolean', required: false },
+      { name: 'max_matches', type: 'number', required: false, description: 'Default 200, min 1 max 2000.' },
+      { name: 'context_lines', type: 'number', required: false, description: 'Lines before/after match, 0–3.' },
+    ],
+    examples: [
+      { title: 'Find symbol in blueivory', args: { pattern: 'AmountPaidInPaymentCurrency', path: 'blueivory' } },
+      { title: 'Case-insensitive in classic', args: { pattern: 'Trial balance', path: 'classic', ignore_case: true } },
+    ],
+    notes: ['Requires ripgrep (rg) installed. Path must not be absolute or contain ..'],
+  },
+  {
+    name: 'grep_symbols',
+    description:
+      'Extract C/C++ symbols (function, class, struct, namespace) in blueivory or classic. Returns envelope: summary_text, data.counts, data.symbols. Useful for flow and entrypoints.',
+    args: [
+      { name: 'query', type: 'string', required: false, description: 'Filter symbols by name (partial).' },
+      { name: 'path', type: 'string', required: false, description: "Default 'blueivory'. Only blueivory or classic." },
+      { name: 'symbol_types', type: 'string[]', required: false, description: "Default all. Values: 'function','class','struct','namespace'." },
+      { name: 'max_results', type: 'number', required: false, description: 'Default 300, max 3000.' },
+      { name: 'include', type: 'string', required: false, description: 'Glob for file types, default *.{h,hpp,c,cpp,...}' },
+    ],
+    examples: [
+      { title: 'Functions and classes in blueivory', args: { path: 'blueivory', symbol_types: ['function', 'class'] } },
+      { title: 'Symbols named Invoice', args: { query: 'Invoice', path: 'blueivory' } },
+    ],
+    notes: ['Requires ripgrep (rg) installed. Heuristic extraction, not full parser.'],
+  },
   { name: 'list_tools', description: 'List all available MCP tools with name and description.' },
 ];
 
