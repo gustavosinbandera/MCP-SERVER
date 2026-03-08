@@ -179,6 +179,21 @@ Entrada típica en n8n: salida del nodo HTTP Request que llama a `tools/call` co
 | `gateway/src/mcp-server.ts` | Definición de las tools Azure (parámetros, llamadas a envelope y a Azure client). |
 | `gateway/src/mcp/tools-catalog.ts` | Descripciones y argumentos de las tools para el catálogo público. |
 | `docs/n8n-format-work-items-table.js` | Script n8n para formatear listas de work items en tabla (v2 + legacy). |
+| `docs/n8n-build-bug-context.js` | Script n8n "Build bug context": parsea envelope v2 de azure_get_work_item y extrae title, description_text, expected/actual/repro para flujo Local→Remote Bug Analysis. |
+| `docs/n8n-build-bug-context-validation.js` | Validación E2E del contrato del parser: 3 casos (envelope v2 válido, legacy sin delimitador, envelope con error). Ejecutar: `node docs/n8n-build-bug-context-validation.js`. |
+| `docs/n8n-azure-v2-bug-analysis-workflow.md` | Plan del flujo: task_id → contexto v2 → 4 tools remotos (blueivory) → markdown draft; checklist, validación E2E del parser y siguiente fase. |
+
+---
+
+### Validación E2E del parser Build bug context
+
+El script **`docs/n8n-build-bug-context-validation.js`** comprueba que el parser del nodo "Build bug context" cumple el contrato en tres escenarios:
+
+- **Caso A:** payload con envelope v2 (delimitador + JSON con `data`) → `source = azure_v2`, campos desde `data`.
+- **Caso B:** texto legacy sin delimitador → `source = legacy_fallback`, título desde primera línea.
+- **Caso C:** envelope con `error` (p. ej. NOT_FOUND) → `source = azure_v2_error`, `error`/`error_code` rellenados, resto vacío.
+
+Ejecución: `node docs/n8n-build-bug-context-validation.js`. Detalle de casos y criterios: **[n8n-azure-v2-bug-analysis-workflow.md](n8n-azure-v2-bug-analysis-workflow.md)** §7.
 
 ---
 
