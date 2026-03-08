@@ -53,6 +53,12 @@ Thumbs.db
 *.log
 logs/
 
+# Temporal / generated (cookies, saved HTML, reportes)
+cookies.txt
+err.html
+response.html
+gateway/tmp/
+
 # Qdrant snapshots / backups (large binaries)
 gateway/snapshots/
 *.snapshot

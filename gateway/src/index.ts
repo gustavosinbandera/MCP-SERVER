@@ -48,7 +48,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const app = express();
-const PORT = process.env.GATEWAY_PORT || 3001;
+const PORT = Number(process.env.GATEWAY_PORT) || 3001;
 
 app.use(express.json());
 
@@ -459,7 +459,7 @@ app.get('/azure/work-items', async (req, res) => {
       req.query.includeChangesets === '1' ||
       req.query.includeChangesets === 'true' ||
       req.query.includeChangesets === 'yes';
-    const top = Math.min(Math.max(1, parseInt(String(req.query.top || '50'), 10) || 50), 200);
+    const top = Math.min(Math.max(1, parseInt(String(req.query.top || '50'), 10) || 50), 2000);
     const skip = Math.max(0, parseInt(String(req.query.skip || '0'), 10) || 0);
     const fromDate = parseDateOnly(from);
     const toDate = parseDateOnly(to);
@@ -467,16 +467,16 @@ app.get('/azure/work-items', async (req, res) => {
       res.status(400).json({ error: 'Invalid parameters. Use from/to as YYYY-MM-DD.' });
       return;
     }
-    const items = await listWorkItemsByDateRange({
+    const allItems = await listWorkItemsByDateRange({
       fromDate,
       toDate,
       assignedTo: assignedTo.trim() ? assignedTo.trim() : undefined,
       assignedToMe: false,
       dateField,
-      top,
-      skip,
     });
-    const mapped = (items || []).map((wi) => {
+    const totalCount = (allItems || []).length;
+    const items = (allItems || []).slice(skip, skip + top);
+    const mapped = items.map((wi) => {
       const f = wi.fields || {};
       const changesetIds = includeChangesets ? extractChangesetIds(wi) : undefined;
       const parentId = getParentWorkItemId(wi);
@@ -498,7 +498,7 @@ app.get('/azure/work-items', async (req, res) => {
           : {}),
       };
     });
-    res.json({ from: fromDate, to: toDate, count: mapped.length, items: mapped });
+    res.json({ from: fromDate, to: toDate, totalCount, count: mapped.length, items: mapped });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
@@ -1094,8 +1094,9 @@ app.delete('/mcp', requireJwt, async (req, res) => {
 
 if (require.main === module) {
   startAzureTunnelServer();
-  app.listen(PORT, () => {
-    console.log(`MCP Gateway listening on port ${PORT}`);
+  const host = process.env.GATEWAY_HOST ?? '0.0.0.0';
+  app.listen(PORT, host, () => {
+    console.log(`MCP Gateway listening on ${host}:${PORT}`);
     logInfo('Gateway started', { port: PORT, path: getLogFilePath() });
     // Warmup: a test session so the first real request doesn't pay cold start (JIT, connect).
     getOrCreateSession('_warmup', null)

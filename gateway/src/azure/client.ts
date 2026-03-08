@@ -65,14 +65,23 @@ function formatFetchFailure(err: unknown): string {
   return parts.join(' | ');
 }
 
-type AzureFetchResult = { ok: boolean; status: number; statusText: string; text: string; contentType: string };
+type AzureFetchResult = {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: string;
+  contentType: string;
+  /** Response headers (e.g. x-ms-continuationtoken for WIQL). Direct fetch only; tunnel returns {}. */
+  headers: Record<string, string>;
+};
 
 /** Use tunnel when connected, otherwise direct PAT. */
 async function azureFetch(url: string, options: RequestInit = {}): Promise<AzureFetchResult> {
   const c = ensureConfig();
   if (isTunnelReady()) {
     try {
-      return await requestViaTunnel(url, options);
+      const r = await requestViaTunnel(url, options);
+      return { ...r, headers: {} };
     } catch (err) {
       throw new Error(
         `Azure tunnel request failed. ${err instanceof Error ? err.message : String(err)}`
@@ -93,12 +102,17 @@ async function azureFetch(url: string, options: RequestInit = {}): Promise<Azure
     throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
   }
   const text = await res.text();
+  const headers: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    headers[k] = v;
+  });
   return {
     ok: res.ok,
     status: res.status,
     statusText: res.statusText,
     text,
     contentType: String(res.headers.get('content-type') || ''),
+    headers,
   };
 }
 
@@ -312,13 +326,9 @@ export async function listWorkItems(opts: ListWorkItemsOptions): Promise<WorkIte
   const top = Math.min(Math.max(1, opts.top ?? 50), 200);
   const url =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/wiql') +
-    `?api-version=${encodeURIComponent(API_VER)}`;
+    `?$top=${top}&api-version=${encodeURIComponent(API_VER)}`;
   const wiql = wiqlListQuery(opts);
-  const data = await httpJson<{ workItems?: { id: number }[] }>(url, {
-    method: 'POST',
-    body: JSON.stringify({ query: wiql }),
-  });
-  const ids = (data.workItems || []).map((w) => w.id).slice(0, top);
+  const ids = await wiqlCollectIds(url, { query: wiql }, top);
   if (ids.length === 0) return [];
   return getWorkItemsBatch(ids);
 }
@@ -539,16 +549,36 @@ export interface ListWorkItemsByDateRangeOptions {
   assignedToMe?: boolean;
   /** Which date field to filter on. */
   dateField?: 'created' | 'changed';
+  /** Filter by work item type (e.g. Bug, Task). */
+  type?: string;
+  /** Filter by states (e.g. New, Committed, In Progress). */
+  states?: string[];
+  /** Optional: exclude items with date >= this (for pagination). YYYY-MM-DD. */
+  toDateExclusive?: string;
 }
 
 function wiqlDateRangeQuery(options: ListWorkItemsByDateRangeOptions): string {
   const from = options.fromDate;
-  const to = options.toDate;
+  const to = options.toDateExclusive
+    ? options.toDateExclusive
+    : options.toDate;
+  const useExclusive = !!options.toDateExclusive;
   const assignedTo = (options.assignedTo || '').trim();
+  const type = (options.type || '').trim();
+  const states = options.states || [];
   const dateField = options.dateField === 'changed' ? 'System.ChangedDate' : 'System.CreatedDate';
   const where: string[] = [];
   where.push(`[${dateField}] >= '${from.replace(/'/g, "''")}'`);
-  where.push(`[${dateField}] <= '${to.replace(/'/g, "''")}'`);
+  if (useExclusive) {
+    where.push(`[${dateField}] < '${String(options.toDateExclusive).replace(/'/g, "''")}'`);
+  } else {
+    where.push(`[${dateField}] <= '${to.replace(/'/g, "''")}'`);
+  }
+  if (type) where.push(`[System.WorkItemType] = '${type.replace(/'/g, "''")}'`);
+  if (states.length > 0) {
+    const list = states.map((s) => `'${String(s).replace(/'/g, "''")}'`).join(', ');
+    where.push(`[System.State] IN (${list})`);
+  }
   if (assignedTo) {
     where.push(`[System.AssignedTo] CONTAINS '${assignedTo.replace(/'/g, "''")}'`);
   } else if (options.assignedToMe) {
@@ -561,33 +591,152 @@ function wiqlDateRangeQuery(options: ListWorkItemsByDateRangeOptions): string {
   return parts.join(' ');
 }
 
+const BATCH_MAX_IDS = 200;
+
 async function getWorkItemsBatch(ids: number[]): Promise<WorkItemBatchValue[]> {
+  if (ids.length === 0) return [];
   const { baseUrl, project } = ensureConfig();
   const url =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/workitemsbatch') +
     `?api-version=${encodeURIComponent(API_VER)}`;
-  const data = await httpJson<{ value?: WorkItemBatchValue[] }>(url, {
-    method: 'POST',
-    body: JSON.stringify({ ids, $expand: 'relations' }),
-  });
-  return data.value ?? [];
+  const out: WorkItemBatchValue[] = [];
+  for (let i = 0; i < ids.length; i += BATCH_MAX_IDS) {
+    const chunk = ids.slice(i, i + BATCH_MAX_IDS);
+    const data = await httpJson<{ value?: WorkItemBatchValue[] }>(url, {
+      method: 'POST',
+      body: JSON.stringify({ ids: chunk, $expand: 'relations' }),
+    });
+    const v = data.value ?? [];
+    out.push(...v);
+  }
+  return out;
 }
 
-export async function listWorkItemsByDateRange(options: ListWorkItemsByDateRangeOptions): Promise<WorkItemBatchValue[]> {
+const WIQL_PAGE_SIZE = 200;
+const WIQL_MAX_PAGES = 50;
+
+/** Run WIQL and follow x-ms-continuationtoken until we have enough ids or no more pages. */
+async function wiqlCollectIds(
+  baseUrl: string,
+  body: { query: string },
+  maxIds: number
+): Promise<number[]> {
+  const ids: number[] = [];
+  let url = baseUrl;
+  for (let page = 0; page < WIQL_MAX_PAGES && ids.length < maxIds; page++) {
+    const r = await azureFetch(url, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    });
+    if (!r.ok) {
+      let errMsg = r.status + ' ' + r.statusText;
+      try {
+        const parsed = r.text ? JSON.parse(r.text) : null;
+        if (parsed && typeof parsed === 'object') errMsg = JSON.stringify(parsed);
+      } catch (_) {}
+      throw new Error(`Azure DevOps WIQL failed: ${errMsg}`);
+    }
+    const data = (r.text ? JSON.parse(r.text) : null) as { workItems?: { id: number }[] } | null;
+    const workItems = (data?.workItems || []).map((w) => w.id);
+    for (const id of workItems) {
+      if (ids.length >= maxIds) break;
+      ids.push(id);
+    }
+    const token =
+      (r.headers && (r.headers['x-ms-continuationtoken'] ?? r.headers['X-Ms-ContinuationToken'])) as
+        | string
+        | undefined;
+    if (!token || workItems.length === 0) break;
+    url = `${baseUrl}&continuationToken=${encodeURIComponent(token)}`;
+  }
+  return ids;
+}
+
+/** Single page: run WIQL (with continuation token follow) and fetch batch. */
+async function listWorkItemsByDateRangePage(
+  options: ListWorkItemsByDateRangeOptions & { toDateExclusive?: string },
+  requestedTop: number
+): Promise<WorkItemBatchValue[]> {
   const { baseUrl, project } = ensureConfig();
-  const top = Math.min(Math.max(1, options.top ?? 50), 200);
-  const skip = Math.max(0, options.skip ?? 0);
-  const url =
+  const baseWiqlUrl =
     joinUrl(baseUrl, encodeURIComponent(project), '_apis/wit/wiql') +
-    `?api-version=${encodeURIComponent(API_VER)}`;
+    `?$top=${Math.min(WIQL_PAGE_SIZE, requestedTop)}&api-version=${encodeURIComponent(API_VER)}`;
   const wiql = wiqlDateRangeQuery(options);
-  const data = await httpJson<{ workItems?: { id: number }[] }>(url, {
-    method: 'POST',
-    body: JSON.stringify({ query: wiql }),
-  });
-  const ids = (data.workItems || []).map((w) => w.id).slice(skip, skip + top);
+  const ids = await wiqlCollectIds(baseWiqlUrl, { query: wiql }, requestedTop);
   if (ids.length === 0) return [];
   return getWorkItemsBatch(ids);
+}
+
+/** Pick the earliest date from a batch (for pagination: next page ends at day before this). */
+function minDateInBatch(items: WorkItemBatchValue[], dateField: 'created' | 'changed'): string | null {
+  const key = dateField === 'changed' ? 'System.ChangedDate' : 'System.CreatedDate';
+  let min: string | null = null;
+  for (const wi of items) {
+    const d = wi.fields?.[key];
+    if (typeof d === 'string') {
+      const dateOnly = d.slice(0, 10);
+      if (min == null || dateOnly < min) min = dateOnly;
+    }
+  }
+  return min;
+}
+
+/** Subtract one day from YYYY-MM-DD. */
+function dateMinusOneDay(dateYmd: string): string {
+  const d = new Date(dateYmd + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Fetch cap so we follow continuation and get the full date range (not just the first page). */
+const DATE_RANGE_FETCH_CAP = 2000;
+
+/** Single-call version: WIQL + continuation until cap. Returns all items in range (up to DATE_RANGE_FETCH_CAP). Caller can slice for pagination. */
+export async function listWorkItemsByDateRange(options: ListWorkItemsByDateRangeOptions): Promise<WorkItemBatchValue[]> {
+  const page = await listWorkItemsByDateRangePage(
+    { ...options, toDateExclusive: undefined },
+    DATE_RANGE_FETCH_CAP
+  );
+  return page;
+}
+
+/** Paginated version: multiple WIQL requests by date window until top items or no more. For MCP/n8n when server returns few per request. */
+export async function listWorkItemsByDateRangePaginated(
+  options: ListWorkItemsByDateRangeOptions
+): Promise<WorkItemBatchValue[]> {
+  const top = Math.min(Math.max(1, options.top ?? 50), 2000);
+  const skip = Math.max(0, options.skip ?? 0);
+  const dateField = options.dateField ?? 'changed';
+  const all: WorkItemBatchValue[] = [];
+  let toDate: string = options.toDate;
+  const seenIds = new Set<number>();
+  let iterations = 0;
+  const maxIterations = 100;
+
+  while (all.length < top + skip && iterations < maxIterations) {
+    iterations += 1;
+    const page = await listWorkItemsByDateRangePage(
+      { ...options, toDate, toDateExclusive: undefined },
+      WIQL_PAGE_SIZE
+    );
+    let added = 0;
+    for (const wi of page) {
+      if (seenIds.has(wi.id)) continue;
+      seenIds.add(wi.id);
+      all.push(wi);
+      added += 1;
+    }
+    if (page.length === 0) break;
+    if (added === 0) break;
+    const minD = minDateInBatch(page, dateField);
+    if (!minD || minD <= options.fromDate) break;
+    const nextTo = dateMinusOneDay(minD);
+    if (nextTo < options.fromDate) break;
+    toDate = nextTo;
+  }
+
+  return all.slice(skip, skip + top);
 }
 
 export async function addWorkItemCommentAsMarkdown(workItemId: number, commentText: string): Promise<void> {

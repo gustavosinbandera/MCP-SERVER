@@ -183,18 +183,58 @@ export const MCP_TOOLS_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'azure_list_work_items',
     description:
-      'List Azure DevOps work items. Optional assigned_to; if not set, assigned to you. Optional: type, states, year, top.',
+      'List Azure DevOps work items. Returns v2 envelope: summary_text (human) + data.items[] (id, title, state, type, assigned_to, changed_date). Optional: from_date, to_date, assigned_to, type, states, top, date_field (created|changed).',
     args: [
       { name: 'type', type: 'string', required: false, description: 'E.g. Bug | Task' },
       { name: 'states', type: 'string', required: false, description: 'CSV: "New,Committed,In Progress"' },
       { name: 'year', type: 'number', required: false },
       { name: 'top', type: 'number', required: false },
       { name: 'assigned_to', type: 'string', required: false },
+      { name: 'from_date', type: 'string', required: false, description: 'Start date YYYY-MM-DD (inclusive)' },
+      { name: 'to_date', type: 'string', required: false, description: 'End date YYYY-MM-DD (inclusive); if omitted when from_date is set, today is used' },
+      { name: 'date_field', type: 'string', required: false, enum: ['created', 'changed'], description: 'Filter by System.CreatedDate or System.ChangedDate (default: changed)' },
     ],
-    examples: [{ title: 'Top 10 assigned to me', args: { top: 10 } }],
+    examples: [
+      { title: 'Top 10 assigned to me', args: { top: 10 } },
+      { title: 'Bugs last month to today', args: { type: 'Bug', states: 'New,Committed,In Progress', assigned_to: 'Gustavo Grisales', from_date: '2026-02-07', top: 50 } },
+    ],
   },
-  { name: 'azure_get_work_item', description: 'Get work item details. work_item_id.' },
-  { name: 'azure_get_work_item_updates', description: 'Work item update history (logs). work_item_id; optional top.' },
+  {
+    name: 'azure_list_work_items_by_date',
+    description:
+      'List work items by date range with pagination (for n8n). Returns v2 envelope: summary_text + data.items[]. from_date required (YYYY-MM-DD); to_date optional (default today). Optional: type, states, assigned_to, top (max 2000), date_field.',
+    args: [
+      { name: 'from_date', type: 'string', required: true, description: 'Start date YYYY-MM-DD (inclusive)' },
+      { name: 'to_date', type: 'string', required: false, description: 'End date YYYY-MM-DD (inclusive); default today' },
+      { name: 'type', type: 'string', required: false },
+      { name: 'states', type: 'string', required: false, description: 'CSV: New,Committed,In Progress' },
+      { name: 'assigned_to', type: 'string', required: false },
+      { name: 'top', type: 'number', required: false },
+      { name: 'date_field', type: 'string', required: false, enum: ['created', 'changed'] },
+    ],
+    examples: [{ title: 'Bugs for Gustavo last month to today', args: { from_date: '2026-02-07', type: 'Bug', states: 'New,Committed,In Progress', assigned_to: 'Gustavo Grisales', top: 100 } }],
+  },
+  {
+    name: 'azure_get_work_item',
+    description:
+      'Get work item details. work_item_id. Optional mode: compact (default, structured data + description/expected/actual/repro as plain text), full (compact + raw fields), legacy (plain text only). Returns v2 envelope: summary_text, data, meta (elapsed_ms).',
+    args: [
+      { name: 'work_item_id', type: 'number', required: true },
+      { name: 'mode', type: 'string', required: false, enum: ['compact', 'full', 'legacy'] },
+    ],
+  },
+  {
+    name: 'azure_get_work_item_updates',
+    description:
+      'Work item update history. work_item_id; optional top, summary_only, only_relevant_fields, include_comments. Returns summary_text (changelog) and data.events[] (rev, author, changed_at, field, old, new).',
+    args: [
+      { name: 'work_item_id', type: 'number', required: true },
+      { name: 'top', type: 'number', required: false },
+      { name: 'summary_only', type: 'boolean', required: false },
+      { name: 'only_relevant_fields', type: 'boolean', required: false },
+      { name: 'include_comments', type: 'boolean', required: false },
+    ],
+  },
   {
     name: 'azure_add_work_item_comment',
     description: 'Add a (Markdown) comment to a work item (Discussion / System.History). work_item_id, comment_text.',

@@ -11,17 +11,23 @@ Azure DevOps (Server) integration for the MCP Knowledge Hub: tools to list work 
 ### Client (`gateway/src/azure/client.ts`)
 
 - **Auth**: PAT (Personal Access Token) via Basic auth, or **WebSocket tunnel** when the instance has no PAT (see COMANDOS-INSTANCIA-EC2 §1d5). Env vars: `AZURE_DEVOPS_BASE_URL`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_PAT` (or tunnel client with `AZURE_TUNNEL_WS_URL`).
-- **Work items**: WIQL queries with filters: type (Bug/Task), states, year, top, assigned to @Me or a specific user.
+- **Work items**: WIQL queries with filters: type (Bug/Task), year, top, assigned to @Me or a specific user. Opcional: states; si no se indica, se devuelven ítems en cualquier estado.
 - **TFVC**: fetch changesets, files modified by changeset, file contents at a changeset, find previous changeset by path for diffs.
 - **Diff**: readable diff (LCS) between two file versions from consecutive changesets for the same path.
+
+### Respuesta v2 (envelope) para n8n/LLM
+
+Varias tools devuelven ahora un **envelope estructurado**: texto legible (`summary_text`) + JSON (`data`, `meta`) tras el delimitador `<!--AZURE_V2-->`. Así los flujos n8n pueden usar `data.items` o `data.events` sin parsear texto. Detalle completo: **[AZURE-TOOLS-V2-ENVELOPE.md](AZURE-TOOLS-V2-ENVELOPE.md)**.
 
 ### MCP tools
 
 | Tool | Description |
 |------|-------------|
 | **azure** | Alias: `action` "list tasks", optional `user` (e.g. "gustavo grisales"). No user = assigned to you. |
-| **azure_list_work_items** | Lists work items. Optional: `assigned_to`, `type`, `states`, `year`, `top`. |
-| **azure_get_work_item** | Work item details by ID. |
+| **azure_list_work_items** | Lists work items. Returns v2 envelope with `data.items[]`. Optional: `assigned_to`, `type`, `states`, `year`, `top`, `from_date`, `to_date`, `date_field`. |
+| **azure_list_work_items_by_date** | List by date range (for n8n). Returns v2 envelope with `data.items[]`. `from_date` required; optional `to_date`, `type`, `states`, `assigned_to`, `top` (max 2000), `date_field`. |
+| **azure_get_work_item** | Work item details by ID. Optional `mode`: `compact` (default, structured + description/expected/actual/repro), `full`, or `legacy` (plain text only). Returns v2 envelope when not legacy. |
+| **azure_get_work_item_updates** | Update history. Returns `data.events[]` and changelog in `summary_text`. Optional: `top`, `summary_only`, `only_relevant_fields`, `include_comments`. |
 | **azure_bug_analysis_or_solution** | Analysis or a suggested fix description for a bug. Params: `work_item_id`, `mode` ("analysis" \| "solution"); optional `assigned_to`. Writes either the likely cause (analysis) or a fix description in Markdown (solution). **Always in English** (dashboard language). Requires `OPENAI_API_KEY`; optional `AZURE_DEVOPS_FIELD_ANALYSIS`, `AZURE_DEVOPS_FIELD_SOLUTION`. |
 | **azure_get_bug_changesets** | TFVC changesets linked to a bug (ArtifactLink relations): author, date, comment, files. |
 | **azure_get_changeset** | Single changeset: author, date, comment, file list. |

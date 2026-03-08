@@ -36,6 +36,8 @@ import {
 import {
   hasAzureDevOpsConfig,
   listWorkItems,
+  listWorkItemsByDateRange,
+  listWorkItemsByDateRangePaginated,
   getWorkItem,
   getWorkItemWithRelations,
   getWorkItemUpdates,
@@ -50,6 +52,18 @@ import {
   updateWorkItemFields,
   addWorkItemCommentAsMarkdown,
 } from './azure';
+import {
+  workItemToCompact,
+  workItemSummaryLines,
+  workItemToListItem,
+  normalizeUpdates,
+  updatesSummaryText,
+  formatMcpContent,
+  formatMcpErrorContent,
+  toAzureErrorEnvelope,
+  type WorkItemUpdateEvent,
+  type AzureSuccessEnvelope,
+} from './azure/response-envelope';
 import { findRelevantCode } from './bug-search-code';
 import { generatePossibleCauseEnglish, generateSolutionDescriptionEnglish, hasOpenAIForBugs } from './bug-solution-llm';
 import { parseFileWithTreeSitter } from './tree-sitter-tool';
@@ -994,31 +1008,75 @@ mcpServer.tool(
 
   mcpServer.tool(
     'azure_list_work_items',
-    'List Azure DevOps work items (tickets/bugs/tasks). Without assigned_to: assigned to you (@Me). With assigned_to: assigned to that user (e.g. "Gustavo Grisales" or "ggrisales"). Optional filters: type (Bug/Task), states (New,Committed,In Progress), year, top. Returns assigned items up to now. Requires AZURE_DEVOPS_* in .env.',
+    'List Azure DevOps work items (tickets/bugs/tasks). Optional from_date (YYYY-MM-DD): filter from that date; if to_date is omitted, today is used. Without assigned_to: assigned to you (@Me). With assigned_to: assigned to that user. Optional: type (Bug/Task), states (New,Committed,In Progress), top. Requires AZURE_DEVOPS_* in .env.',
     {
       type: z.string().optional(),
       states: z.string().optional(),
       year: z.number().optional(),
       top: z.number().optional(),
       assigned_to: z.string().optional(),
+      from_date: z.string().optional(),
+      to_date: z.string().optional(),
+      date_field: z.enum(['created', 'changed']).optional(),
     } as any,
-    async (args: { type?: string; states?: string; year?: number; top?: number; assigned_to?: string }) => {
+    async (args: {
+      type?: string;
+      states?: string;
+      year?: number;
+      top?: number;
+      assigned_to?: string;
+      from_date?: string;
+      to_date?: string;
+      date_field?: 'created' | 'changed';
+    }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_BASE_URL, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT must be set in .env.' }] };
       }
+      const t0 = Date.now();
       try {
         const type = args.type?.trim();
         const states = args.states ? args.states.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
         const top = args.top ?? 50;
         const assignedTo = args.assigned_to?.trim();
-        const items = await listWorkItems({
-          type: type || undefined,
-          states,
-          year: args.year,
-          top,
-          assignedTo: assignedTo || undefined,
-          assignedToMe: !assignedTo,
-        });
+        const fromDate = args.from_date?.trim();
+        const toDateRaw = args.to_date?.trim();
+
+        function todayYYYYMMDD(): string {
+          const d = new Date();
+          return d.toISOString().slice(0, 10);
+        }
+
+        let items: Awaited<ReturnType<typeof listWorkItems>>;
+        if (fromDate) {
+          const toDate = toDateRaw || todayYYYYMMDD();
+          const parsedFrom = /^\d{4}-\d{2}-\d{2}$/.test(fromDate) ? fromDate : null;
+          const parsedTo = /^\d{4}-\d{2}-\d{2}$/.test(toDate) ? toDate : null;
+          if (!parsedFrom || !parsedTo) {
+            return {
+              content: [{ type: 'text' as const, text: `Invalid date format. Use YYYY-MM-DD for from_date and to_date. Got from_date=${fromDate} to_date=${toDate}.` }],
+            };
+          }
+          items = await listWorkItemsByDateRange({
+            fromDate: parsedFrom,
+            toDate: parsedTo,
+            top,
+            assignedTo: assignedTo || undefined,
+            assignedToMe: !assignedTo,
+            dateField: args.date_field ?? 'changed',
+            type: type || undefined,
+            states: states.length > 0 ? states : undefined,
+          });
+        } else {
+          items = await listWorkItems({
+            type: type || undefined,
+            states,
+            year: args.year,
+            top,
+            assignedTo: assignedTo || undefined,
+            assignedToMe: !assignedTo,
+          });
+        }
+
         const who = assignedTo ? `assigned to "${assignedTo}"` : 'assigned to you';
         const lines = items.length === 0
           ? [`No work items ${who} match those filters.`]
@@ -1027,69 +1085,187 @@ mcpServer.tool(
               const changed = f['System.ChangedDate'] ? `  ${String(f['System.ChangedDate']).slice(0, 10)}` : '';
               return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(untitled)'}${changed}`;
             });
-        return { content: [{ type: 'text' as const, text: `Work Items ${who} (${items.length}):\n${lines.join('\n')}` }] };
+        const summaryText = `Work Items ${who} (${items.length}):\n${lines.join('\n')}`;
+        const listItems = items.map((wi) => workItemToListItem(wi));
+        const envelope: AzureSuccessEnvelope<{ items: typeof listItems }> = {
+          summary_text: summaryText,
+          data: { items: listItems },
+          meta: { tool_version: 'v2', elapsed_ms: Date.now() - t0, warnings: [] },
+        };
+        return { content: [{ type: 'text' as const, text: formatMcpContent(envelope, true) }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
+        const errorEnv = toAzureErrorEnvelope(err);
+        return { content: [{ type: 'text' as const, text: formatMcpErrorContent(`Azure DevOps error: ${azureError(err)}`, errorEnv, true) }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_list_work_items_by_date',
+    'List Azure DevOps work items by date range with pagination (for n8n when you need many items). from_date required (YYYY-MM-DD); to_date optional (default today). Optional: type, states, assigned_to, top (max 2000), date_field (created|changed). Makes multiple requests internally so you get more than the API default limit.',
+    {
+      from_date: z.string(),
+      to_date: z.string().optional(),
+      type: z.string().optional(),
+      states: z.string().optional(),
+      assigned_to: z.string().optional(),
+      top: z.number().optional(),
+      date_field: z.enum(['created', 'changed']).optional(),
+    } as any,
+    async (args: {
+      from_date: string;
+      to_date?: string;
+      type?: string;
+      states?: string;
+      assigned_to?: string;
+      top?: number;
+      date_field?: 'created' | 'changed';
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const t0 = Date.now();
+      try {
+        function todayYYYYMMDD(): string {
+          return new Date().toISOString().slice(0, 10);
+        }
+        const fromDate = args.from_date?.trim();
+        const toDate = (args.to_date?.trim() || todayYYYYMMDD());
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+          return {
+            content: [{ type: 'text' as const, text: 'Use YYYY-MM-DD for from_date and to_date.' }],
+          };
+        }
+        const type = args.type?.trim();
+        const states = args.states ? args.states.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        const top = Math.min(Math.max(1, args.top ?? 100), 2000);
+        const assignedTo = args.assigned_to?.trim();
+        const items = await listWorkItemsByDateRangePaginated({
+          fromDate,
+          toDate,
+          top,
+          assignedTo: assignedTo || undefined,
+          assignedToMe: !assignedTo,
+          dateField: args.date_field ?? 'changed',
+          type: type || undefined,
+          states: states.length > 0 ? states : undefined,
+        });
+        const who = assignedTo ? `assigned to "${assignedTo}"` : 'assigned to you';
+        const lines = items.length === 0
+          ? [`No work items ${who} in ${fromDate}–${toDate}.`]
+          : items.map((item) => {
+              const f = item.fields || {};
+              const changed = f['System.ChangedDate'] ? `  ${String(f['System.ChangedDate']).slice(0, 10)}` : '';
+              return `#${item.id} [${f['System.WorkItemType'] ?? '?'}] (${f['System.State'] ?? '?'}) ${f['System.Title'] ?? '(untitled)'}${changed}`;
+            });
+        const summaryText = `Work Items ${who} (${items.length}) ${fromDate}–${toDate}:\n${lines.join('\n')}`;
+        const listItems = items.map((wi) => workItemToListItem(wi));
+        const envelope: AzureSuccessEnvelope<{ items: typeof listItems }> = {
+          summary_text: summaryText,
+          data: { items: listItems },
+          meta: { tool_version: 'v2', elapsed_ms: Date.now() - t0, warnings: [] },
+        };
+        return { content: [{ type: 'text' as const, text: formatMcpContent(envelope, true) }] };
+      } catch (err) {
+        const errorEnv = toAzureErrorEnvelope(err);
+        return { content: [{ type: 'text' as const, text: formatMcpErrorContent(`Azure DevOps error: ${azureError(err)}`, errorEnv, true) }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_get_work_item',
-    'Get Azure DevOps work item details by ID. Requires Azure DevOps config in .env.',
-    { work_item_id: z.number() } as any,
-    async (args: { work_item_id: number }) => {
+    'Get Azure DevOps work item details by ID. Optional mode: compact (default, structured data + description/expected/actual/repro as plain text), full (compact + raw fields), legacy (plain text only). Requires Azure DevOps config in .env.',
+    { work_item_id: z.number(), mode: z.enum(['compact', 'full', 'legacy']).optional() } as any,
+    async (args: { work_item_id: number; mode?: 'compact' | 'full' | 'legacy' }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
+      const t0 = Date.now();
+      const mode = args.mode ?? 'compact';
+      const useV2 = mode !== 'legacy';
       try {
         const wi = await getWorkItem(args.work_item_id);
-        const f = wi.fields || {};
-        const lines = [
-          `#${wi.id} ${f['System.Title'] ?? '(untitled)'}`,
-          `Type: ${f['System.WorkItemType'] ?? '?'}  State: ${f['System.State'] ?? '?'}`,
-          `AssignedTo: ${(f['System.AssignedTo'] as { displayName?: string })?.displayName ?? f['System.AssignedTo'] ?? '?'}`,
-          `Created: ${f['System.CreatedDate'] ?? '?'}  Changed: ${f['System.ChangedDate'] ?? '?'}`,
-          `Area: ${f['System.AreaPath'] ?? '?'}  Iteration: ${f['System.IterationPath'] ?? '?'}`,
-        ];
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        const elapsed = Date.now() - t0;
+        const compact = workItemToCompact(wi as { id: number; fields?: Record<string, unknown> });
+        const summaryText = workItemSummaryLines(compact).join('\n');
+        if (mode === 'legacy') {
+          return { content: [{ type: 'text' as const, text: summaryText }] };
+        }
+        const data = mode === 'full'
+          ? { ...compact, raw_fields: wi.fields ?? {} }
+          : compact;
+        const envelope: AzureSuccessEnvelope<typeof data> = {
+          summary_text: summaryText,
+          data,
+          meta: { tool_version: 'v2', elapsed_ms: elapsed, warnings: [] },
+        };
+        const text = formatMcpContent(envelope, true);
+        return { content: [{ type: 'text' as const, text }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
+        const elapsed = Date.now() - t0;
+        const humanMsg = `Azure DevOps error: ${azureError(err)}`;
+        const errorEnv = toAzureErrorEnvelope(err);
+        errorEnv.meta.elapsed_ms = elapsed;
+        const text = formatMcpErrorContent(humanMsg, errorEnv, useV2);
+        return { content: [{ type: 'text' as const, text }] };
       }
     },
   );
 
   mcpServer.tool(
     'azure_get_work_item_updates',
-    'Get the update history (logs) of an Azure DevOps work item: who changed what and when. Requires Azure DevOps config in .env.',
-    { work_item_id: z.number(), top: z.number().optional() } as any,
-    async (args: { work_item_id: number; top?: number }) => {
+    'Get the update history (logs) of an Azure DevOps work item. Returns summary_text (changelog) and data.events[] (rev, author, changed_at, field, old, new). Optional: top (default 50), summary_only (default true), only_relevant_fields (default true), include_comments (default true). Requires Azure DevOps config in .env.',
+    {
+      work_item_id: z.number(),
+      top: z.number().optional(),
+      summary_only: z.boolean().optional(),
+      only_relevant_fields: z.boolean().optional(),
+      include_comments: z.boolean().optional(),
+    } as any,
+    async (args: {
+      work_item_id: number;
+      top?: number;
+      summary_only?: boolean;
+      only_relevant_fields?: boolean;
+      include_comments?: boolean;
+    }) => {
       if (!hasAzureDevOpsConfig()) {
         return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
       }
+      const t0 = Date.now();
+      const summaryOnly = args.summary_only !== false;
+      const onlyRelevant = args.only_relevant_fields !== false;
+      const includeComments = args.include_comments !== false;
       try {
         const { value: updates } = await getWorkItemUpdates(args.work_item_id, args.top ?? 50);
+        const elapsed = Date.now() - t0;
         if (!updates || updates.length === 0) {
-          return { content: [{ type: 'text' as const, text: `Work item #${args.work_item_id}: no update history.` }] } as any;
+          const envelope: AzureSuccessEnvelope<{ work_item_id: number; events: WorkItemUpdateEvent[]; summary_only: boolean }> = {
+            summary_text: `Work item #${args.work_item_id}: no update history.`,
+            data: { work_item_id: args.work_item_id, events: [], summary_only: summaryOnly },
+            meta: { tool_version: 'v2', elapsed_ms: elapsed, warnings: [] },
+          };
+          return { content: [{ type: 'text' as const, text: formatMcpContent(envelope, true) }] };
         }
-        const lines: string[] = [`# Update history - Work Item #${args.work_item_id}`, ''];
-        for (const u of updates) {
-          const by = (u.revisedBy as { displayName?: string })?.displayName ?? '?';
-          const date = u.revisedDate ?? '?';
-          lines.push(`## Rev ${u.rev ?? '?'} — ${by} — ${String(date).slice(0, 19)}`);
-          if (u.fields && Object.keys(u.fields).length > 0) {
-            for (const [field, change] of Object.entries(u.fields)) {
-              const oldV = (change as { oldValue?: unknown }).oldValue;
-              const newV = (change as { newValue?: unknown }).newValue;
-              const short = (v: unknown) => (v == null ? '(empty)' : String(v).length > 80 ? String(v).slice(0, 77) + '...' : String(v));
-              lines.push(`  - ${field}: ${short(oldV)} → ${short(newV)}`);
-            }
-          }
-          lines.push('');
-        }
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] } as any;
+        const events = normalizeUpdates(args.work_item_id, updates, {
+          only_relevant_fields: onlyRelevant,
+          include_comments: includeComments,
+        });
+        const summaryText = updatesSummaryText(args.work_item_id, events, 15);
+        const envelope: AzureSuccessEnvelope<{ work_item_id: number; events: WorkItemUpdateEvent[]; summary_only: boolean }> = {
+          summary_text: summaryText,
+          data: { work_item_id: args.work_item_id, events, summary_only: summaryOnly },
+          meta: { tool_version: 'v2', elapsed_ms: elapsed, warnings: [] },
+        };
+        const text = formatMcpContent(envelope, true);
+        return { content: [{ type: 'text' as const, text }] };
       } catch (err) {
-        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
+        const elapsed = Date.now() - t0;
+        const humanMsg = `Azure DevOps error: ${azureError(err)}`;
+        const errorEnv = toAzureErrorEnvelope(err);
+        errorEnv.meta.elapsed_ms = elapsed;
+        return { content: [{ type: 'text' as const, text: formatMcpErrorContent(humanMsg, errorEnv, true) }] };
       }
     },
   );
