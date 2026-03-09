@@ -288,6 +288,24 @@ export const MCP_TOOLS_CATALOG: ToolCatalogEntry[] = [
     ],
   },
   {
+    name: 'read_file_region',
+    description:
+      'Read an exact file region from blueivory or classic. Supports either start_line/end_line or line with context_before/context_after. Returns summary_text plus data.file_path, data.start_line, data.end_line, data.content, and meta.',
+    args: [
+      { name: 'file_path', type: 'string', required: true, description: "Relative path starting with blueivory or classic." },
+      { name: 'start_line', type: 'number', required: false, description: '1-based start line.' },
+      { name: 'end_line', type: 'number', required: false, description: '1-based end line.' },
+      { name: 'line', type: 'number', required: false, description: 'Anchor line for context window mode.' },
+      { name: 'context_before', type: 'number', required: false, description: 'Lines before anchor (default 20).' },
+      { name: 'context_after', type: 'number', required: false, description: 'Lines after anchor (default 20).' },
+    ],
+    examples: [
+      { title: 'Exact region', args: { file_path: 'blueivory/ExpExpl/ItemPaymentUI.cpp', start_line: 120, end_line: 180 } },
+      { title: 'Anchor plus context', args: { file_path: 'classic/ExpExpl/SalesOrderPage.cpp', line: 240, context_before: 30, context_after: 30 } },
+    ],
+    notes: ['Region is truncated to a safe line count if too large.', 'Path must not be absolute or contain ..'],
+  },
+  {
     name: 'grep_code',
     description:
       'Search with ripgrep (rg) in blueivory or classic. Exact/regex matches. Returns envelope: summary_text, data.matches (file, line, column, text, context), meta. Complements search_docs.',

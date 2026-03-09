@@ -70,6 +70,7 @@ import { parseFileWithTreeSitter, TREE_SITTER_V2_DELIMITER } from './tree-sitter
 import { runSemgrepScan, SEMGREP_V2_DELIMITER } from './semgrep-tool';
 import { runGrepCode } from './tools/grep-code';
 import { runGrepSymbols } from './tools/grep-symbols';
+import { runReadFileRegion } from './tools/read-file-region';
 import { info as logInfo } from './logger';
 import { getMcpToolsCatalog } from './mcp/tools-catalog';
 
@@ -1701,6 +1702,38 @@ mcpServer.tool(
       return {
         content: [{ type: 'text' as const, text }],
       };
+    },
+  );
+
+  mcpServer.tool(
+    'read_file_region',
+    'Read an exact file region from blueivory or classic. Supports start_line/end_line or line + context_before/context_after. Returns envelope with summary_text, data.file_path, data.start_line, data.end_line, data.content, and meta.',
+    {
+      file_path: z.string(),
+      start_line: z.number().optional(),
+      end_line: z.number().optional(),
+      line: z.number().optional(),
+      context_before: z.number().optional(),
+      context_after: z.number().optional(),
+    } as any,
+    async (args: {
+      file_path: string;
+      start_line?: number;
+      end_line?: number;
+      line?: number;
+      context_before?: number;
+      context_after?: number;
+    }) => {
+      const result = runReadFileRegion({
+        file_path: args.file_path,
+        start_line: args.start_line,
+        end_line: args.end_line,
+        line: args.line,
+        context_before: args.context_before,
+        context_after: args.context_after,
+      });
+      const text = JSON.stringify(result, null, 2);
+      return { content: [{ type: 'text' as const, text }] };
     },
   );
 
