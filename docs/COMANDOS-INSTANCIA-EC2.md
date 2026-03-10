@@ -511,6 +511,53 @@ Default host and key: `ec2-user@52.91.217.181`, `infra/mcp-server-key.pem`. Run 
 
 ---
 
+## 7b. Supervisor: evitar que la instancia se congele al indexar (blueivory/classic)
+
+El **supervisor** indexa inbox + SHARED_DIRS (p. ej. blueivory) cada 2 minutos. Si la instancia se queda lenta o los servicios “se congelan”, suele deberse a:
+
+1. **Memoria**: Antes se cargaban **todos** los archivos del árbol en RAM; ahora se procesan en lotes (por defecto 400 archivos por lote) para no saturar la RAM.
+2. **Rate limit de OpenAI (429)**: Al indexar muchos archivos se disparan muchos embeddings; si se supera el límite de tokens/min, OpenAI devuelve 429 y el supervisor espera 90 s por reintento. Con varios ciclos seguidos la instancia se sobrecarga.
+3. **Concurrencia**: Por defecto se procesan hasta 5 archivos en paralelo (`INDEX_CONCURRENCY=5`). En instancias pequeñas conviene bajar a 2 o 3.
+
+**Variables de entorno recomendadas en la instancia** (en `.env` en la raíz del proyecto, o en `gateway/.env` según cómo se inyecten):
+
+| Variable | Descripción | Valor recomendado (instancia justa) |
+|----------|-------------|--------------------------------------|
+| `INDEX_CONCURRENCY` | Archivos indexados en paralelo | `2` o `3` (por defecto 5) |
+| `INDEX_SHARED_BATCH_FILES` | Archivos en RAM por lote en SHARED_DIRS | `400` (por defecto); subir si hay mucha RAM |
+| `SUPERVISOR_INTERVAL_MS` | Milisegundos entre ciclos | `300000` (5 min) para dar respiro |
+| `RESTART_DELAY_MS` | Ms antes de reintentar tras fallo de ciclo | `60000` (1 min) en lugar de 10 s |
+| `OPENAI_EMBED_BATCH_SIZE` | Textos por llamada a embeddings | `25` o `30` (por defecto 50) si hay 400/429 |
+
+**Ejemplo** (añadir o editar en el `.env` de la instancia):
+
+```env
+INDEX_CONCURRENCY=3
+SUPERVISOR_INTERVAL_MS=300000
+RESTART_DELAY_MS=60000
+OPENAI_EMBED_BATCH_SIZE=30
+```
+
+Reiniciar el supervisor para aplicar cambios:
+
+```bash
+docker compose restart supervisor
+```
+
+Si quieres **pausar** la indexación un tiempo:
+
+```bash
+docker compose stop supervisor
+```
+
+Para reanudar:
+
+```bash
+docker compose start supervisor
+```
+
+---
+
 ## 8. Production: mitigate 502 when nginx loses connection to gateway
 
 If Cursor stops connecting (502 Bad Gateway) after gateway restarts or network hiccups between containers:

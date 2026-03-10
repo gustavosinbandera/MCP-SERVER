@@ -125,6 +125,10 @@ services:
       MCP_LOGS_VIEW_BASE: ${MCP_LOGS_VIEW_BASE:-/api}
       PROJECT_ROOT: /app
       QDRANT_URL: http://qdrant:6333
+      SHARED_DIRS: ${SHARED_DIRS:-classic:/app/classic;blueivory:/app/blueivory}
+      SHARED_DIRS_ONCE: ${SHARED_DIRS_ONCE:-classic;blueivory}
+      INDEX_INBOX_DIR: ${INDEX_INBOX_DIR:-/app/INDEX_INBOX}
+      INDEX_SHARED_SYNC_DELETED: ${INDEX_SHARED_SYNC_DELETED:-false}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_hub}
       INDEXED_KEYS_DB: /app/data/indexed_keys.db
       INDEX_USE_PERSISTENT_KEYS: ${INDEX_USE_PERSISTENT_KEYS:-true}
@@ -159,7 +163,10 @@ services:
     restart: always
 
   # Indexación periódica (inbox + SHARED_DIRS cada 2 min). Usa la misma imagen y .env que gateway.
+  # Deshabilitado por defecto: solo arranca con docker compose --profile indexing up
   supervisor:
+    profiles:
+      - indexing
     build: ./gateway
     container_name: mcp-supervisor
     env_file:
@@ -167,6 +174,10 @@ services:
       - gateway/.env
     environment:
       QDRANT_URL: http://qdrant:6333
+      SHARED_DIRS: ${SHARED_DIRS:-classic:/app/classic;blueivory:/app/blueivory}
+      SHARED_DIRS_ONCE: ${SHARED_DIRS_ONCE:-classic;blueivory}
+      INDEX_INBOX_DIR: ${INDEX_INBOX_DIR:-/app/INDEX_INBOX}
+      INDEX_SHARED_SYNC_DELETED: ${INDEX_SHARED_SYNC_DELETED:-false}
       INDEXED_KEYS_DB: /app/data/indexed_keys.db
       INDEX_USE_PERSISTENT_KEYS: ${INDEX_USE_PERSISTENT_KEYS:-true}
       USER_KB_ROOT_DIR: /app/USER_KB

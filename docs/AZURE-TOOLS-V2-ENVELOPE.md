@@ -114,6 +114,32 @@ Errores con envelope uniforme:
 - Pensada para n8n cuando se necesitan muchos ítems (paginación interna, hasta 2000).
 - **meta:** `elapsed_ms` incluido.
 
+### 4.5 `azure_find_related_work_items`
+
+- Busca work items por **regex en `System.Title`** dentro de un rango de fechas.
+- Filtros opcionales: `type`, `states`, `assigned_to`, `date_field`, `scan_top`.
+- Puede exigir cambios asociados (`must_have_changesets=true` por defecto).
+- **Salida v2:** `data.matches[]` con item canónico + `changeset_ids`, además de `scanned`, `regex`, `regex_flags`.
+
+### 4.6 `azure_find_related_work_items_with_code_evidence`
+
+- Extiende la búsqueda relacionada con **evidencia de código** usando `grep_code` (mgrep) sobre `blueivory`/`classic`.
+- Cruza coincidencias de mgrep con archivos tocados por changesets vinculados.
+- Ranking por `score`, `code_evidence_count` y lista `code_evidence[]` (archivo/línea/texto).
+- Útil para triage y para inferir causa probable con soporte técnico real.
+
+### 4.7 `azure_ingest_changesets_bootstrap`
+
+- Ingesta histórica (backfill) de changesets TFVC por `paths` y ventana de fechas.
+- Destino: Postgres remoto en EC2 (vía SSH + `docker compose exec postgres psql`).
+- Crea/actualiza tablas de índice histórico para consultas rápidas de regresión.
+
+### 4.8 `azure_ingest_changesets_daily`
+
+- Ingesta incremental diaria (`days_back` configurable, default 2).
+- Mismo destino y estructura que bootstrap.
+- Pensada para scheduler/cron y para mantener índice actualizado.
+
 ---
 
 ## 5. Normalización semántica (campo y personas)
@@ -178,6 +204,7 @@ Entrada típica en n8n: salida del nodo HTTP Request que llama a `tools/call` co
 | `gateway/src/azure/index.ts` | Re-export de `response-envelope`. |
 | `gateway/src/mcp-server.ts` | Definición de las tools Azure (parámetros, llamadas a envelope y a Azure client). |
 | `gateway/src/mcp/tools-catalog.ts` | Descripciones y argumentos de las tools para el catálogo público. |
+| `gateway/src/tools/grep-code.ts` | Implementación de `grep_code` (mgrep) usada por la tool de evidencia de código. |
 | `docs/n8n-format-work-items-table.js` | Script n8n para formatear listas de work items en tabla (v2 + legacy). |
 | `docs/n8n-build-bug-context.js` | Script n8n "Build bug context": parsea envelope v2 de azure_get_work_item y extrae title, description_text, expected/actual/repro para flujo Local→Remote Bug Analysis. |
 | `docs/n8n-build-bug-context-validation.js` | Validación E2E del contrato del parser: 3 casos (envelope v2 válido, legacy sin delimitador, envelope con error). Ejecutar: `node docs/n8n-build-bug-context-validation.js`. |

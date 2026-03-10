@@ -36,6 +36,7 @@ import {
   BATCH_UPSERT_SIZE,
   MAX_FILE_SIZE_BYTES,
   INDEX_CONCURRENCY,
+  INDEX_SHARED_BATCH_FILES,
 } from './config';
 import { loadUserKbKeysAndHashes, setUserKbHash, keyOf as userKbKeyOf } from './user-kb-indexed-db';
 import { loadOneTimeIndexedProjects, addOneTimeIndexedProject } from './one-time-indexed-db';
@@ -141,6 +142,23 @@ function* walkTextFiles(
       }
     }
   }
+}
+
+/** Yields batches of files from walkTextFiles so we never hold the full tree in memory. */
+function* walkTextFilesBatched(
+  dirPath: string,
+  baseDir: string,
+  batchSize: number = INDEX_SHARED_BATCH_FILES
+): Generator<{ relativePath: string; content: string }[]> {
+  let batch: { relativePath: string; content: string }[] = [];
+  for (const item of walkTextFiles(dirPath, baseDir)) {
+    batch.push(item);
+    if (batch.length >= batchSize) {
+      yield batch;
+      batch = [];
+    }
+  }
+  if (batch.length > 0) yield batch;
 }
 
 async function ensureCollection(client: QdrantClient): Promise<void> {
@@ -555,76 +573,77 @@ export async function indexSharedDirs(): Promise<{ indexed: number; newCount: nu
       result.errors.push(`SHARED_DIR no existe o no es carpeta: ${root} (proyecto: ${project})`);
       continue;
     }
-    const files: { relativePath: string; content: string }[] = [];
+    const norm = (rp: string) => `${project}/${rp}`.replace(/\\/g, '/').replace(/\/+/g, '/');
+    const currentOnDisk = new Set<string>();
+    const branch = getBranchForProject(project);
     try {
-      for (const item of walkTextFiles(root, root)) files.push(item);
+      for (const batch of walkTextFilesBatched(root, root)) {
+        for (const f of batch) currentOnDisk.add(indexedKey(project, norm(f.relativePath)));
+        const toIndex: { relativePath: string; content: string; source_path: string; key: string; hash: string }[] = [];
+        const toReindex: { relativePath: string; content: string; source_path: string; key: string; hash: string }[] = [];
+        for (const f of batch) {
+          const source_path = norm(f.relativePath);
+          const key = indexedKey(project, source_path);
+          const hash = createHash('sha256').update(f.content).digest('hex');
+          if (!existingKeys.has(key)) {
+            toIndex.push({ ...f, source_path, key, hash });
+          } else if (needHashes && existingHashes.get(key) !== hash) {
+            toReindex.push({ ...f, source_path, key, hash });
+          }
+        }
+        const reindexCounts = await Promise.all(
+          toReindex.map((item) =>
+            limit(async () => {
+              const domain = getDomainForPath(project, item.relativePath);
+              const fileName = path.basename(item.relativePath);
+              const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
+              const meta: IndexDocumentMeta = {
+                source_path: item.source_path,
+                project,
+                source_type: 'code',
+                branch,
+                domain,
+                code_metadata,
+              };
+              if (hasEmbedding()) {
+                const oldPoints = await getPointsByProjectAndTitle(client, project, item.source_path);
+                await indexDocumentReindexWithDiff(client, item.content, meta, oldPoints);
+              } else {
+                await deleteByProjectAndTitle(client, project, item.source_path);
+                await indexDocument(client, item.source_path, item.content, meta);
+              }
+              existingKeys.add(item.key);
+              existingHashes.set(item.key, item.hash);
+              if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
+              return 1;
+            })
+          )
+        );
+        const reindexed = reindexCounts.reduce((a, b) => a + b, 0);
+        result.reindexedCount += reindexed;
+        result.indexed += reindexed;
+        const counts = await Promise.all(
+          toIndex.map((item) =>
+            limit(async () => {
+              const domain = getDomainForPath(project, item.relativePath);
+              const fileName = path.basename(item.relativePath);
+              const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
+              await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project, source_type: 'code', branch, domain, code_metadata });
+              existingKeys.add(item.key);
+              existingHashes.set(item.key, item.hash);
+              if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
+              return 1;
+            })
+          )
+        );
+        const newCount = counts.reduce((a, b) => a + b, 0);
+        result.newCount += newCount;
+        result.indexed += newCount;
+      }
     } catch (e) {
       result.errors.push(`${project}:${root}: ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }
-    const norm = (rp: string) => `${project}/${rp}`.replace(/\\/g, '/').replace(/\/+/g, '/');
-    const currentOnDisk = new Set(files.map((f) => indexedKey(project, norm(f.relativePath))));
-    const toIndex: { relativePath: string; content: string; source_path: string; key: string; hash: string }[] = [];
-    const toReindex: { relativePath: string; content: string; source_path: string; key: string; hash: string }[] = [];
-    for (const f of files) {
-      const source_path = norm(f.relativePath);
-      const key = indexedKey(project, source_path);
-      const hash = createHash('sha256').update(f.content).digest('hex');
-      if (!existingKeys.has(key)) {
-        toIndex.push({ ...f, source_path, key, hash });
-      } else if (needHashes && existingHashes.get(key) !== hash) {
-        toReindex.push({ ...f, source_path, key, hash });
-      }
-    }
-    const branch = getBranchForProject(project);
-    const reindexCounts = await Promise.all(
-      toReindex.map((item) =>
-        limit(async () => {
-          const domain = getDomainForPath(project, item.relativePath);
-          const fileName = path.basename(item.relativePath);
-          const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
-          const meta: IndexDocumentMeta = {
-            source_path: item.source_path,
-            project,
-            source_type: 'code',
-            branch,
-            domain,
-            code_metadata,
-          };
-          if (hasEmbedding()) {
-            const oldPoints = await getPointsByProjectAndTitle(client, project, item.source_path);
-            await indexDocumentReindexWithDiff(client, item.content, meta, oldPoints);
-          } else {
-            await deleteByProjectAndTitle(client, project, item.source_path);
-            await indexDocument(client, item.source_path, item.content, meta);
-          }
-          existingKeys.add(item.key);
-          existingHashes.set(item.key, item.hash);
-          if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
-          return 1;
-        })
-      )
-    );
-    const reindexed = reindexCounts.reduce((a, b) => a + b, 0);
-    result.reindexedCount += reindexed;
-    result.indexed += reindexed;
-    const counts = await Promise.all(
-      toIndex.map((item) =>
-        limit(async () => {
-          const domain = getDomainForPath(project, item.relativePath);
-          const fileName = path.basename(item.relativePath);
-          const code_metadata = isCodeFileForMetadata(fileName) ? extractCodeMetadata(item.content, fileName) : undefined;
-          await indexDocument(client, item.source_path, item.content, { source_path: item.source_path, project, source_type: 'code', branch, domain, code_metadata });
-          existingKeys.add(item.key);
-          existingHashes.set(item.key, item.hash);
-          if (isPersistentIndexEnabled()) addPersistentKey(project, item.source_path, item.hash);
-          return 1;
-        })
-      )
-    );
-    const newCount = counts.reduce((a, b) => a + b, 0);
-    result.newCount += newCount;
-    result.indexed += newCount;
     if (getSharedSyncDeleted()) {
       const prefix = project + '\0';
       const keysForProject = [...existingKeys].filter((k) => k.startsWith(prefix));

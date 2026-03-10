@@ -43,14 +43,20 @@ import {
   getWorkItemUpdates,
   extractChangesetIds,
   listChangesets,
+  listChangesetsByItemPath,
+  listGitRepositories,
+  listTfvcItems,
   listChangesetAuthors,
   getChangesetCount,
   getChangeset,
   getChangesetChanges,
   getChangesetFileDiff,
+  getTfvcItemTextAtChangeset,
   pickAuthor,
   updateWorkItemFields,
   addWorkItemCommentAsMarkdown,
+  collectChangesetsForPaths,
+  ingestRowsToRemotePostgres,
 } from './azure';
 import {
   workItemToCompact,
@@ -132,6 +138,49 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     name: 'mcp-knowledge-hub',
     version: '0.1.0',
   });
+
+  type IngestJob = {
+    job_id: string;
+    status: 'queued' | 'running' | 'completed' | 'failed';
+    created_at: string;
+    started_at?: string;
+    finished_at?: string;
+    error?: string;
+    mode: 'bootstrap' | 'daily';
+    params: Record<string, unknown>;
+    progress: {
+      stage: string;
+      percent: number;
+      message?: string;
+      changesets_seen?: number;
+      changesets_total_estimate?: number;
+      files_seen?: number;
+      work_item_links_seen?: number;
+    };
+    result?: {
+      ingested_changesets: number;
+      ingested_files: number;
+      ingested_work_item_links: number;
+      distinct_work_items: number;
+    };
+  };
+  const ingestJobs = new Map<string, IngestJob>();
+  const nowIso = () => new Date().toISOString();
+  const toPercent = (stage: string, seen?: number, total?: number): number => {
+    if (stage === 'done') return 100;
+    if (!total || total <= 0 || !seen || seen <= 0) {
+      if (stage === 'collecting') return 5;
+      if (stage === 'enriching') return 35;
+      if (stage === 'preparing_sql') return 70;
+      if (stage === 'writing_remote') return 92;
+      return 0;
+    }
+    if (stage === 'collecting') return Math.min(30, Math.floor((seen / total) * 30));
+    if (stage === 'enriching') return 30 + Math.min(35, Math.floor((seen / total) * 35));
+    if (stage === 'preparing_sql') return 65 + Math.min(25, Math.floor((seen / total) * 25));
+    if (stage === 'writing_remote') return 95;
+    return 0;
+  };
 
   mcpServer.tool(
   'search_docs',
@@ -1177,6 +1226,374 @@ mcpServer.tool(
   );
 
   mcpServer.tool(
+    'azure_find_related_work_items',
+    'Find Azure DevOps work items by regex match on title within a date range, optionally requiring linked changesets. Useful for topic-based discovery (e.g. shipment, invoice, AWB).',
+    {
+      from_date: z.string(),
+      to_date: z.string().optional(),
+      regex: z.string(),
+      regex_flags: z.string().optional(),
+      must_have_changesets: z.boolean().optional(),
+      type: z.string().optional(),
+      states: z.string().optional(),
+      assigned_to: z.string().optional(),
+      date_field: z.enum(['created', 'changed']).optional(),
+      top: z.number().optional(),
+      scan_top: z.number().optional(),
+    } as any,
+    async (args: {
+      from_date: string;
+      to_date?: string;
+      regex: string;
+      regex_flags?: string;
+      must_have_changesets?: boolean;
+      type?: string;
+      states?: string;
+      assigned_to?: string;
+      date_field?: 'created' | 'changed';
+      top?: number;
+      scan_top?: number;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const t0 = Date.now();
+      try {
+        function todayYYYYMMDD(): string {
+          return new Date().toISOString().slice(0, 10);
+        }
+
+        const fromDate = String(args.from_date || '').trim();
+        const toDate = String(args.to_date || '').trim() || todayYYYYMMDD();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+          return { content: [{ type: 'text' as const, text: 'Use YYYY-MM-DD for from_date and to_date.' }] };
+        }
+
+        const rawPattern = String(args.regex || '').trim();
+        if (!rawPattern) {
+          return { content: [{ type: 'text' as const, text: 'regex is required.' }] };
+        }
+        const rawFlags = String(args.regex_flags || 'i').trim();
+        // Global/sticky flags are stateful; avoid them in repeated .test() operations.
+        const safeFlags = rawFlags.replace(/g/g, '').replace(/y/g, '');
+        let titleRegex: RegExp;
+        try {
+          titleRegex = new RegExp(rawPattern, safeFlags);
+        } catch (err) {
+          return { content: [{ type: 'text' as const, text: `Invalid regex: ${azureError(err)}` }] };
+        }
+
+        const top = Math.min(Math.max(1, args.top ?? 50), 2000);
+        const scanTop = Math.min(Math.max(top, args.scan_top ?? Math.max(300, top * 4)), 2000);
+        const mustHaveChangesets = args.must_have_changesets !== false;
+        const type = args.type?.trim();
+        const states = args.states ? args.states.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        const assignedTo = args.assigned_to?.trim();
+
+        const items = await listWorkItemsByDateRangePaginated({
+          fromDate,
+          toDate,
+          top: scanTop,
+          assignedTo: assignedTo || undefined,
+          assignedToMe: !assignedTo,
+          dateField: args.date_field ?? 'changed',
+          type: type || undefined,
+          states: states.length > 0 ? states : undefined,
+        });
+
+        const filtered: Array<ReturnType<typeof workItemToListItem> & { changeset_ids: number[]; title_match: string }> = [];
+        for (const wi of items) {
+          const title = String(wi.fields?.['System.Title'] ?? '');
+          if (!titleRegex.test(title)) continue;
+          const csIds = extractChangesetIds(wi as any);
+          if (mustHaveChangesets && csIds.length === 0) continue;
+          filtered.push({
+            ...workItemToListItem(wi),
+            changeset_ids: csIds,
+            title_match: title,
+          });
+          if (filtered.length >= top) break;
+        }
+
+        const who = assignedTo ? `assigned to "${assignedTo}"` : 'assigned to you';
+        const lines = filtered.length === 0
+          ? [`No work items ${who} matched regex /${rawPattern}/${safeFlags} in ${fromDate}–${toDate}.`]
+          : filtered.map((item) =>
+              `#${item.id} [${item.type ?? '?'}] (${item.state ?? '?'}) ${item.title ?? '(untitled)'}  cs=${item.changeset_ids.length}`
+            );
+
+        const summaryText = [
+          `Related work items ${who}: ${filtered.length} match(es)`,
+          `Window: ${fromDate}–${toDate}  |  Regex: /${rawPattern}/${safeFlags}`,
+          `Scanned: ${items.length}  |  require_changesets=${mustHaveChangesets}`,
+          '---',
+          ...lines,
+        ].join('\n');
+
+        const envelope: AzureSuccessEnvelope<{
+          matches: Array<ReturnType<typeof workItemToListItem> & { changeset_ids: number[]; title_match: string }>;
+          scanned: number;
+          regex: string;
+          regex_flags: string;
+          require_changesets: boolean;
+        }> = {
+          summary_text: summaryText,
+          data: {
+            matches: filtered,
+            scanned: items.length,
+            regex: rawPattern,
+            regex_flags: safeFlags,
+            require_changesets: mustHaveChangesets,
+          },
+          meta: { tool_version: 'v2', elapsed_ms: Date.now() - t0, warnings: [] },
+        };
+        return { content: [{ type: 'text' as const, text: formatMcpContent(envelope, true) }] };
+      } catch (err) {
+        const errorEnv = toAzureErrorEnvelope(err);
+        return { content: [{ type: 'text' as const, text: formatMcpErrorContent(`Azure DevOps error: ${azureError(err)}`, errorEnv, true) }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_find_related_work_items_with_code_evidence',
+    'Find Azure work items by title regex and rank them with code evidence using grep_code (mgrep) over blueivory/classic sources.',
+    {
+      from_date: z.string(),
+      to_date: z.string().optional(),
+      regex: z.string(),
+      regex_flags: z.string().optional(),
+      must_have_changesets: z.boolean().optional(),
+      type: z.string().optional(),
+      states: z.string().optional(),
+      assigned_to: z.string().optional(),
+      date_field: z.enum(['created', 'changed']).optional(),
+      top: z.number().optional(),
+      scan_top: z.number().optional(),
+      code_pattern: z.string().optional(),
+      code_path: z.enum(['auto', 'blueivory', 'classic', 'both']).optional(),
+      code_include: z.string().optional(),
+      code_max_matches: z.number().optional(),
+      max_changesets_per_item: z.number().optional(),
+    } as any,
+    async (args: {
+      from_date: string;
+      to_date?: string;
+      regex: string;
+      regex_flags?: string;
+      must_have_changesets?: boolean;
+      type?: string;
+      states?: string;
+      assigned_to?: string;
+      date_field?: 'created' | 'changed';
+      top?: number;
+      scan_top?: number;
+      code_pattern?: string;
+      code_path?: 'auto' | 'blueivory' | 'classic' | 'both';
+      code_include?: string;
+      code_max_matches?: number;
+      max_changesets_per_item?: number;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const t0 = Date.now();
+      try {
+        function todayYYYYMMDD(): string {
+          return new Date().toISOString().slice(0, 10);
+        }
+
+        const fromDate = String(args.from_date || '').trim();
+        const toDate = String(args.to_date || '').trim() || todayYYYYMMDD();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+          return { content: [{ type: 'text' as const, text: 'Use YYYY-MM-DD for from_date and to_date.' }] };
+        }
+
+        const rawPattern = String(args.regex || '').trim();
+        if (!rawPattern) return { content: [{ type: 'text' as const, text: 'regex is required.' }] };
+        const rawFlags = String(args.regex_flags || 'i').trim();
+        const safeFlags = rawFlags.replace(/g/g, '').replace(/y/g, '');
+        let titleRegex: RegExp;
+        try {
+          titleRegex = new RegExp(rawPattern, safeFlags);
+        } catch (err) {
+          return { content: [{ type: 'text' as const, text: `Invalid regex: ${azureError(err)}` }] };
+        }
+
+        const top = Math.min(Math.max(1, args.top ?? 30), 2000);
+        const scanTop = Math.min(Math.max(top, args.scan_top ?? Math.max(300, top * 4)), 2000);
+        const mustHaveChangesets = args.must_have_changesets !== false;
+        const type = args.type?.trim();
+        const states = args.states ? args.states.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        const assignedTo = args.assigned_to?.trim();
+        const codePattern = String(args.code_pattern || rawPattern).trim();
+        const codePathMode = args.code_path || 'auto';
+        const maxChangesetsPerItem = Math.min(Math.max(1, args.max_changesets_per_item ?? 5), 20);
+        const codeMaxMatches = Math.min(Math.max(20, args.code_max_matches ?? 400), 2000);
+
+        const items = await listWorkItemsByDateRangePaginated({
+          fromDate,
+          toDate,
+          top: scanTop,
+          assignedTo: assignedTo || undefined,
+          assignedToMe: !assignedTo,
+          dateField: args.date_field ?? 'changed',
+          type: type || undefined,
+          states: states.length > 0 ? states : undefined,
+        });
+
+        type Candidate = ReturnType<typeof workItemToListItem> & {
+          changeset_ids: number[];
+          title_match: string;
+          changed_paths: string[];
+          path_roots: Array<'blueivory' | 'classic'>;
+          touched_basenames: string[];
+        };
+
+        const candidates: Candidate[] = [];
+        for (const wi of items) {
+          const title = String(wi.fields?.['System.Title'] ?? '');
+          if (!titleRegex.test(title)) continue;
+          const csIds = extractChangesetIds(wi as any);
+          if (mustHaveChangesets && csIds.length === 0) continue;
+
+          const selectedCs = csIds.slice(0, maxChangesetsPerItem);
+          const changedPaths: string[] = [];
+          for (const csId of selectedCs) {
+            try {
+              const ch = await getChangesetChanges(csId);
+              for (const it of ch.value || []) {
+                const p = String(it.item?.path || it.item?.serverItem || '').trim();
+                if (p) changedPaths.push(p);
+              }
+            } catch {
+              // best effort
+            }
+          }
+
+          const rootsSet = new Set<'blueivory' | 'classic'>();
+          for (const p of changedPaths) {
+            const up = p.toUpperCase();
+            if (up.includes('BLUE-IVORY-')) rootsSet.add('blueivory');
+            else rootsSet.add('classic');
+          }
+          if (rootsSet.size === 0 && codePathMode === 'auto') rootsSet.add('blueivory');
+
+          const basenameSet = new Set<string>();
+          for (const p of changedPaths) {
+            const normalized = p.replace(/\\/g, '/');
+            const b = normalized.split('/').pop() || '';
+            if (b) basenameSet.add(b.toLowerCase());
+          }
+
+          candidates.push({
+            ...workItemToListItem(wi),
+            changeset_ids: csIds,
+            title_match: title,
+            changed_paths: changedPaths,
+            path_roots: Array.from(rootsSet),
+            touched_basenames: Array.from(basenameSet),
+          });
+        }
+
+        const rootsToSearch = new Set<'blueivory' | 'classic'>();
+        if (codePathMode === 'both') {
+          rootsToSearch.add('blueivory');
+          rootsToSearch.add('classic');
+        } else if (codePathMode === 'blueivory' || codePathMode === 'classic') {
+          rootsToSearch.add(codePathMode);
+        } else {
+          for (const c of candidates) for (const r of c.path_roots) rootsToSearch.add(r);
+          if (rootsToSearch.size === 0) rootsToSearch.add('blueivory');
+        }
+
+        const grepByRoot = new Map<'blueivory' | 'classic', Awaited<ReturnType<typeof runGrepCode>>>();
+        for (const root of rootsToSearch) {
+          const grepRes = await runGrepCode({
+            pattern: codePattern,
+            path: root,
+            include: args.code_include,
+            ignore_case: safeFlags.includes('i'),
+            max_matches: codeMaxMatches,
+            context_lines: 0,
+          });
+          grepByRoot.set(root, grepRes);
+        }
+
+        const scored = candidates.map((c) => {
+          const evidence: Array<{ file: string; line: number; text: string; root: 'blueivory' | 'classic' }> = [];
+          for (const root of c.path_roots) {
+            const grepRes = grepByRoot.get(root);
+            if (!grepRes || 'error' in grepRes) continue;
+            for (const m of grepRes.data.matches) {
+              const rel = String(m.file || '');
+              const bn = rel.split('/').pop()?.toLowerCase() || '';
+              if (bn && c.touched_basenames.includes(bn)) {
+                evidence.push({ file: rel, line: m.line, text: m.text, root });
+              }
+              if (evidence.length >= 20) break;
+            }
+            if (evidence.length >= 20) break;
+          }
+
+          const score = (c.changeset_ids.length > 0 ? 2 : 0) + (evidence.length > 0 ? 3 : 0) + Math.min(3, evidence.length);
+          return {
+            ...c,
+            code_evidence_count: evidence.length,
+            code_evidence: evidence.slice(0, 10),
+            score,
+          };
+        });
+
+        const sorted = scored
+          .sort((a, b) => b.score - a.score || b.code_evidence_count - a.code_evidence_count || b.id - a.id)
+          .slice(0, top);
+
+        const who = assignedTo ? `assigned to "${assignedTo}"` : 'assigned to you';
+        const lines = sorted.length === 0
+          ? [`No work items ${who} matched regex /${rawPattern}/${safeFlags} in ${fromDate}–${toDate}.`]
+          : sorted.map((item) =>
+              `#${item.id} [${item.type ?? '?'}] (${item.state ?? '?'}) ${item.title ?? '(untitled)'}  cs=${item.changeset_ids.length}  evidence=${item.code_evidence_count}  score=${item.score}`
+            );
+
+        const summaryText = [
+          `Related work items with code evidence ${who}: ${sorted.length} match(es)`,
+          `Window: ${fromDate}–${toDate}  |  TitleRegex: /${rawPattern}/${safeFlags}  |  CodePattern: ${codePattern}`,
+          `Scanned: ${items.length}  |  require_changesets=${mustHaveChangesets}  |  search_roots=${Array.from(rootsToSearch).join(',')}`,
+          '---',
+          ...lines,
+        ].join('\n');
+
+        const envelope: AzureSuccessEnvelope<{
+          matches: typeof sorted;
+          scanned: number;
+          title_regex: string;
+          regex_flags: string;
+          code_pattern: string;
+          code_roots: string[];
+          require_changesets: boolean;
+        }> = {
+          summary_text: summaryText,
+          data: {
+            matches: sorted,
+            scanned: items.length,
+            title_regex: rawPattern,
+            regex_flags: safeFlags,
+            code_pattern: codePattern,
+            code_roots: Array.from(rootsToSearch),
+            require_changesets: mustHaveChangesets,
+          },
+          meta: { tool_version: 'v2', elapsed_ms: Date.now() - t0, warnings: [] },
+        };
+        return { content: [{ type: 'text' as const, text: formatMcpContent(envelope, true) }] };
+      } catch (err) {
+        const errorEnv = toAzureErrorEnvelope(err);
+        return { content: [{ type: 'text' as const, text: formatMcpErrorContent(`Azure DevOps error: ${azureError(err)}`, errorEnv, true) }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
     'azure_get_work_item',
     'Get Azure DevOps work item details by ID. Optional mode: compact (default, structured data + description/expected/actual/repro as plain text), full (compact + raw fields), legacy (plain text only). Requires Azure DevOps config in .env.',
     { work_item_id: z.number(), mode: z.enum(['compact', 'full', 'legacy']).optional() } as any,
@@ -1476,16 +1893,145 @@ mcpServer.tool(
         if (!tfvcPath) {
           return { content: [{ type: 'text' as const, text: 'Could not determine the file path.' }] };
         }
-        const { diff, prevCs, currentCs, isNewFile } = await getChangesetFileDiff(tfvcPath, args.changeset_id);
-        const header = [
-          `File: ${tfvcPath}`,
-          isNewFile ? ' (new file in this changeset)' : ` (diff ${prevCs} → ${currentCs})`,
-          '---',
-        ].join('\n');
-        const diffLines = diff.map((op) => (op.t === '...' ? '...' : op.t + op.s));
-        return { content: [{ type: 'text' as const, text: header + '\n' + diffLines.join('\n') }] };
+        try {
+          const { diff, prevCs, currentCs, isNewFile } = await getChangesetFileDiff(tfvcPath, args.changeset_id);
+          const header = [
+            `File: ${tfvcPath}`,
+            isNewFile ? ' (new file in this changeset)' : ` (diff ${prevCs} -> ${currentCs})`,
+            '---',
+          ].join('\n');
+          const diffLines = diff.map((op) => (op.t === '...' ? '...' : op.t + op.s));
+          return { content: [{ type: 'text' as const, text: header + '\n' + diffLines.join('\n') }] };
+        } catch (errDiff) {
+          // Fallback used by the web endpoint as well: compare file snapshots at Cn vs Cn-1.
+          const currentCs = args.changeset_id;
+          const prevCs = Math.max(1, currentCs - 1);
+
+          let beforeText = '';
+          let afterText = '';
+          let isNewFile = false;
+
+          afterText = await getTfvcItemTextAtChangeset(tfvcPath, currentCs);
+          try {
+            beforeText = await getTfvcItemTextAtChangeset(tfvcPath, prevCs);
+          } catch {
+            beforeText = '';
+            isNewFile = true;
+          }
+
+          const maxChars = 12000;
+          const clip = (s: string) => (s.length > maxChars ? `${s.slice(0, maxChars)}\n... [truncated]` : s);
+          const beforePreview = clip(beforeText || '');
+          const afterPreview = clip(afterText || '');
+
+          const lines = [
+            `File: ${tfvcPath}`,
+            `Mode: snapshot fallback (${prevCs} -> ${currentCs})`,
+            isNewFile ? 'Note: previous snapshot unavailable (new file or history unavailable).' : '',
+            `Reason: ${azureError(errDiff)}`,
+            '---',
+            `--- ${tfvcPath}@C${prevCs}`,
+            `+++ ${tfvcPath}@C${currentCs}`,
+            '',
+            `[before @C${prevCs}]`,
+            beforePreview,
+            '',
+            `[after @C${currentCs}]`,
+            afterPreview,
+          ].filter(Boolean);
+
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Error Azure DevOps: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_list_repositories',
+    'List Azure DevOps Git repositories available in a project. Optional: project_name (defaults to AZURE_DEVOPS_PROJECT in .env).',
+    {
+      project_name: z.string().optional(),
+    } as any,
+    async (args: { project_name?: string }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      try {
+        const repos = await listGitRepositories(args.project_name?.trim());
+        if (repos.length === 0) {
+          const p = args.project_name?.trim();
+          const suffix = p ? ` for project "${p}"` : '';
+          return { content: [{ type: 'text' as const, text: `No repositories found${suffix}.` }] };
+        }
+
+        const lines = repos.map((r) => {
+          const id = String(r.id || '').trim();
+          const name = String(r.name || '').trim() || '?';
+          const proj = String(r.project?.name || '').trim();
+          const branch = String(r.defaultBranch || '').trim();
+          const web = String(r.webUrl || '').trim();
+          const parts = [
+            `- ${name}`,
+            id ? `id=${id}` : '',
+            proj ? `project=${proj}` : '',
+            branch ? `default=${branch}` : '',
+            web ? `url=${web}` : '',
+          ].filter(Boolean);
+          return parts.join('  |  ');
+        });
+
+        const p = args.project_name?.trim();
+        const header = p ? `Repositories in project "${p}" (${repos.length}):` : `Repositories (${repos.length}):`;
+        return { content: [{ type: 'text' as const, text: `${header}\n${lines.join('\n')}` }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_list_tfvc_paths',
+    'List TFVC paths (folders/files) under a TFVC path. Optional: path (defaults to $/AZURE_DEVOPS_PROJECT), recursion_level (None|OneLevel|Full), max_results (default 200).',
+    {
+      path: z.string().optional(),
+      recursion_level: z.string().optional(),
+      max_results: z.number().optional(),
+    } as any,
+    async (args: { path?: string; recursion_level?: string; max_results?: number }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      try {
+        const r = String(args.recursion_level || 'OneLevel').trim();
+        const recursionLevel = r === 'None' || r === 'OneLevel' || r === 'Full' ? r : 'OneLevel';
+        const max = Math.min(Math.max(1, args.max_results ?? 200), 1000);
+        const items = await listTfvcItems({
+          path: args.path?.trim(),
+          recursionLevel: recursionLevel as 'None' | 'OneLevel' | 'Full',
+        });
+        if (items.length === 0) {
+          const where = args.path?.trim() ? ` under "${args.path?.trim()}"` : '';
+          return { content: [{ type: 'text' as const, text: `No TFVC items found${where}.` }] };
+        }
+
+        const shown = items.slice(0, max);
+        const lines = shown.map((it) => {
+          const tag = it.isFolder ? '[dir]' : '[file]';
+          const size = !it.isFolder && Number.isFinite(it.contentLength) ? `  size=${it.contentLength}` : '';
+          return `${tag} ${it.path}${size}`;
+        });
+        const where = args.path?.trim() ? args.path.trim() : '$/AZURE_DEVOPS_PROJECT';
+        const note = items.length > max ? `\n... (${items.length - max} more not shown)` : '';
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `TFVC items in ${where} (recursion=${recursionLevel}, total=${items.length}, shown=${shown.length}):\n${lines.join('\n')}${note}`,
+          }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
     },
   );
@@ -1537,6 +2083,565 @@ mcpServer.tool(
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
       }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_get_file_history',
+    'Get TFVC history for a specific file path. Returns changesets that touched the path with author/date/comment. Optional filters: from_date, to_date, author, top, project_name.',
+    {
+      file_path: z.string(),
+      from_date: z.string().optional(),
+      to_date: z.string().optional(),
+      author: z.string().optional(),
+      top: z.number().optional(),
+      project_name: z.string().optional(),
+    } as any,
+    async (args: {
+      file_path: string;
+      from_date?: string;
+      to_date?: string;
+      author?: string;
+      top?: number;
+      project_name?: string;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      try {
+        const filePath = String(args.file_path || '').trim();
+        if (!filePath) {
+          return { content: [{ type: 'text' as const, text: 'file_path is required (TFVC path, e.g. $/Project/Branch/file.cpp).' }] };
+        }
+        const wanted = Math.min(Math.max(1, args.top ?? 100), 2000);
+        const pageSize = 1000; // Azure DevOps API max per request
+        const list: Awaited<ReturnType<typeof listChangesetsByItemPath>> = [];
+        let skip = 0;
+        while (list.length < wanted) {
+          const toFetch = Math.min(pageSize, wanted - list.length);
+          const page = await listChangesetsByItemPath({
+            itemPath: filePath,
+            projectName: args.project_name?.trim(),
+            author: args.author?.trim(),
+            fromDate: args.from_date?.trim(),
+            toDate: args.to_date?.trim(),
+            top: toFetch,
+            skip,
+          });
+          list.push(...page);
+          if (page.length < toFetch) break;
+          skip += page.length;
+        }
+
+        if (list.length === 0) {
+          return { content: [{ type: 'text' as const, text: `No changesets found for: ${filePath}` }] };
+        }
+
+        const lines = list.map((cs) => {
+          const id = cs.changesetId;
+          const author = pickAuthor(cs);
+          const date = (cs.createdDate || cs.checkinDate || '').slice(0, 19).replace('T', ' ');
+          const comment = (cs.comment || '').trim().slice(0, 90);
+          return `#${id}  ${author}  ${date}  ${comment}${comment.length >= 90 ? '…' : ''}`;
+        });
+
+        const filters: string[] = [];
+        if (args.author?.trim()) filters.push(`author="${args.author.trim()}"`);
+        if (args.from_date?.trim()) filters.push(`from=${args.from_date.trim()}`);
+        if (args.to_date?.trim()) filters.push(`to=${args.to_date.trim()}`);
+        if (args.project_name?.trim()) filters.push(`project="${args.project_name.trim()}"`);
+        const suffix = filters.length ? ` (${filters.join(', ')})` : '';
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `History for ${filePath}${suffix} -> ${list.length} changeset(s):\n${lines.join('\n')}`,
+          }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Azure DevOps error: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_ingest_changesets_bootstrap',
+    'Bootstrap ingestion: collect TFVC changesets for one or more paths and store them in remote Postgres (EC2) through SSH + docker compose psql. Use for initial backfill windows.',
+    {
+      paths: z.string(),
+      from_date: z.string(),
+      to_date: z.string().optional(),
+      top_per_path: z.number().optional(),
+      author: z.string().optional(),
+      project_name: z.string().optional(),
+      include_work_items: z.boolean().optional(),
+      dry_run: z.boolean().optional(),
+      ssh_target: z.string().optional(),
+      ssh_key_path: z.string().optional(),
+      remote_repo_path: z.string().optional(),
+      db_name: z.string().optional(),
+    } as any,
+    async (args: {
+      paths: string;
+      from_date: string;
+      to_date?: string;
+      top_per_path?: number;
+      author?: string;
+      project_name?: string;
+      include_work_items?: boolean;
+      dry_run?: boolean;
+      ssh_target?: string;
+      ssh_key_path?: string;
+      remote_repo_path?: string;
+      db_name?: string;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const paths = String(args.paths || '')
+        .split(/[;,\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (paths.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'paths is required (semicolon/comma/newline separated TFVC paths).' }] };
+      }
+
+      const sshTarget = String(args.ssh_target || process.env.INSTANCE_SSH_TARGET || '').trim();
+      const sshKeyPath = String(args.ssh_key_path || process.env.INSTANCE_SSH_KEY_PATH || '').trim();
+      const remoteRepoPath = String(args.remote_repo_path || process.env.INSTANCE_REPO_PATH || '~/MCP-SERVER').trim();
+      const dbName = String(args.db_name || process.env.POSTGRES_DB || 'mcp_hub').trim();
+      if (!sshTarget || !sshKeyPath) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'Missing SSH target/key. Set INSTANCE_SSH_TARGET and INSTANCE_SSH_KEY_PATH in env or pass ssh_target/ssh_key_path.',
+          }],
+        };
+      }
+
+      try {
+        const rows = await collectChangesetsForPaths({
+          paths,
+          fromDate: args.from_date?.trim(),
+          toDate: args.to_date?.trim(),
+          author: args.author?.trim(),
+          topPerPath: args.top_per_path ?? 1500,
+          projectName: args.project_name?.trim(),
+        });
+
+        if (args.dry_run === true) {
+          const preview = rows.slice(0, 12).map((r) => `#${r.changeset_id} ${r.author} ${r.created_at.slice(0, 19).replace('T', ' ')} ${r.comment.slice(0, 70)}`);
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Dry run. Collected ${rows.length} changeset(s) for ${paths.length} path(s).\n${preview.join('\n')}`,
+            }],
+          };
+        }
+
+        const summary = await ingestRowsToRemotePostgres(rows, {
+          sshTarget,
+          sshKeyPath,
+          remoteRepoPath,
+          dbName,
+          includeWorkItems: args.include_work_items !== false,
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text:
+              `Bootstrap ingestion completed.\n` +
+              `Paths: ${paths.length}\n` +
+              `Changesets: ${summary.ingested_changesets}\n` +
+              `Files: ${summary.ingested_files}\n` +
+              `Work-item links: ${summary.ingested_work_item_links}\n` +
+              `Distinct work items: ${summary.distinct_work_items}`,
+          }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Azure ingest error: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_ingest_changesets_daily',
+    'Daily incremental ingestion: reads recent TFVC changesets for paths and upserts them into remote Postgres. Designed for scheduled runs.',
+    {
+      paths: z.string(),
+      days_back: z.number().optional(),
+      top_per_path: z.number().optional(),
+      author: z.string().optional(),
+      project_name: z.string().optional(),
+      include_work_items: z.boolean().optional(),
+      dry_run: z.boolean().optional(),
+      ssh_target: z.string().optional(),
+      ssh_key_path: z.string().optional(),
+      remote_repo_path: z.string().optional(),
+      db_name: z.string().optional(),
+    } as any,
+    async (args: {
+      paths: string;
+      days_back?: number;
+      top_per_path?: number;
+      author?: string;
+      project_name?: string;
+      include_work_items?: boolean;
+      dry_run?: boolean;
+      ssh_target?: string;
+      ssh_key_path?: string;
+      remote_repo_path?: string;
+      db_name?: string;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const paths = String(args.paths || '')
+        .split(/[;,\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (paths.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'paths is required (semicolon/comma/newline separated TFVC paths).' }] };
+      }
+
+      const sshTarget = String(args.ssh_target || process.env.INSTANCE_SSH_TARGET || '').trim();
+      const sshKeyPath = String(args.ssh_key_path || process.env.INSTANCE_SSH_KEY_PATH || '').trim();
+      const remoteRepoPath = String(args.remote_repo_path || process.env.INSTANCE_REPO_PATH || '~/MCP-SERVER').trim();
+      const dbName = String(args.db_name || process.env.POSTGRES_DB || 'mcp_hub').trim();
+      if (!sshTarget || !sshKeyPath) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'Missing SSH target/key. Set INSTANCE_SSH_TARGET and INSTANCE_SSH_KEY_PATH in env or pass ssh_target/ssh_key_path.',
+          }],
+        };
+      }
+
+      const daysBack = Math.min(Math.max(1, args.days_back ?? 2), 30);
+      const now = new Date();
+      const toDate = now.toISOString().slice(0, 10);
+      const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+      const fromDate = from.toISOString().slice(0, 10);
+      try {
+        const rows = await collectChangesetsForPaths({
+          paths,
+          fromDate,
+          toDate,
+          author: args.author?.trim(),
+          topPerPath: args.top_per_path ?? 500,
+          projectName: args.project_name?.trim(),
+        });
+
+        if (args.dry_run === true) {
+          const preview = rows.slice(0, 10).map((r) => `#${r.changeset_id} ${r.author} ${r.created_at.slice(0, 19).replace('T', ' ')}`);
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Daily dry run ${fromDate}..${toDate}. Collected ${rows.length} changeset(s).\n${preview.join('\n')}`,
+            }],
+          };
+        }
+
+        const summary = await ingestRowsToRemotePostgres(rows, {
+          sshTarget,
+          sshKeyPath,
+          remoteRepoPath,
+          dbName,
+          includeWorkItems: args.include_work_items !== false,
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text:
+              `Daily ingestion completed (${fromDate}..${toDate}).\n` +
+              `Changesets: ${summary.ingested_changesets}\n` +
+              `Files: ${summary.ingested_files}\n` +
+              `Work-item links: ${summary.ingested_work_item_links}\n` +
+              `Distinct work items: ${summary.distinct_work_items}`,
+          }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Azure daily ingest error: ${azureError(err)}` }] };
+      }
+    },
+  );
+
+  mcpServer.tool(
+    'azure_ingest_changesets_bootstrap_start',
+    'Starts bootstrap ingestion as async job and returns job_id. Use azure_ingest_changesets_job_status to poll progress.',
+    {
+      paths: z.string(),
+      from_date: z.string(),
+      to_date: z.string().optional(),
+      top_per_path: z.number().optional(),
+      author: z.string().optional(),
+      project_name: z.string().optional(),
+      include_work_items: z.boolean().optional(),
+      ssh_target: z.string().optional(),
+      ssh_key_path: z.string().optional(),
+      remote_repo_path: z.string().optional(),
+      db_name: z.string().optional(),
+    } as any,
+    async (args: {
+      paths: string;
+      from_date: string;
+      to_date?: string;
+      top_per_path?: number;
+      author?: string;
+      project_name?: string;
+      include_work_items?: boolean;
+      ssh_target?: string;
+      ssh_key_path?: string;
+      remote_repo_path?: string;
+      db_name?: string;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const paths = String(args.paths || '').split(/[;,\n]/).map((s) => s.trim()).filter(Boolean);
+      if (paths.length === 0) return { content: [{ type: 'text' as const, text: 'paths is required.' }] };
+
+      const sshTarget = String(args.ssh_target || process.env.INSTANCE_SSH_TARGET || '').trim();
+      const sshKeyPath = String(args.ssh_key_path || process.env.INSTANCE_SSH_KEY_PATH || '').trim();
+      const remoteRepoPath = String(args.remote_repo_path || process.env.INSTANCE_REPO_PATH || '~/MCP-SERVER').trim();
+      const dbName = String(args.db_name || process.env.POSTGRES_DB || 'mcp_hub').trim();
+      if (!sshTarget || !sshKeyPath) {
+        return { content: [{ type: 'text' as const, text: 'Missing SSH target/key. Set INSTANCE_SSH_TARGET and INSTANCE_SSH_KEY_PATH.' }] };
+      }
+
+      const jobId = `ing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const job: IngestJob = {
+        job_id: jobId,
+        status: 'queued',
+        created_at: nowIso(),
+        mode: 'bootstrap',
+        params: args as unknown as Record<string, unknown>,
+        progress: { stage: 'queued', percent: 0, message: 'Queued' },
+      };
+      ingestJobs.set(jobId, job);
+
+      void (async () => {
+        try {
+          job.status = 'running';
+          job.started_at = nowIso();
+          const rows = await collectChangesetsForPaths({
+            paths,
+            fromDate: args.from_date?.trim(),
+            toDate: args.to_date?.trim(),
+            author: args.author?.trim(),
+            topPerPath: args.top_per_path ?? 1500,
+            projectName: args.project_name?.trim(),
+            onProgress: (p) => {
+              job.progress = {
+                stage: p.stage,
+                percent: toPercent(p.stage, p.changesets_seen, p.changesets_total_estimate),
+                message: p.message,
+                changesets_seen: p.changesets_seen,
+                changesets_total_estimate: p.changesets_total_estimate,
+                files_seen: p.files_seen,
+                work_item_links_seen: p.work_item_links_seen,
+              };
+            },
+          });
+
+          const summary = await ingestRowsToRemotePostgres(rows, {
+            sshTarget,
+            sshKeyPath,
+            remoteRepoPath,
+            dbName,
+            includeWorkItems: args.include_work_items !== false,
+            onProgress: (p) => {
+              job.progress = {
+                stage: p.stage,
+                percent: toPercent(p.stage, p.changesets_seen, p.changesets_total_estimate),
+                message: p.message,
+                changesets_seen: p.changesets_seen,
+                changesets_total_estimate: p.changesets_total_estimate,
+                files_seen: p.files_seen,
+                work_item_links_seen: p.work_item_links_seen,
+              };
+            },
+          });
+
+          job.status = 'completed';
+          job.finished_at = nowIso();
+          job.progress = { ...job.progress, stage: 'done', percent: 100, message: 'Completed' };
+          job.result = {
+            ingested_changesets: summary.ingested_changesets,
+            ingested_files: summary.ingested_files,
+            ingested_work_item_links: summary.ingested_work_item_links,
+            distinct_work_items: summary.distinct_work_items,
+          };
+        } catch (err) {
+          job.status = 'failed';
+          job.finished_at = nowIso();
+          job.error = azureError(err);
+          job.progress = { ...job.progress, message: `Failed: ${job.error}` };
+        }
+      })();
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Started bootstrap ingestion job ${jobId}. Poll with azure_ingest_changesets_job_status.`
+        }],
+      };
+    },
+  );
+
+  mcpServer.tool(
+    'azure_ingest_changesets_daily_start',
+    'Starts daily incremental ingestion as async job and returns job_id. Use azure_ingest_changesets_job_status to poll progress.',
+    {
+      paths: z.string(),
+      days_back: z.number().optional(),
+      top_per_path: z.number().optional(),
+      author: z.string().optional(),
+      project_name: z.string().optional(),
+      include_work_items: z.boolean().optional(),
+      ssh_target: z.string().optional(),
+      ssh_key_path: z.string().optional(),
+      remote_repo_path: z.string().optional(),
+      db_name: z.string().optional(),
+    } as any,
+    async (args: {
+      paths: string;
+      days_back?: number;
+      top_per_path?: number;
+      author?: string;
+      project_name?: string;
+      include_work_items?: boolean;
+      ssh_target?: string;
+      ssh_key_path?: string;
+      remote_repo_path?: string;
+      db_name?: string;
+    }) => {
+      if (!hasAzureDevOpsConfig()) {
+        return { content: [{ type: 'text' as const, text: 'AZURE_DEVOPS_* is not configured in .env.' }] };
+      }
+      const paths = String(args.paths || '').split(/[;,\n]/).map((s) => s.trim()).filter(Boolean);
+      if (paths.length === 0) return { content: [{ type: 'text' as const, text: 'paths is required.' }] };
+
+      const sshTarget = String(args.ssh_target || process.env.INSTANCE_SSH_TARGET || '').trim();
+      const sshKeyPath = String(args.ssh_key_path || process.env.INSTANCE_SSH_KEY_PATH || '').trim();
+      const remoteRepoPath = String(args.remote_repo_path || process.env.INSTANCE_REPO_PATH || '~/MCP-SERVER').trim();
+      const dbName = String(args.db_name || process.env.POSTGRES_DB || 'mcp_hub').trim();
+      if (!sshTarget || !sshKeyPath) {
+        return { content: [{ type: 'text' as const, text: 'Missing SSH target/key. Set INSTANCE_SSH_TARGET and INSTANCE_SSH_KEY_PATH.' }] };
+      }
+
+      const daysBack = Math.min(Math.max(1, args.days_back ?? 2), 30);
+      const now = new Date();
+      const toDate = now.toISOString().slice(0, 10);
+      const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+      const fromDate = from.toISOString().slice(0, 10);
+
+      const jobId = `ing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const job: IngestJob = {
+        job_id: jobId,
+        status: 'queued',
+        created_at: nowIso(),
+        mode: 'daily',
+        params: { ...args, from_date: fromDate, to_date: toDate } as unknown as Record<string, unknown>,
+        progress: { stage: 'queued', percent: 0, message: 'Queued' },
+      };
+      ingestJobs.set(jobId, job);
+
+      void (async () => {
+        try {
+          job.status = 'running';
+          job.started_at = nowIso();
+          const rows = await collectChangesetsForPaths({
+            paths,
+            fromDate,
+            toDate,
+            author: args.author?.trim(),
+            topPerPath: args.top_per_path ?? 500,
+            projectName: args.project_name?.trim(),
+            onProgress: (p) => {
+              job.progress = {
+                stage: p.stage,
+                percent: toPercent(p.stage, p.changesets_seen, p.changesets_total_estimate),
+                message: p.message,
+                changesets_seen: p.changesets_seen,
+                changesets_total_estimate: p.changesets_total_estimate,
+                files_seen: p.files_seen,
+                work_item_links_seen: p.work_item_links_seen,
+              };
+            },
+          });
+
+          const summary = await ingestRowsToRemotePostgres(rows, {
+            sshTarget,
+            sshKeyPath,
+            remoteRepoPath,
+            dbName,
+            includeWorkItems: args.include_work_items !== false,
+            onProgress: (p) => {
+              job.progress = {
+                stage: p.stage,
+                percent: toPercent(p.stage, p.changesets_seen, p.changesets_total_estimate),
+                message: p.message,
+                changesets_seen: p.changesets_seen,
+                changesets_total_estimate: p.changesets_total_estimate,
+                files_seen: p.files_seen,
+                work_item_links_seen: p.work_item_links_seen,
+              };
+            },
+          });
+
+          job.status = 'completed';
+          job.finished_at = nowIso();
+          job.progress = { ...job.progress, stage: 'done', percent: 100, message: 'Completed' };
+          job.result = {
+            ingested_changesets: summary.ingested_changesets,
+            ingested_files: summary.ingested_files,
+            ingested_work_item_links: summary.ingested_work_item_links,
+            distinct_work_items: summary.distinct_work_items,
+          };
+        } catch (err) {
+          job.status = 'failed';
+          job.finished_at = nowIso();
+          job.error = azureError(err);
+          job.progress = { ...job.progress, message: `Failed: ${job.error}` };
+        }
+      })();
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Started daily ingestion job ${jobId} for window ${fromDate}..${toDate}. Poll with azure_ingest_changesets_job_status.`,
+        }],
+      };
+    },
+  );
+
+  mcpServer.tool(
+    'azure_ingest_changesets_job_status',
+    'Get status/progress of an ingestion job by job_id.',
+    { job_id: z.string() } as any,
+    async (args: { job_id: string }) => {
+      const id = String(args.job_id || '').trim();
+      if (!id) return { content: [{ type: 'text' as const, text: 'job_id is required.' }] };
+      const job = ingestJobs.get(id);
+      if (!job) return { content: [{ type: 'text' as const, text: `Job not found: ${id}` }] };
+      const lines = [
+        `job_id: ${job.job_id}`,
+        `mode: ${job.mode}`,
+        `status: ${job.status}`,
+        `created_at: ${job.created_at}`,
+        job.started_at ? `started_at: ${job.started_at}` : '',
+        job.finished_at ? `finished_at: ${job.finished_at}` : '',
+        `progress: ${job.progress.percent}% (${job.progress.stage})`,
+        job.progress.message ? `message: ${job.progress.message}` : '',
+        Number.isFinite(job.progress.changesets_seen as number)
+          ? `changesets: ${job.progress.changesets_seen}${job.progress.changesets_total_estimate ? '/' + job.progress.changesets_total_estimate : ''}`
+          : '',
+        Number.isFinite(job.progress.files_seen as number) ? `files_seen: ${job.progress.files_seen}` : '',
+        Number.isFinite(job.progress.work_item_links_seen as number) ? `work_item_links_seen: ${job.progress.work_item_links_seen}` : '',
+        job.error ? `error: ${job.error}` : '',
+        job.result ? `result: cs=${job.result.ingested_changesets}, files=${job.result.ingested_files}, links=${job.result.ingested_work_item_links}, wi=${job.result.distinct_work_items}` : '',
+      ].filter(Boolean);
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
     },
   );
 

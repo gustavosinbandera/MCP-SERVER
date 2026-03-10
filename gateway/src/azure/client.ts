@@ -396,6 +396,25 @@ export type TfvcChangesetChange = {
   [k: string]: unknown;
 };
 
+export type AzureGitRepository = {
+  id?: string;
+  name?: string;
+  defaultBranch?: string;
+  remoteUrl?: string;
+  webUrl?: string;
+  size?: number;
+  project?: { id?: string; name?: string; [k: string]: unknown };
+  [k: string]: unknown;
+};
+
+export type TfvcItemEntry = {
+  path: string;
+  isFolder: boolean;
+  changesetVersion?: string;
+  contentLength?: number;
+  url?: string;
+};
+
 function tfvcProjectPath(project?: string): string {
   const p = (project || '').trim().toLowerCase();
   if (p === 'blueivory' || p === 'bi') {
@@ -434,6 +453,111 @@ export async function listChangesets(options: {
   const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/changesets') + `?${q.toString()}`;
   const data = await httpJsonTfvcWithFallback<{ value?: TfvcChangeset[] }>(projectScopedUrl, collectionScopedUrl);
   return data.value ?? [];
+}
+
+export async function listChangesetsByItemPath(options: {
+  itemPath: string;
+  author?: string;
+  fromDate?: string;
+  toDate?: string;
+  top?: number;
+  skip?: number;
+  projectName?: string;
+}): Promise<TfvcChangeset[]> {
+  const { baseUrl, project } = ensureConfig();
+  const top = Math.min(Math.max(1, options.top ?? 100), 1000);
+  const skip = Math.max(0, options.skip ?? 0);
+  const itemPath = String(options.itemPath || '').trim();
+  if (!itemPath) throw new Error('itemPath is required');
+
+  const q = new URLSearchParams();
+  q.set('api-version', API_VER);
+  q.set('$top', String(top));
+  if (skip) q.set('$skip', String(skip));
+  q.set('searchCriteria.itemPath', itemPath);
+  if (options.author?.trim()) q.set('searchCriteria.author', options.author.trim());
+  if (options.fromDate?.trim()) q.set('searchCriteria.fromDate', options.fromDate.trim());
+  if (options.toDate?.trim()) q.set('searchCriteria.toDate', options.toDate.trim());
+
+  const projectForUrl = (options.projectName || project || '').trim();
+  const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(projectForUrl), '_apis/tfvc/changesets') + `?${q.toString()}`;
+  const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/changesets') + `?${q.toString()}`;
+  const data = await httpJsonTfvcWithFallback<{ value?: TfvcChangeset[] }>(projectScopedUrl, collectionScopedUrl);
+  return data.value ?? [];
+}
+
+export async function listGitRepositories(projectName?: string): Promise<AzureGitRepository[]> {
+  const { baseUrl, project } = ensureConfig();
+  const q = new URLSearchParams();
+  q.set('api-version', API_VER);
+
+  const targetProject = (projectName || project || '').trim();
+  const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(targetProject), '_apis/git/repositories') + `?${q.toString()}`;
+  const collectionScopedUrl = joinUrl(baseUrl, '_apis/git/repositories') + `?${q.toString()}`;
+
+  if (!targetProject) {
+    const data = await httpJson<{ value?: AzureGitRepository[] }>(collectionScopedUrl);
+    return data.value ?? [];
+  }
+
+  const data = await httpJsonTfvcWithFallback<{ value?: AzureGitRepository[] }>(projectScopedUrl, collectionScopedUrl);
+  return data.value ?? [];
+}
+
+export async function listTfvcItems(options?: {
+  path?: string;
+  recursionLevel?: 'None' | 'OneLevel' | 'Full';
+}): Promise<TfvcItemEntry[]> {
+  const { baseUrl, project } = ensureConfig();
+  const tfvcPath = (options?.path || '').trim() || `$/` + project;
+  const recursionLevel = options?.recursionLevel || 'OneLevel';
+  const q = new URLSearchParams();
+  q.set('api-version', API_VER);
+  if (recursionLevel === 'None') {
+    q.set('path', tfvcPath);
+    q.set('recursionLevel', 'None');
+  } else {
+    // Azure DevOps Server expects scopePath for collections when recursion > None.
+    q.set('scopePath', tfvcPath);
+    q.set('recursionLevel', recursionLevel);
+  }
+
+  const projectScopedUrl = joinUrl(baseUrl, encodeURIComponent(project), '_apis/tfvc/items') + `?${q.toString()}`;
+  const collectionScopedUrl = joinUrl(baseUrl, '_apis/tfvc/items') + `?${q.toString()}`;
+  const raw = await httpJsonTfvcWithFallback<any>(projectScopedUrl, collectionScopedUrl);
+
+  const list = Array.isArray(raw?.value)
+    ? raw.value
+    : Array.isArray(raw)
+      ? raw
+      : raw && typeof raw === 'object'
+        ? [raw]
+        : [];
+
+  const mapped: TfvcItemEntry[] = list
+    .map((it: any) => {
+      const path = String(it?.path || it?.serverItem || '').trim();
+      if (!path) return null;
+      const isFolder = Boolean(it?.isFolder);
+      const v = String(it?.version || '').trim();
+      const contentLength = Number.isFinite(Number(it?.contentMetadata?.contentLength))
+        ? Number(it.contentMetadata.contentLength)
+        : undefined;
+      return {
+        path,
+        isFolder,
+        changesetVersion: v || undefined,
+        contentLength,
+        url: String(it?.url || '').trim() || undefined,
+      } as TfvcItemEntry;
+    })
+    .filter(Boolean) as TfvcItemEntry[];
+
+  mapped.sort((a, b) => {
+    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+    return a.path.localeCompare(b.path);
+  });
+  return mapped;
 }
 
 export async function getChangesetCount(options: {
@@ -749,4 +873,3 @@ export async function addWorkItemCommentAsMarkdown(workItemId: number, commentTe
   ];
   await updateWorkItem(workItemId, ops);
 }
-

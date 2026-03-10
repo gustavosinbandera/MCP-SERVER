@@ -31,6 +31,12 @@ export const INDEX_CONCURRENCY = Math.min(
   20
 );
 
+/** Max files to hold in memory per SHARED_DIR batch (avoids OOM on large trees like blueivory). From INDEX_SHARED_BATCH_FILES. */
+export const INDEX_SHARED_BATCH_FILES = Math.min(
+  Math.max(100, Math.floor(Number(process.env.INDEX_SHARED_BATCH_FILES) || 400)),
+  2000
+);
+
 /** Project root (parent of gateway/). Used to resolve relative paths in SHARED_DIRS. In Docker, set PROJECT_ROOT=/app if needed. */
 export function getProjectRoot(): string {
   const envRoot = process.env.PROJECT_ROOT?.trim();
