@@ -38,7 +38,7 @@ A single command that SSHes in and runs the cycle on the instance:
 
 ```powershell
 cd C:\PROYECTOS\MCP-SERVER
-ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181 "cd ~/MCP-SERVER && docker compose run --rm supervisor node dist/supervisor.js --once 2>&1"
+ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19 "cd ~/MCP-SERVER && docker compose run --rm supervisor node dist/supervisor.js --once 2>&1"
 ```
 
 **Success criteria:** Output contains the same lines as above (`skippedOneTime`, `indexed: 0`, cycle finished).
@@ -66,8 +66,8 @@ grep "Error fatal" ~/index-cycle.log
 ### From the local machine
 
 ```powershell
-ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181 "grep -E 'indexSharedDirs completed|one-time complete' ~/index-cycle.log"
-ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181 "grep 'Error fatal' ~/index-cycle.log"
+ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19 "grep -E 'indexSharedDirs completed|one-time complete' ~/index-cycle.log"
+ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19 "grep 'Error fatal' ~/index-cycle.log"
 ```
 
 ---
@@ -87,7 +87,7 @@ curl -s http://localhost:6333/collections/mcp_docs | grep points_count
 ### From the local machine
 
 ```powershell
-ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181 "curl -s http://localhost:6333/collections/mcp_docs" | findstr points_count
+ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19 "curl -s http://localhost:6333/collections/mcp_docs" | findstr points_count
 ```
 
 ---
@@ -126,7 +126,7 @@ sqlite3 ~/MCP-SERVER/gateway/data/one_time_indexed.db "SELECT project FROM one_t
 
 ```powershell
 # Connect to the instance
-ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181
+ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19
 
 # Once inside:
 cd ~/MCP-SERVER
@@ -138,7 +138,7 @@ curl -s http://localhost:6333/collections/mcp_docs | grep points_count
 Or everything in a single SSH call from local:
 
 ```powershell
-ssh -i "infra\mcp-server-key.pem" ec2-user@52.91.217.181 "cd ~/MCP-SERVER && docker compose run --rm supervisor node dist/supervisor.js --once 2>&1"
+ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19 "cd ~/MCP-SERVER && docker compose run --rm supervisor node dist/supervisor.js --once 2>&1"
 ```
 
 If output shows `skippedOneTime: ["classic","blueivory"]` and `indexed: 0`, the one-time tests are considered correct.

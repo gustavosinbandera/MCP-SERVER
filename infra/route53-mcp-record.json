@@ -6,7 +6,7 @@
         "Name": "mcp.domoticore.co",
         "Type": "A",
         "TTL": 300,
-        "ResourceRecords": [{ "Value": "52.91.217.181" }]
+        "ResourceRecords": [{ "Value": "100.27.211.19" }]
       }
     }
   ]

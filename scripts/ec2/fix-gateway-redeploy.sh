@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run this ON the EC2 instance (e.g. after ssh ec2-user@52.91.217.181) to redeploy
+# Run this ON the EC2 instance (e.g. after ssh ec2-user@100.27.211.19) to redeploy
 # the gateway with the reverted code. Fixes gateway after revert was pushed.
 set -e
 cd ~/MCP-SERVER

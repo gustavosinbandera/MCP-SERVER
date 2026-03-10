@@ -1,7 +1,7 @@
 # Reporte de servicios – EC2 MCP Knowledge Hub
 
 **Fecha:** 2026-02-20  
-**Host:** 52.91.217.181 (mcp.domoticore.co)  
+**Host:** 100.27.211.19 (mcp.domoticore.co)  
 **Revisión:** SSH + Docker + puertos
 
 ---
@@ -60,6 +60,6 @@
 
 ## 5. Resumen
 
-- **SSH:** Activo; acceso por clave (mcp-server-key.pem) a ec2-user@52.91.217.181.
+- **SSH:** Activo; acceso por clave (mcp-server-key.pem) a ec2-user@100.27.211.19.
 - **Aplicación:** Nginx en 80, gateway detrás de /api/, webapp en /. Todos los servicios del compose están Up y los que tienen healthcheck están healthy.
 - **Recomendación:** Estado correcto para uso. Para HTTPS, configurar Certbot en la VM o un ALB con certificado ACM.

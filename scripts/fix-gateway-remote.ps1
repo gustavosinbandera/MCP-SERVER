@@ -1,12 +1,12 @@
 # Run from your Windows machine (PowerShell) at repo root:
 #   cd C:\PROYECTOS\MCP-SERVER
 #   .\scripts\fix-gateway-remote.ps1
-# Redeploys the gateway on EC2 with the reverted code. Requires SSH to 52.91.217.181.
+# Redeploys the gateway on EC2 with the reverted code. Requires SSH to 100.27.211.19.
 # If SSH times out (firewall/instance), connect via Remote-SSH in Cursor and run on the server:
 #   bash ~/MCP-SERVER/scripts/ec2/fix-gateway-redeploy.sh
 $ErrorActionPreference = "Stop"
 $keyPath = Join-Path $PSScriptRoot "..\infra\mcp-server-key.pem"
-$sshHost = "52.91.217.181"
+$sshHost = "100.27.211.19"
 $user = "ec2-user"
 if (-not (Test-Path $keyPath)) {
     Write-Error "Key not found: $keyPath"

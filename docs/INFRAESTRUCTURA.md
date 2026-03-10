@@ -21,7 +21,7 @@ flowchart TB
         Browser["Browser"]
     end
 
-    subgraph ec2["🖥️ EC2 (52.91.217.181)"]
+    subgraph ec2["🖥️ EC2 (100.27.211.19)"]
         subgraph proxy["Reverse proxy"]
             Nginx["Nginx :80"]
         end
@@ -139,7 +139,7 @@ flowchart LR
 
 ## Deployment (EC2)
 
-- **Host**: 52.91.217.181 (ec2-user).
+- **Host**: 100.27.211.19 (ec2-user).
 - **Access**: SSH with key `infra/mcp-server-key.pem`.
 - **Project on server**: `~/MCP-SERVER` (or `/home/ec2-user/MCP-SERVER`).
 - **Public URL**: http://mcp.domoticore.co (HTTP only).

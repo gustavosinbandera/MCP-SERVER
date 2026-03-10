@@ -7,10 +7,10 @@ Commands to verify whether `INDEX_URL_USER` and `INDEX_URL_PASSWORD` are defined
 ## 1. Connect to the instance
 
 ```bash
-ssh -i infra/mcp-server-key.pem ec2-user@52.91.217.181
+ssh -i infra/mcp-server-key.pem ec2-user@100.27.211.19
 ```
 
-(Or from PowerShell: `ssh -i "infra\\mcp-server-key.pem" ec2-user@52.91.217.181`)
+(Or from PowerShell: `ssh -i "infra\\mcp-server-key.pem" ec2-user@100.27.211.19`)
 
 ---
 
