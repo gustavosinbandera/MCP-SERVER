@@ -8,7 +8,8 @@ set -e
 REPO_DIR="${MCP_REPO_DIR:-$HOME/MCP-SERVER}"
 BRANCH="${MCP_REPO_BRANCH:-master}"
 STATUS_FILE="$REPO_DIR/.last-update-status"
-HEALTH_URL="http://localhost/api/health"
+HEALTH_URL_GATEWAY="http://localhost:3001/health"
+HEALTH_URL_API="http://localhost/api/health"
 VERIFY_SLEEP=15
 MAX_ATTEMPTS=3
 
@@ -115,13 +116,17 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$REPO_DIR/.last-instance-update"
 echo "Verificando health (hasta $MAX_ATTEMPTS intentos)..."
 for i in $(seq 1 "$MAX_ATTEMPTS"); do
   sleep "$VERIFY_SLEEP"
-  status=$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL" 2>/dev/null || echo "000")
-  echo "  Intento $i/$MAX_ATTEMPTS: health=$status"
-  if [ "$status" = "200" ]; then
+  gw_status=$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL_GATEWAY" 2>/dev/null || echo "000")
+  api_status=$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL_API" 2>/dev/null || echo "000")
+  echo "  Intento $i/$MAX_ATTEMPTS: gateway=$gw_status api=$api_status"
+  # Success criteria:
+  # - gateway local health must be 200 (authoritative), OR
+  # - api route is healthy and returns either 200 or 302 (common nginx auth redirect setup).
+  if [ "$gw_status" = "200" ] || [ "$api_status" = "200" ] || [ "$api_status" = "302" ]; then
     {
       echo "status=success"
       echo "updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      echo "health_check=200"
+      echo "health_check=gateway:$gw_status api:$api_status"
     } > "$STATUS_FILE"
     echo "OK. Servicios en ejecución."
     docker compose ps gateway supervisor
@@ -141,7 +146,7 @@ reverted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo "status=failed_reverted"
   echo "updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "reverted_at=$reverted_at"
-  echo "health_check=non_200"
+  echo "health_check=gateway_non_200_and_api_non_200_302"
 } > "$STATUS_FILE"
 echo "Revertido. Estado guardado en $STATUS_FILE"
 docker compose ps gateway supervisor
