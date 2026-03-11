@@ -57,6 +57,8 @@ import {
   addWorkItemCommentAsMarkdown,
   collectChangesetsForPaths,
   ingestRowsToRemotePostgres,
+  isRemoteCheckpointCompleted,
+  markRemoteIngestFailed,
 } from './azure';
 import {
   workItemToCompact,
@@ -2174,6 +2176,9 @@ mcpServer.tool(
       author: z.string().optional(),
       project_name: z.string().optional(),
       include_work_items: z.boolean().optional(),
+      include_file_history_signals: z.boolean().optional(),
+      file_history_max_files: z.number().optional(),
+      file_history_top_per_file: z.number().optional(),
       dry_run: z.boolean().optional(),
       ssh_target: z.string().optional(),
       ssh_key_path: z.string().optional(),
@@ -2188,6 +2193,9 @@ mcpServer.tool(
       author?: string;
       project_name?: string;
       include_work_items?: boolean;
+      include_file_history_signals?: boolean;
+      file_history_max_files?: number;
+      file_history_top_per_file?: number;
       dry_run?: boolean;
       ssh_target?: string;
       ssh_key_path?: string;
@@ -2219,6 +2227,30 @@ mcpServer.tool(
       }
 
       try {
+        const completedChecks = await Promise.all(
+          paths.map((p) =>
+            isRemoteCheckpointCompleted({
+              sshTarget,
+              sshKeyPath,
+              remoteRepoPath,
+              dbName,
+              mode: 'bootstrap',
+              pathScope: p,
+              windowFrom: args.from_date?.trim(),
+              windowTo: args.to_date?.trim(),
+            })
+          )
+        );
+        if (completedChecks.length > 0 && completedChecks.every(Boolean)) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Bootstrap window already completed for all requested paths. Skipping re-ingest (${args.from_date}${args.to_date ? `..${args.to_date}` : ''}).`,
+            }],
+          };
+        }
+
+        const runId = `bootstrap-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const rows = await collectChangesetsForPaths({
           paths,
           fromDate: args.from_date?.trim(),
@@ -2244,6 +2276,13 @@ mcpServer.tool(
           remoteRepoPath,
           dbName,
           includeWorkItems: args.include_work_items !== false,
+          includeFileHistorySignals: args.include_file_history_signals === true,
+          fileHistoryMaxFiles: args.file_history_max_files,
+          fileHistoryTopPerFile: args.file_history_top_per_file,
+          runId,
+          mode: 'bootstrap',
+          windowFrom: args.from_date?.trim(),
+          windowTo: args.to_date?.trim(),
         });
         return {
           content: [{
@@ -2254,10 +2293,28 @@ mcpServer.tool(
               `Changesets: ${summary.ingested_changesets}\n` +
               `Files: ${summary.ingested_files}\n` +
               `Work-item links: ${summary.ingested_work_item_links}\n` +
-              `Distinct work items: ${summary.distinct_work_items}`,
+              `Distinct work items: ${summary.distinct_work_items}\n` +
+              `File-history signals: ${summary.file_history_signals_upserted ?? 0}`,
           }],
         };
       } catch (err) {
+        const msg = azureError(err);
+        try {
+          await markRemoteIngestFailed({
+            sshTarget,
+            sshKeyPath,
+            remoteRepoPath,
+            dbName,
+            runId: `bootstrap-failed-${Date.now()}`,
+            mode: 'bootstrap',
+            pathScope: paths[0] || '(none)',
+            windowFrom: args.from_date?.trim(),
+            windowTo: args.to_date?.trim(),
+            errorMessage: msg,
+          });
+        } catch {
+          // best effort
+        }
         return { content: [{ type: 'text' as const, text: `Azure ingest error: ${azureError(err)}` }] };
       }
     },
@@ -2273,6 +2330,9 @@ mcpServer.tool(
       author: z.string().optional(),
       project_name: z.string().optional(),
       include_work_items: z.boolean().optional(),
+      include_file_history_signals: z.boolean().optional(),
+      file_history_max_files: z.number().optional(),
+      file_history_top_per_file: z.number().optional(),
       dry_run: z.boolean().optional(),
       ssh_target: z.string().optional(),
       ssh_key_path: z.string().optional(),
@@ -2286,6 +2346,9 @@ mcpServer.tool(
       author?: string;
       project_name?: string;
       include_work_items?: boolean;
+      include_file_history_signals?: boolean;
+      file_history_max_files?: number;
+      file_history_top_per_file?: number;
       dry_run?: boolean;
       ssh_target?: string;
       ssh_key_path?: string;
@@ -2322,6 +2385,30 @@ mcpServer.tool(
       const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
       const fromDate = from.toISOString().slice(0, 10);
       try {
+        const completedChecks = await Promise.all(
+          paths.map((p) =>
+            isRemoteCheckpointCompleted({
+              sshTarget,
+              sshKeyPath,
+              remoteRepoPath,
+              dbName,
+              mode: 'daily',
+              pathScope: p,
+              windowFrom: fromDate,
+              windowTo: toDate,
+            })
+          )
+        );
+        if (completedChecks.length > 0 && completedChecks.every(Boolean)) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Daily window already completed for all requested paths. Skipping re-ingest (${fromDate}..${toDate}).`,
+            }],
+          };
+        }
+
+        const runId = `daily-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const rows = await collectChangesetsForPaths({
           paths,
           fromDate,
@@ -2347,6 +2434,13 @@ mcpServer.tool(
           remoteRepoPath,
           dbName,
           includeWorkItems: args.include_work_items !== false,
+          includeFileHistorySignals: args.include_file_history_signals === true,
+          fileHistoryMaxFiles: args.file_history_max_files,
+          fileHistoryTopPerFile: args.file_history_top_per_file,
+          runId,
+          mode: 'daily',
+          windowFrom: fromDate,
+          windowTo: toDate,
         });
         return {
           content: [{
@@ -2356,10 +2450,28 @@ mcpServer.tool(
               `Changesets: ${summary.ingested_changesets}\n` +
               `Files: ${summary.ingested_files}\n` +
               `Work-item links: ${summary.ingested_work_item_links}\n` +
-              `Distinct work items: ${summary.distinct_work_items}`,
+              `Distinct work items: ${summary.distinct_work_items}\n` +
+              `File-history signals: ${summary.file_history_signals_upserted ?? 0}`,
           }],
         };
       } catch (err) {
+        const msg = azureError(err);
+        try {
+          await markRemoteIngestFailed({
+            sshTarget,
+            sshKeyPath,
+            remoteRepoPath,
+            dbName,
+            runId: `daily-failed-${Date.now()}`,
+            mode: 'daily',
+            pathScope: paths[0] || '(none)',
+            windowFrom: fromDate,
+            windowTo: toDate,
+            errorMessage: msg,
+          });
+        } catch {
+          // best effort
+        }
         return { content: [{ type: 'text' as const, text: `Azure daily ingest error: ${azureError(err)}` }] };
       }
     },
@@ -2376,6 +2488,9 @@ mcpServer.tool(
       author: z.string().optional(),
       project_name: z.string().optional(),
       include_work_items: z.boolean().optional(),
+      include_file_history_signals: z.boolean().optional(),
+      file_history_max_files: z.number().optional(),
+      file_history_top_per_file: z.number().optional(),
       ssh_target: z.string().optional(),
       ssh_key_path: z.string().optional(),
       remote_repo_path: z.string().optional(),
@@ -2389,6 +2504,9 @@ mcpServer.tool(
       author?: string;
       project_name?: string;
       include_work_items?: boolean;
+      include_file_history_signals?: boolean;
+      file_history_max_files?: number;
+      file_history_top_per_file?: number;
       ssh_target?: string;
       ssh_key_path?: string;
       remote_repo_path?: string;
@@ -2421,6 +2539,29 @@ mcpServer.tool(
 
       void (async () => {
         try {
+          const completedChecks = await Promise.all(
+            paths.map((p) =>
+              isRemoteCheckpointCompleted({
+                sshTarget,
+                sshKeyPath,
+                remoteRepoPath,
+                dbName,
+                mode: 'bootstrap',
+                pathScope: p,
+                windowFrom: args.from_date?.trim(),
+                windowTo: args.to_date?.trim(),
+              })
+            )
+          );
+          if (completedChecks.length > 0 && completedChecks.every(Boolean)) {
+            job.status = 'completed';
+            job.started_at = nowIso();
+            job.finished_at = nowIso();
+            job.progress = { stage: 'done', percent: 100, message: 'Skipped: already completed window.' };
+            job.result = { ingested_changesets: 0, ingested_files: 0, ingested_work_item_links: 0, distinct_work_items: 0 };
+            return;
+          }
+
           job.status = 'running';
           job.started_at = nowIso();
           const rows = await collectChangesetsForPaths({
@@ -2449,6 +2590,13 @@ mcpServer.tool(
             remoteRepoPath,
             dbName,
             includeWorkItems: args.include_work_items !== false,
+            includeFileHistorySignals: args.include_file_history_signals === true,
+            fileHistoryMaxFiles: args.file_history_max_files,
+            fileHistoryTopPerFile: args.file_history_top_per_file,
+            runId: jobId,
+            mode: 'bootstrap',
+            windowFrom: args.from_date?.trim(),
+            windowTo: args.to_date?.trim(),
             onProgress: (p) => {
               job.progress = {
                 stage: p.stage,
@@ -2476,6 +2624,22 @@ mcpServer.tool(
           job.finished_at = nowIso();
           job.error = azureError(err);
           job.progress = { ...job.progress, message: `Failed: ${job.error}` };
+          try {
+            await markRemoteIngestFailed({
+              sshTarget,
+              sshKeyPath,
+              remoteRepoPath,
+              dbName,
+              runId: jobId,
+              mode: 'bootstrap',
+              pathScope: paths[0] || '(none)',
+              windowFrom: args.from_date?.trim(),
+              windowTo: args.to_date?.trim(),
+              errorMessage: job.error,
+            });
+          } catch {
+            // best effort
+          }
         }
       })();
 
@@ -2498,6 +2662,9 @@ mcpServer.tool(
       author: z.string().optional(),
       project_name: z.string().optional(),
       include_work_items: z.boolean().optional(),
+      include_file_history_signals: z.boolean().optional(),
+      file_history_max_files: z.number().optional(),
+      file_history_top_per_file: z.number().optional(),
       ssh_target: z.string().optional(),
       ssh_key_path: z.string().optional(),
       remote_repo_path: z.string().optional(),
@@ -2510,6 +2677,9 @@ mcpServer.tool(
       author?: string;
       project_name?: string;
       include_work_items?: boolean;
+      include_file_history_signals?: boolean;
+      file_history_max_files?: number;
+      file_history_top_per_file?: number;
       ssh_target?: string;
       ssh_key_path?: string;
       remote_repo_path?: string;
@@ -2548,6 +2718,29 @@ mcpServer.tool(
 
       void (async () => {
         try {
+          const completedChecks = await Promise.all(
+            paths.map((p) =>
+              isRemoteCheckpointCompleted({
+                sshTarget,
+                sshKeyPath,
+                remoteRepoPath,
+                dbName,
+                mode: 'daily',
+                pathScope: p,
+                windowFrom: fromDate,
+                windowTo: toDate,
+              })
+            )
+          );
+          if (completedChecks.length > 0 && completedChecks.every(Boolean)) {
+            job.status = 'completed';
+            job.started_at = nowIso();
+            job.finished_at = nowIso();
+            job.progress = { stage: 'done', percent: 100, message: 'Skipped: already completed window.' };
+            job.result = { ingested_changesets: 0, ingested_files: 0, ingested_work_item_links: 0, distinct_work_items: 0 };
+            return;
+          }
+
           job.status = 'running';
           job.started_at = nowIso();
           const rows = await collectChangesetsForPaths({
@@ -2576,6 +2769,13 @@ mcpServer.tool(
             remoteRepoPath,
             dbName,
             includeWorkItems: args.include_work_items !== false,
+            includeFileHistorySignals: args.include_file_history_signals === true,
+            fileHistoryMaxFiles: args.file_history_max_files,
+            fileHistoryTopPerFile: args.file_history_top_per_file,
+            runId: jobId,
+            mode: 'daily',
+            windowFrom: fromDate,
+            windowTo: toDate,
             onProgress: (p) => {
               job.progress = {
                 stage: p.stage,
@@ -2603,6 +2803,22 @@ mcpServer.tool(
           job.finished_at = nowIso();
           job.error = azureError(err);
           job.progress = { ...job.progress, message: `Failed: ${job.error}` };
+          try {
+            await markRemoteIngestFailed({
+              sshTarget,
+              sshKeyPath,
+              remoteRepoPath,
+              dbName,
+              runId: jobId,
+              mode: 'daily',
+              pathScope: paths[0] || '(none)',
+              windowFrom: fromDate,
+              windowTo: toDate,
+              errorMessage: job.error,
+            });
+          } catch {
+            // best effort
+          }
         }
       })();
 

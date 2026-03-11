@@ -50,6 +50,18 @@ Varias tools devuelven ahora un **envelope estructurado**: texto legible (`summa
 - **TFVC navigation support:** explicit path listing tool (`azure_list_tfvc_paths`) to explore branch structure and folders without leaving MCP.
 - **History indexing tools:** bootstrap + daily ingestion tools to persist TFVC changesets/files/work-item links in remote Postgres for fast regression queries.
 
+### Historical ingestion upgrade (March 2026)
+
+- **Persistent resume state:**
+  - `azure_ingest_runs` tracks status/counters/errors by run.
+  - `azure_ingest_checkpoints` tracks window progress (`mode + path + from + to`) and supports replay-safe reruns.
+- **Richer bug metadata persisted in `azure_work_items_cache`:**
+  - `description_text`, `repro_steps_text`, `expected_behavior_text`, `actual_behavior_text`
+  - `area_path`, `iteration_path`, `assigned_to`, `tags`, `priority`, `severity`
+- **Work-item link confidence:** `azure_changeset_work_items.source` stores whether link came from `comment` or `relation` extraction.
+- **File history signal integration:** optional enrichment stores file-level history evidence in `azure_file_history_signals`.
+- **Storage guardrails:** ingestion warns when remote disk usage is high and blocks execution on critical usage.
+
 ### Postgres remote bridge pattern (local Azure -> EC2 DB)
 
 When Azure APIs are only reachable from the local machine (VPN/PAT), but persistence must happen in EC2 Postgres, the ingest tools use:
@@ -64,6 +76,9 @@ The ingest creates/updates these tables if missing:
 - `azure_changeset_files`
 - `azure_changeset_work_items`
 - `azure_work_items_cache`
+- `azure_ingest_runs`
+- `azure_ingest_checkpoints`
+- `azure_file_history_signals`
 
 ### CLI script
 

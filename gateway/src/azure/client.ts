@@ -8,6 +8,8 @@
 import { isTunnelReady, requestViaTunnel } from './tunnel-server';
 
 const API_VER = (process.env.AZURE_DEVOPS_API_VERSION || '7.0').trim();
+/** Request timeout in ms (0 = no timeout). Avoids MCP tools hanging when Azure is unreachable (e.g. VPN off). */
+const FETCH_TIMEOUT_MS = Math.max(0, Math.min(120_000, Number(process.env.AZURE_DEVOPS_TIMEOUT_MS) || 30_000));
 
 function getConfig(): { baseUrl: string; project: string; pat: string } {
   const baseUrl = (process.env.AZURE_DEVOPS_BASE_URL || '').trim();
@@ -89,15 +91,19 @@ async function azureFetch(url: string, options: RequestInit = {}): Promise<Azure
     }
   }
   const auth = authHeader(c.pat);
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers: {
+      ...(options.headers as Record<string, string>),
+      Authorization: auth,
+    },
+  };
+  if (FETCH_TIMEOUT_MS > 0 && !fetchOptions.signal) {
+    fetchOptions.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  }
   let res: Response;
   try {
-    res = await fetch(url, {
-      ...options,
-      headers: {
-        ...(options.headers as Record<string, string>),
-        Authorization: auth,
-      },
-    });
+    res = await fetch(url, fetchOptions);
   } catch (err) {
     throw new Error(`Azure DevOps request failed (fetch). URL: ${url}. ${formatFetchFailure(err)}`);
   }
