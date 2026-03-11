@@ -54,9 +54,9 @@ Se implementó un sistema de logs para diagnosticar requests MCP que se quedan p
 
 ## Cómo usar (con DNS mcp.domoticore.co)
 
-- **Página:** http://mcp.domoticore.co/api/logs/view — elegir tipo en el combobox, "Cargar" o "Stream en vivo".
-- **API:** `curl -H "Authorization: Bearer TOKEN" "http://mcp.domoticore.co/api/logs?tail=100&filter=searchDocs"`
-- **SSE:** `curl -N -H "Authorization: Bearer TOKEN" "http://mcp.domoticore.co/api/logs/stream?filter=searchDocs"`
+- **Página:** https://mcp.domoticore.co/api/logs/view — elegir tipo en el combobox, "Cargar" o "Stream en vivo".
+- **API:** `curl -H "Authorization: Bearer TOKEN" "https://mcp.domoticore.co/api/logs?tail=100&filter=searchDocs"`
+- **SSE:** `curl -N -H "Authorization: Bearer TOKEN" "https://mcp.domoticore.co/api/logs/stream?filter=searchDocs"`
 
 ## Relación con el cambio en Git
 

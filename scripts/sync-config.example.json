@@ -1,6 +1,6 @@
 {
   "sshKeyPath": "C:/PROYECTOS/MCP-SERVER/infra/mcp-server-key.pem",
-  "ec2Host": "ec2-user@100.27.211.19",
+  "ec2Host": "ec2-user@mcp.domoticore.co",
   "remoteRepoPath": "~/MCP-SERVER",
   "remoteIndexInboxPath": "~/MCP-SERVER/INDEX_INBOX",
   "branch": "master"

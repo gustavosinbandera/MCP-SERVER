@@ -10,7 +10,7 @@ Commands to connect to the instance, view logs, and start/stop services manually
 
 ```powershell
 cd C:\PROYECTOS\MCP-SERVER
-ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19
+ssh -i "infra\mcp-server-key.pem" ec2-user@mcp.domoticore.co
 ```
 
 The first time it may ask you to accept the host fingerprint: type `yes`.
@@ -19,7 +19,7 @@ The first time it may ask you to accept the host fingerprint: type `yes`.
 
 ```bash
 cd /c/PROYECTOS/MCP-SERVER
-ssh -i infra/mcp-server-key.pem ec2-user@100.27.211.19
+ssh -i infra/mcp-server-key.pem ec2-user@mcp.domoticore.co
 ```
 
 ---
@@ -38,7 +38,7 @@ Add a block like this (adjust the key path if itâ€™s different):
 
 ```
 Host mcp-ec2
-  HostName 100.27.211.19
+  HostName mcp.domoticore.co
   User ec2-user
   IdentityFile C:\PROYECTOS\MCP-SERVER\infra\mcp-server-key.pem
   ServerAliveInterval 60
@@ -61,7 +61,7 @@ Host mcp-ec2
 
 **4. If something fails**
 
-- Verify you can connect from PowerShell: `ssh -i "infra\mcp-server-key.pem" ec2-user@100.27.211.19`.
+- Verify you can connect from PowerShell: `ssh -i "infra\mcp-server-key.pem" ec2-user@mcp.domoticore.co`.
 - If your key is in a path with spaces, use quotes in `config`: `IdentityFile "C:\path with spaces\mcp-server-key.pem"`.
 - On EC2, the security group must allow SSH (22) from your IP.
 
@@ -116,12 +116,12 @@ So your **local MCP** (magaya, usar-mcp, or the gateway on your PC) can use the 
 
    **PowerShell (at the repo root):**
    ```powershell
-   ssh -i "infra\mcp-server-key.pem" -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@100.27.211.19
+   ssh -i "infra\mcp-server-key.pem" -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@mcp.domoticore.co
    ```
 
    **Git Bash / WSL:**
    ```bash
-   ssh -i infra/mcp-server-key.pem -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@100.27.211.19
+   ssh -i infra/mcp-server-key.pem -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 6333:localhost:6333 ec2-user@mcp.domoticore.co
    ```
 
    **If you have the `mcp-ec2` host in `~/.ssh/config`**, add `ServerAliveInterval 60` and `ServerAliveCountMax 3` there (see above); then you can simply run:
@@ -182,7 +182,7 @@ If it returns JSON with `items`, the webapp should be able to list tasks.
 La instancia levanta un **servidor WebSocket** en el puerto **3097**. Tu máquina (con VPN y PAT) se conecta **hacia** la instancia; la instancia envía las peticiones Azure por ese canal. No hace falta abrir puertos en tu router.
 
 1. **En la instancia:** el gateway expone el puerto 3097. Abre el puerto 3097 en el security group (entrada TCP). En `gateway/.env` de la instancia no pongas `AZURE_DEVOPS_PAT`; solo `AZURE_DEVOPS_BASE_URL` y `AZURE_DEVOPS_PROJECT`.
-2. **En tu PC (con VPN):** en `gateway/.env` pon `AZURE_DEVOPS_PAT` y `AZURE_TUNNEL_WS_URL=ws://<IP_INSTANCIA>:3097`. Opcional: `AZURE_TUNNEL_SECRET` (mismo valor en instancia y en tu .env).
+2. **En tu PC (con VPN):** en `gateway/.env` pon `AZURE_DEVOPS_PAT` y `AZURE_TUNNEL_WS_URL=ws://mcp.domoticore.co:3097` (o EIP fija). Opcional: `AZURE_TUNNEL_SECRET` (mismo valor en instancia y en tu .env).
 3. Arranca el cliente: en `gateway/` ejecuta `npm run azure-tunnel`. Queda conectado; el MCP en la instancia usará este canal para Azure. Reconexión automática si se cae.
 
 ## 1e. Cursor can't connect: "Maximum sessions per user (3) reached"
@@ -507,7 +507,7 @@ Then close and reopen the SSH session (or `source /etc/profile.d/mcp-tools.sh`) 
 - **`instance_report`**: returns the SSH command to print a Markdown status report: current IP, last update, status (`.last-update-status`), containers, health.
 - **`instance_reboot`**: returns the SSH command to restart all services (`docker compose restart`).
 
-Default host and key: `ec2-user@100.27.211.19`, `infra/mcp-server-key.pem`. Run the command in Cursorâ€™s terminal (or ask Cursor to run it). **If you use remote MCP:** run it in a terminal on your PC (from the repo root) or in a terminal already connected via SSH. If tools donâ€™t show up, update the instance and reconnect Cursor to MCP.
+Default host and key: `ec2-user@mcp.domoticore.co`, `infra/mcp-server-key.pem`. Run the command in Cursor terminal (or ask Cursor to run it). **If you use remote MCP:** run it in a terminal on your PC (from the repo root) or in a terminal already connected via SSH. If tools do not show up, update the instance and reconnect Cursor to MCP.
 
 ---
 

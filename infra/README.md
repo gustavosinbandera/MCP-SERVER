@@ -18,6 +18,12 @@
 - AWS CLI configurado (`aws configure`)
 - **infra/parameters.json** (copia de `parameters.example.json` con tu `KeyName`; ya creado si usaste el key `mcp-server-key`)
 
+## Latest migration reference
+
+- Detailed runbook for the recent resize + networking hardening:
+  - **`docs/MIGRATION-2026-03-EC2-T3-LARGE-EIP.md`**
+  - Includes: `t3.medium -> t3.large`, Elastic IP, Route53 updates, endpoint map (`/api/mcp`), health-check script fix, and validation checklist.
+
 ## Uso automatizado (recomendado)
 
 Desde la raíz del proyecto (o desde cualquier sitio, los scripts usan rutas relativas):
@@ -40,9 +46,9 @@ O con un solo script:
 
 No hace falta pasar argumentos: stack name, template y parámetros están fijos en los scripts. Así puedes replicar la infra en cualquier máquina con AWS CLI configurado y este repo.
 
-## Cognito (JWT para /mcp HTTP streamable)
+## Cognito (JWT for `/api/mcp` streamable HTTP)
 
-Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /mcp`. El App Client incluye **CallbackURLs** y **LogoutURLs** para el Hosted UI (parámetro `CognitoCallbackBaseUrl`, por defecto `https://mcp.domoticore.co/api`).
+Si en el stack usas **CognitoCreateUserPool=true** (por defecto), el template crea un **User Pool** y un **App Client** para que el gateway valide JWT en `POST /api/mcp`. El App Client incluye **CallbackURLs** y **LogoutURLs** para el Hosted UI (parámetro `CognitoCallbackBaseUrl`, por defecto `https://mcp.domoticore.co/api`).
 
 **Outputs del stack** (tras `2-get-outputs.ps1` o `aws cloudformation describe-stacks`):
 - **CognitoUserPoolId** → `COGNITO_USER_POOL_ID` en `.env` del gateway (en la EC2: `~/MCP-SERVER/.env` o `gateway/.env`).
@@ -70,11 +76,11 @@ Si ya tienes un User Pool, pon **CognitoCreateUserPool=false** en `parameters.js
 ## Seguridad (producción)
 
 - **AllowedSSHCIDR**: En producción no debe quedar `0.0.0.0/0`. Usa tu IP fija o CIDR de VPN en `infra/parameters.json` (parámetro `AllowedSSHCIDR`) para restringir SSH al puerto 22.
-- Los puertos 80 y 443 quedan abiertos; el endpoint `/mcp` está protegido por JWT (Cognito). Rate-limit en borde (WAF/CloudFront) se puede añadir en una fase posterior.
+- Los puertos 80 y 443 quedan abiertos; el endpoint `/api/mcp` está protegido por JWT (Cognito). Rate-limit en borde (WAF/CloudFront) se puede añadir en una fase posterior.
 
 ## Dominio mcp.domoticore.co
 
-El script **5-route53-mcp.ps1** obtiene la PublicIP del stack y actualiza el registro A de **mcp.domoticore.co** en Route 53. Ejecútalo tras crear o reiniciar la EC2 (la IP puede cambiar si no usas IP elástica).
+El script **5-route53-mcp.ps1** obtiene la PublicIP del stack y actualiza el registro A de **mcp.domoticore.co** en Route 53. Si ya usas Elastic IP, el valor debe mantenerse estable.
 
 **HTTP y HTTPS:** El mismo registro A sirve para ambos. No hace falta configurar nada distinto en Route 53 para HTTPS. En la EC2, nginx escucha 80 (redirige a HTTPS, salvo `/.well-known/acme-challenge/` para Let's Encrypt) y 443 (SSL con certificado Let's Encrypt o autofirmado). Al usar `https://mcp.domoticore.co` el tráfico va a la misma IP por el puerto 443.
 

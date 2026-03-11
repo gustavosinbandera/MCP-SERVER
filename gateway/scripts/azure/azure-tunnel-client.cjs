@@ -2,7 +2,7 @@
  * Azure tunnel client: connects from your machine (with VPN/PAT) to the instance WebSocket.
  * The instance then sends Azure requests through this channel. No port opening at home.
  *
- * Env (gateway/.env): AZURE_DEVOPS_PAT, AZURE_TUNNEL_WS_URL (e.g. ws://100.27.211.19:3097).
+ * Env (gateway/.env): AZURE_DEVOPS_PAT, AZURE_TUNNEL_WS_URL (e.g. ws://mcp.domoticore.co:3097).
  * Optional: AZURE_TUNNEL_SECRET (must match instance AZURE_TUNNEL_SECRET).
  *
  * Usage (from gateway/): node scripts/azure/azure-tunnel-client.cjs
@@ -24,7 +24,7 @@ function authHeader(pat) {
 
 function connect() {
   if (!WS_URL) {
-    console.error('AZURE_TUNNEL_WS_URL is required (e.g. ws://100.27.211.19:3097)');
+    console.error('AZURE_TUNNEL_WS_URL is required (e.g. ws://mcp.domoticore.co:3097)');
     process.exit(1);
   }
   if (!PAT) {

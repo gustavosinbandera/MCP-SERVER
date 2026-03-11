@@ -14,9 +14,9 @@ El gateway expone dos rutas protegidas por el mismo JWT que `/mcp` (Bearer token
 
 Con el DNS ya configurado (p. ej. **mcp.domoticore.co**):
 
-- **Página:** abre en el navegador `http://mcp.domoticore.co/api/logs/view` y, cuando te lo pida, pega tu **IdToken** (el mismo Bearer que usas en Cursor). Luego usa el formulario para elegir cantidad de líneas y filtrar por `userId` o texto en `message`.
+- **Página:** abre en el navegador `https://mcp.domoticore.co/api/logs/view` y, cuando te lo pida, pega tu **IdToken** (el mismo Bearer que usas en Cursor). Luego usa el formulario para elegir cantidad de líneas y filtrar por `userId` o texto en `message`.
 - **API desde curl:**  
-  `curl -s -H "Authorization: Bearer TU_ID_TOKEN" "http://mcp.domoticore.co/api/logs?tail=100&userId=abc123"`
+  `curl -s -H "Authorization: Bearer TU_ID_TOKEN" "https://mcp.domoticore.co/api/logs?tail=100&userId=abc123"`
 
 El token debe ser el mismo que usas para `POST /api/mcp` (Cognito IdToken o MCP_API_KEY).
 

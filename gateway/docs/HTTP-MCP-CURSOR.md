@@ -1,11 +1,11 @@
 # MCP sobre HTTP Streamable para Cursor (v1)
 
-El gateway expone MCP por HTTP en el endpoint `/mcp`, protegido por JWT (Cognito). Cursor puede conectarse usando el tipo **streamable-http** con la URL del gateway y el header `Authorization: Bearer <token>`.
+Externally (behind nginx), the gateway exposes MCP at `/api/mcp` and it is protected by JWT (Cognito/API key). Internally, the Node service handles `/mcp` after nginx rewrites `/api/*` -> `/*`.
 
 ## Obtener token Cognito (manual)
 
 1. **Usuario/contraseña (User Pool):**  
-   Usa el flujo de login de tu app (p. ej. Hosted UI de Cognito o API `InitiateAuth` con `USER_PASSWORD_AUTH`). La respuesta incluye `IdToken` (o `AccessToken`). Usa el **IdToken** como Bearer para `/mcp`.
+   Usa el flujo de login de tu app (p. ej. Hosted UI de Cognito o API `InitiateAuth` con `USER_PASSWORD_AUTH`). La respuesta incluye `IdToken` (o `AccessToken`). Usa el **IdToken** como Bearer para `/api/mcp`.
 
 2. **Desde AWS CLI (ejemplo):**  
    Si tienes un Client ID y usuario/contraseña configurados:
@@ -28,7 +28,7 @@ Ejemplo de configuración para un servidor MCP por HTTP Streamable:
 {
   "mcpServers": {
     "knowledge-hub-remote": {
-      "url": "https://mcp.domoticore.co/mcp",
+      "url": "https://mcp.domoticore.co/api/mcp",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer <TU_ID_TOKEN_COGNITO>"
@@ -38,7 +38,7 @@ Ejemplo de configuración para un servidor MCP por HTTP Streamable:
 }
 ```
 
-- **url**: Base URL del gateway + `/mcp` (sin barra final).
+- **url**: Public MCP URL `https://mcp.domoticore.co/api/mcp` (sin barra final).
 - **transport**: `streamable-http`.
 - **headers**: Incluye `Authorization: Bearer <id_token>`. Sustituye `<TU_ID_TOKEN_COGNITO>` por el token actual (hay que renovarlo cuando expire).
 
@@ -57,7 +57,7 @@ En el servidor (o `.env` del gateway) configura:
 - **MAX_SESSIONS_PER_USER** (default 3): máximo de sesiones activas por usuario. Si se supera, la respuesta es **429** con mensaje claro. Las peticiones **sin** header `mcp-session-id` reutilizan la sesión más reciente del usuario (evita que reintentos o múltiples conexiones del cliente llenen el límite).
 - **SESSION_TTL_MS** (default 30 min): sesiones inactivas se cierran automáticamente; un timer cada 60 s limpia las expiradas.
 - El cliente puede enviar el header **mcp-session-id** para reutilizar una sesión (el servidor lo devuelve en la respuesta al crear una nueva).
-- **DELETE /mcp** con header `mcp-session-id` cierra esa sesión (respuesta 204 si existía, 404 si no).
+- **DELETE /api/mcp** con header `mcp-session-id` cierra esa sesión (respuesta 204 si existía, 404 si no).
 
 ## Troubleshooting
 
@@ -65,13 +65,13 @@ En el servidor (o `.env` del gateway) configura:
 |----------|----------------|-----------|
 | **401** sin body / "Missing Authorization" | No envías header `Authorization: Bearer <token>`. | Añade en `mcp.json` el header con el IdToken de Cognito. |
 | **401** "Invalid or expired token" | Token caducado, firma inválida o issuer/audience incorrectos. | Renueva el token (login de nuevo). Comprueba COGNITO_* en el servidor. |
-| **429** / "Maximum sessions per user" | Ya tienes MAX_SESSIONS_PER_USER sesiones abiertas. | Cierra sesiones (DELETE /mcp con cada mcp-session-id) o espera al TTL. |
-| **405** en GET /mcp | GET no se usa para JSON-RPC. | Usa POST /mcp para las peticiones MCP (initialize, tools/list, etc.). |
-| Cursor no lista tools | URL incorrecta o token no enviado. | Verifica que la URL sea `https://.../mcp` y que el header Authorization llegue (logs del gateway si tienes acceso). |
+| **429** / "Maximum sessions per user" | Ya tienes MAX_SESSIONS_PER_USER sesiones abiertas. | Cierra sesiones (DELETE /api/mcp con cada mcp-session-id) o espera al TTL. |
+| **405** en GET /api/mcp | GET no se usa para JSON-RPC. | Usa POST /api/mcp para las peticiones MCP (initialize, tools/list, etc.). |
+| Cursor no lista tools | URL incorrecta o token no enviado. | Verifica que la URL sea `https://mcp.domoticore.co/api/mcp` y que el header Authorization llegue (logs del gateway si tienes acceso). |
 
 ## Comandos de verificación
 
-- Health del gateway: `curl https://mcp.domoticore.co/health`
-- Sin token (debe dar 401): `curl -X POST https://mcp.domoticore.co/mcp -H "Content-Type: application/json" -d "{}"`
+- Health del gateway: `curl https://mcp.domoticore.co/api/health`
+- Sin token (debe dar 401): `curl -X POST https://mcp.domoticore.co/api/mcp -H "Content-Type: application/json" -d "{}"`
 - Con token (initialize):  
-  `curl -X POST https://mcp.domoticore.co/mcp -H "Content-Type: application/json" -H "Authorization: Bearer <ID_TOKEN>" -d "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1,\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0.0\"}}}"`
+  `curl -X POST https://mcp.domoticore.co/api/mcp -H "Content-Type: application/json" -H "Authorization: Bearer <ID_TOKEN>" -d "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1,\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0.0\"}}}"`

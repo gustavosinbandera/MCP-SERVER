@@ -1,6 +1,6 @@
 # What you need to test MCP over streamable HTTP
 
-Minimal checklist to test `POST /mcp` (JWT + JSON-RPC) from your machine or from Cursor.
+Minimal checklist to test `POST /api/mcp` (JWT + JSON-RPC) from your machine or from Cursor.
 
 **Test user (already created in Cognito, credenciales confirmadas):**
 - **Email:** `mcp-test@domoticore.co`
@@ -84,11 +84,11 @@ This key **does not expire**; you stop using it only when you rotate it (change 
 
 With the project’s current nginx:
 
-- **API base:** `http://mcp.domoticore.co/api`
-- **Health:** `http://mcp.domoticore.co/api/health`
-- **MCP (JSON-RPC):** `http://mcp.domoticore.co/api/mcp`
+- **API base:** `https://mcp.domoticore.co/api`
+- **Health:** `https://mcp.domoticore.co/api/health`
+- **MCP (JSON-RPC):** `https://mcp.domoticore.co/api/mcp`
 
-(In this environment it is **http**, not https, and the MCP path is **/api/mcp**.)
+(In this environment the public endpoint is **https**, and the MCP path is **/api/mcp**.)
 
 ---
 
@@ -97,7 +97,7 @@ With the project’s current nginx:
 **Without token (should return 401):**
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" -X POST http://mcp.domoticore.co/api/mcp -H "Content-Type: application/json" -d "{}"
+curl -s -o /dev/null -w "%{http_code}" -X POST https://mcp.domoticore.co/api/mcp -H "Content-Type: application/json" -d "{}"
 # Esperado: 401
 ```
 
@@ -106,7 +106,7 @@ curl -s -o /dev/null -w "%{http_code}" -X POST http://mcp.domoticore.co/api/mcp 
 Replace `TU_ID_TOKEN` with the IdToken from step 2.
 
 ```bash
-curl -s -X POST http://mcp.domoticore.co/api/mcp \
+curl -s -X POST https://mcp.domoticore.co/api/mcp \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_ID_TOKEN" \
   -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}'
@@ -119,7 +119,7 @@ Expected: JSON-RPC response with `result.serverInfo`, `result.capabilities`, etc
 Same token, different body:
 
 ```bash
-curl -s -X POST http://mcp.domoticore.co/api/mcp \
+curl -s -X POST https://mcp.domoticore.co/api/mcp \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_ID_TOKEN" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":2,"params":{}}'
@@ -137,7 +137,7 @@ Expected: `result.tools` with the list of tools.
 {
   "mcpServers": {
     "knowledge-hub-remote": {
-      "url": "http://mcp.domoticore.co/api/mcp",
+      "url": "https://mcp.domoticore.co/api/mcp",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer TU_ID_TOKEN_AQUI"
@@ -160,7 +160,7 @@ Expected: `result.tools` with the list of tools.
 | 401 without token | Expected; you need the `Authorization: Bearer <token>` header. |
 | 401 with token | Token expired/invalid; COGNITO_* in gateway `.env`; correct region and User Pool ID. |
 | 502 / no response | Gateway or nginx is down on EC2: `docker compose ps` and `docker compose logs gateway nginx`. |
-| Cursor doesn’t list tools | Exact URL `http://mcp.domoticore.co/api/mcp`; Bearer header present; token valid. |
+| Cursor doesn’t list tools | Exact URL `https://mcp.domoticore.co/api/mcp`; Bearer header present; token valid. |
 | **"Maximum sessions per user (3) reached"** | The gateway limits sessions per user. **On EC2:** add `MAX_SESSIONS_PER_USER=10` to the gateway `.env` and restart: `docker compose restart gateway`. Or restart without changes to clear in-memory sessions. |
 | SSE error 405 (when falling back) | The server only supports streamable-http; 405 is expected if Cursor tries SSE. Fix by addressing the session limit above. |
 | **504 Gateway Time-out** | Nginx times out before the gateway responds. This repo increases `proxy_read_timeout` (and send/connect) in `nginx/nginx.conf` for `/api/`. Deploy and restart nginx on EC2. |

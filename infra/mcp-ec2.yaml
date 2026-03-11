@@ -11,7 +11,7 @@ Parameters:
     Description: Name of an existing EC2 Key Pair to enable SSH access
   InstanceType:
     Type: String
-    Default: t3.medium
+    Default: t3.large
     AllowedValues:
       - t3.micro
       - t3.small

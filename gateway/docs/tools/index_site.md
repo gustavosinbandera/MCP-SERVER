@@ -46,7 +46,7 @@ La indexación puede estar corriendo en el **gateway** (contenedor en EC2). Si c
 1. **Ver hasta dónde llegó**  
    Los logs del progreso `[SITE]` están en el **servidor donde corre el gateway** (p. ej. EC2), no en tu PC. Conéctate por SSH a la instancia y allí ejecuta:
    ```bash
-   ssh -i infra/mcp-server-key.pem ec2-user@100.27.211.19
+   ssh -i infra/mcp-server-key.pem ec2-user@mcp.domoticore.co
    cd ~/MCP-SERVER
    docker compose logs --tail=500 gateway
    ```

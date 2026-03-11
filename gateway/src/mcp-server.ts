@@ -705,7 +705,7 @@ mcpServer.tool(
   'Return the SSH command to update the instance: on the instance it runs git pull, build, up, restart, and health verification (up to 3 attempts; if it fails, it reverts). It does not add/commit/push in your local repo. Configure INSTANCE_SSH_TARGET and INSTANCE_SSH_KEY_PATH in .env.',
   {} as any,
   async () => {
-    const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@100.27.211.19';
+    const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@mcp.domoticore.co';
     const keyPath = process.env.INSTANCE_SSH_KEY_PATH?.trim() || 'infra/mcp-server-key.pem';
     const cmd = "cd ~/MCP-SERVER && bash scripts/ec2/instance_update_with_verify.sh";
     const sshPart = keyPath ? `ssh -i "${keyPath}" ${host}` : `ssh ${host}`;
@@ -726,7 +726,7 @@ mcpServer.tool(
 );
 
 function instanceSshCommand(remoteCmd: string, title: string): string {
-  const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@100.27.211.19';
+  const host = process.env.INSTANCE_SSH_TARGET?.trim() || 'ec2-user@mcp.domoticore.co';
   const keyPath = process.env.INSTANCE_SSH_KEY_PATH?.trim() || 'infra/mcp-server-key.pem';
   const sshPart = keyPath ? `ssh -i "${keyPath}" ${host}` : `ssh ${host}`;
   const fullCommand = `${sshPart} "${remoteCmd.replace(/"/g, '\\"')}"`;

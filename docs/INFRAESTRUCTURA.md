@@ -6,8 +6,8 @@ Reference document for the current project infrastructure (team-facing).
 
 ## Overview
 
-- **Public entrypoint**: Nginx (port 80) on an EC2 instance.
-- **Production URL**: `http://mcp.domoticore.co` (HTTP only).
+- **Public entrypoint**: Nginx (ports 80/443) on an EC2 instance.
+- **Production URL**: `https://mcp.domoticore.co`.
 - **Stack**: Docker Compose with PostgreSQL, Redis, Qdrant, InfluxDB, Grafana, Gateway (Node.js/TS), Supervisor, Webapp (Next.js), Nginx. Optional Worker (Python) under the `jobs` profile.
 
 ---
@@ -21,7 +21,7 @@ flowchart TB
         Browser["Browser"]
     end
 
-    subgraph ec2["🖥️ EC2 (100.27.211.19)"]
+    subgraph ec2["🖥️ EC2 (52.44.80.134 / EIP)"]
         subgraph proxy["Reverse proxy"]
             Nginx["Nginx :80"]
         end
@@ -46,7 +46,7 @@ flowchart TB
     end
 
     IDE -->|"stdio / MCP"| Gateway
-    Browser -->|"http://mcp.domoticore.co"| Nginx
+    Browser -->|"https://mcp.domoticore.co"| Nginx
     Nginx -->|"/"| Webapp
     Nginx -->|"/api/*"| Gateway
 
@@ -69,7 +69,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph entrada["Entry"]
-        Nginx80["Nginx\n80"]
+        Nginx80["Nginx\n80/443"]
     end
 
     subgraph app["App"]
@@ -139,11 +139,11 @@ flowchart LR
 
 ## Deployment (EC2)
 
-- **Host**: 100.27.211.19 (ec2-user).
+- **Host**: `mcp.domoticore.co` (Elastic IP `52.44.80.134`).
 - **Access**: SSH with key `infra/mcp-server-key.pem`.
 - **Project on server**: `~/MCP-SERVER` (or `/home/ec2-user/MCP-SERVER`).
-- **Public URL**: http://mcp.domoticore.co (HTTP only).
-- **Public URL**: http://mcp.domoticore.co (HTTP only).
+- **Public URL**: `https://mcp.domoticore.co`.
+- **MCP endpoint**: `https://mcp.domoticore.co/api/mcp`.
 - **Common commands**: see `docs/COMANDOS-INSTANCIA-EC2.md` (connect, logs, docker compose, etc.).
 
 ---
